@@ -20,7 +20,7 @@ A platform, configured to the team's own environment, with three things that bel
 
 1. **Levels of autonomy.** A team starts with agents that only review code people write, then lets a few agents do small jobs with a person reviewing each merge request, and ends where agents do nearly everything and people decide what is built. See [levels.md](levels.md).
 2. **One process, one trace chain.** The steps and the chain requirement → change → test → verification → review → release are the same at every level. The level only changes who performs each step. See [traceability.md](traceability.md).
-3. **A ledger.** Every handoff between team members, human or agent, is recorded in a tamper-evident log that can be exported as evidence per control of a standard. See [architecture.md](architecture.md) and [standards.md](standards.md).
+3. **A ledger.** Every handover between team members, human or agent, is recorded in a tamper-evident log that can be exported as evidence per control of a standard. See [architecture.md](architecture.md) and [standards.md](standards.md).
 
 ## What it is not
 
@@ -56,7 +56,7 @@ Less covered: rules and governance independent of the tool, mixed teams of peopl
 - **A hash chain proves little alone.** A file that the same party both writes and keeps convinces no auditor without signing or keeping the last hash elsewhere.
 - **Noise at the first level.** In the first user's own runs about a quarter of a reviewing agent's doubts were unfounded. Developers stop reading a noisy reviewer. Measure the share of dismissed findings from the first day.
 - **Complacency.** If people review less carefully because an agent already looked, the safety argument is undermined. Watch for it.
-- **The name.** "Ledger" and "Handoff" are both used by well-known products. Check trade marks, domain and package names before the repository becomes public.
+- **The name.** "Handover" alone is used by other products, and "Ledger" is a well-known brand. Check package names, the domain and trade marks before the repository becomes public ([decisions.md](decisions.md)).
 
 ## Testing the demand before building much
 

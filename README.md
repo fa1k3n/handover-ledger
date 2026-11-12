@@ -1,17 +1,17 @@
-# Handoff Ledger
+# Handover Ledger
 
-Audit-ready ledger of handoffs in mixed teams of people and AI agents.
+Audit-ready ledger of handovers in mixed teams of people and AI agents.
 
 **Status:** an idea written down, nothing built yet. This repository is private until the event schema and `how verify` work and a licence is chosen. No licence yet: all rights reserved until then.
 
 ## The idea in short
 
-Teams in regulated development want to use AI agents but cannot show an assessor who did what, with which model, under which rules, and who checked it. Handoff Ledger is a platform that
+Teams in regulated development want to use AI agents but cannot show an assessor who did what, with which model, under which rules, and who checked it. Handover Ledger is a platform that
 
 - runs in the team's own environment (their code host, tracker, requirements tool and model),
 - lets the team get used to agents one level at a time, from agents that only review what people write to agents that do nearly everything,
 - keeps the process and its trace chain the same at every level, so only *who performs each step* changes,
-- records every handoff between team members, human or agent, in a tamper-evident ledger that can be exported as evidence for a standard.
+- records every handover between team members, human or agent, in a tamper-evident ledger that can be exported as evidence for a standard.
 
 The method is the offer. The tool makes the method binding and measurable.
 
