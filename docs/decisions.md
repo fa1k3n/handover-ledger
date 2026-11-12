@@ -1,0 +1,61 @@
+# Decisions
+
+Written 2026-11-12 from the first discussions. Newest decisions are added at the end of each list, with their date.
+
+## Decided
+
+- **Name:** Handoff Ledger. (2026-11-12)
+- **Own repository,** kept apart from the first user's development. The first user depends on Handoff Ledger, never the other way round. Code is rewritten here against the schema, not copied. (2026-11-12)
+- **Private first,** public when the event schema and `how verify` work and the licence is chosen. (2026-11-12)
+- **Several parts:** core, adapters, CLI, dashboard, VS Code extension. (2026-11-12)
+- **Open source with consulting** for the integration at clients. (2026-11-12)
+- **Levels of autonomy** as the way in for a team, combined with traceability so that it fits ISO and similar standards. (2026-11-12)
+- **Helpers are short-lived and start cold; orchestration is deterministic code; no hidden agent memory.** (2026-11-12)
+- **Named agents:** identity is lasting, memory is not; role, model and effort belong to the assignment. (2026-11-12)
+- **Safe defaults:** agents never merge, high risk needs a person. (2026-11-12)
+- **Wording:** "supports certification" or "audit-ready", never "ISO certified". (2026-11-12)
+
+## Proposed, not yet answered
+
+- The level is set per code class, not per company.
+- A level 0 that only records.
+- Shadow mode before every step up, and an automatic step down.
+- "Safety-classed code needs a human verifier" belongs to the core and cannot be switched off.
+- No reviewer of our own at level 1: govern and record any reviewer.
+- Events are observed by adapters and not sent by the agents themselves.
+- Requirements stay in the team's tool; the platform only links.
+- TypeScript throughout.
+
+## Open
+
+- **Licence:** Apache 2.0 for the widest spread, or AGPL as protection against hosted copies. The income is consulting and not hosting, and legal departments in regulated industries often stop AGPL, which speaks for Apache 2.0. To be checked with a lawyer.
+- **The command name:** `how` is how the first note was read; to be confirmed.
+- **Name check:** trade marks, domain, package names. `how` is most likely taken as a package name; a scoped package that installs the command `how` solves that.
+- **Accounts for agents:** an app of the code host (cannot be assigned tasks everywhere), one machine account per agent (check the host's terms), or one shared bot account with the name in comment and label. Separation of duties needs more than a person's own account.
+- **Own account or an organisation** for the repository when it becomes public. It can be moved later.
+- **The second adapter:** GitLab seems the likely one for the first clients. The answers to the five questions in [vision.md](vision.md) decide.
+- **Which standard is mapped first.** The draft in [standards.md](standards.md) starts with ISO 26262 and ISO/SAE 21434.
+- **The number of review rounds** before a person is asked: two or three.
+- **A separate test author** as a role of its own, or tests written by the one who builds.
+- **The name of the configuration file.**
+- **Signing or anchoring** of the ledger.
+
+## The order of the work
+
+0. Before code: check the clause numbers of the control mapping and show it to two or three safety managers or an assessor; ask every team the five questions.
+1. The event schema, the hash chain, `how verify` and the local file adapter, which is also the test environment.
+2. An adapter that reads merge and pull requests. This is level 0. The first user is the first to run it.
+3. Level 1: a runner for a reviewer, the rules around it, the share of dismissed findings.
+4. The evidence export and the control mapping for one safety standard.
+5. The requirements port: tables in the repository first, then one requirements tool.
+6. Level 2: the tracker adapter, the dispatcher, named agents.
+7. Level 3: conditional merge, with shadow mode first.
+8. Dashboard and VS Code extension when someone asks for them. An init command and documentation along the way.
+
+The order in the first discussion was: core with ledger and two adapters, dashboard, documentation and init command, Jira adapter, control mapping. It was changed because levels 0 and 1 need only the ledger, a reader of merge requests and a runner, and because the control mapping decides what the ledger has to hold.
+
+## Before going public
+
+- A licence file.
+- The name check.
+- Read every document once more for anything that names a client, a private project's issues or a person.
