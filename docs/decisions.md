@@ -4,7 +4,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 
 ## Decided
 
-- **Name:** Handoff Ledger. (2026-11-12)
+- **Name:** Handoff Ledger. The command is `how`. (2026-11-12)
 - **Own repository,** kept apart from the first user's development. The first user depends on Handoff Ledger, never the other way round. Code is rewritten here against the schema, not copied. (2026-11-12)
 - **Private first,** public when the event schema and `how verify` work and the licence is chosen. (2026-11-12)
 - **Several parts:** core, adapters, CLI, dashboard, VS Code extension. (2026-11-12)
@@ -29,7 +29,6 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 ## Open
 
 - **Licence:** Apache 2.0 for the widest spread, or AGPL as protection against hosted copies. The income is consulting and not hosting, and legal departments in regulated industries often stop AGPL, which speaks for Apache 2.0. To be checked with a lawyer.
-- **The command name:** `how` is how the first note was read; to be confirmed.
 - **Name check:** trade marks, domain, package names. `how` is most likely taken as a package name; a scoped package that installs the command `how` solves that.
 - **Accounts for agents:** an app of the code host (cannot be assigned tasks everywhere), one machine account per agent (check the host's terms), or one shared bot account with the name in comment and label. Separation of duties needs more than a person's own account.
 - **Own account or an organisation** for the repository when it becomes public. It can be moved later.
