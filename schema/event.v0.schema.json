@@ -56,7 +56,8 @@
         "change.closed",
         "review.commented",
         "key.issued",
-        "key.revoked"
+        "key.revoked",
+        "observe.started"
       ]
     },
     "source": {

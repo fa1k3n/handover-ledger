@@ -167,6 +167,8 @@ task_from_branch: '^task-(\d+)'   # takes a task's number from a branch name: th
 agents: [agent-1, agent-2]        # the accounts at the host that are agents
 ```
 
+**Starting at a date.** On a repository with a long history the first round reads all of it. `howl observe --since 2026-11-01` (or `--since now`) starts the first round at that date instead, and records an `observe.started` event saying so, so a reader knows nothing before it was looked at. It is refused once `observe.json` exists: the cursor says where to go on.
+
 **Access: read only.** `howl observe` never writes to the host. For GitHub it needs a token that can read the repository's issues, pull requests, commits and checks; a fine-grained token with read access to *Issues*, *Pull requests*, *Contents*, *Commit statuses* and *Checks* is enough. It takes `HOWL_GITHUB_TOKEN`, else `GITHUB_TOKEN`, else the token of `gh auth token`. While it runs, a call that is asked again sends the answer's ETag, so a quiet round costs next to nothing; when the limit is reached it waits until the limit is lifted.
 
 **People are not named.** An account in `agents`, or an app account, is an agent and is named by its account. Any other account is a person, named by a pseudonym that is made up the first time the account is seen and kept in `people.json` beside the ledger, never in it. Removing a row there cuts the link between the ledger and that person.

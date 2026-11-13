@@ -48,7 +48,8 @@ export interface LedgerEvent {
     | "change.closed"
     | "review.commented"
     | "key.issued"
-    | "key.revoked";
+    | "key.revoked"
+    | "observe.started";
   /**
    * Where the event comes from.
    */

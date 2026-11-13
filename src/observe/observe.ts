@@ -9,6 +9,7 @@
 //
 // The cursor moves on only after a round in which every call went through.
 // Otherwise the next round reads the same span again.
+import { existsSync } from "node:fs";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ingestPass, type Pass, type Places } from "../inbox/ingest.ts";
@@ -56,6 +57,8 @@ export interface ObserverParts {
   people: People;
   settings: ObserveSettings;
   warn: (message: string) => void;
+  /** #6: where the first round starts, when there is no cursor yet; none reads from the beginning. */
+  start?: string;
 }
 
 export class Observer {
@@ -69,8 +72,10 @@ export class Observer {
   private readonly people: People;
   private readonly settings: ObserveSettings;
   private readonly warn: (message: string) => void;
+  private readonly start: string | undefined;
 
   constructor(parts: ObserverParts) {
+    this.start = parts.start;
     ({
       host: this.host,
       writer: this.writer,
@@ -92,7 +97,9 @@ export class Observer {
   async round(now = new Date()): Promise<Round> {
     const ingested = ingestPass(this.places, this.writer, this.settings.activityDays, now.getTime());
     const seen = now.toISOString();
+    const first = !existsSync(this.cursorPath);
     const cursor = this.readCursor();
+    if (first && this.start !== undefined) cursor.since = this.start;
     const watch = new Map(cursor.watch.map((w) => [w.sha, w]));
     const found: LedgerEvent[] = [];
     let complete = true;
@@ -160,6 +167,11 @@ export class Observer {
       } else if (!w.open) {
         watch.delete(sha);
       }
+    }
+
+    // #6: a reader of the ledger learns that nothing before the start was looked at. Once, in the first round.
+    if (first && this.start !== undefined) {
+      found.push(this.event("observe:started", "observe.started", seen, undefined, { data: { since: this.start } }, seen));
     }
 
     let appended = 0;
@@ -242,7 +254,7 @@ export class Observer {
         actor: by ? this.actor(by) : undefined,
         repo: this.host.repository,
         ...fields,
-        data: { seen },
+        data: { ...(fields.data ?? {}), seen },
       }),
     ) as LedgerEvent;
   }
