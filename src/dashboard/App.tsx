@@ -201,6 +201,7 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
           value: f.reviewRoundsMean === null ? texts.overview.none : f.reviewRoundsMean.toFixed(1),
           note: texts.overview.roundsNote(f.periodDays, f.merged),
         },
+        { label: texts.overview.unattributed, value: String(f.unattributed.count), note: texts.overview.unattributedNote(f.periodDays) },
       ]
     : [];
   const th = "px-3 py-2.5 font-medium";
@@ -215,6 +216,16 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
           </div>
         ))}
       </section>
+      {f && f.unattributed.changes.length > 0 && (
+        <p className="m-0 flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-mute">
+          {texts.overview.unattributedList}
+          {f.unattributed.changes.map((c) => (
+            <a key={c} href={hashFor("change", project, `change:${c}`)} className="font-mono text-ink">
+              {c}
+            </a>
+          ))}
+        </p>
+      )}
       <section aria-labelledby="ho-h" className="flex flex-col gap-3.5 rounded-xl border border-line bg-white px-6 py-[22px]">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
           <h2 id="ho-h" className="m-0 text-lg font-semibold">
@@ -384,6 +395,7 @@ function AgentLine({ row, now }: { row: AgentRow; now: number }) {
       <td className="p-3">
         <div className="font-medium">{worksOn(row) || row.branch || "–"}</div>
         {worksOn(row) && row.branch && <div className="text-[13px] text-mute">{row.branch}</div>}
+        {row.gaps.length > 0 && <div className="text-[13px] font-medium text-warn-ink">{texts.team.missing(row.gaps)}</div>}
       </td>
       <td className="p-3 font-mono text-[13px]">{[row.model, row.effort].filter(Boolean).join(" · ") || "–"}</td>
       <td className="p-3 font-mono text-[13px]">{[row.tool, row.target].filter(Boolean).join(" ") || "–"}</td>

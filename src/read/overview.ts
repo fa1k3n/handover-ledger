@@ -77,6 +77,8 @@ export interface KeyFigures {
   /** Review events per change merged within the period, mean. */
   reviewRoundsMean: number | null;
   periodDays: number;
+  /** #26: changes and reviews through a person's account that no agent was matched to, in the period: where the chain may be broken. */
+  unattributed: { count: number; changes: string[] };
 }
 
 export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
@@ -106,7 +108,18 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
       }
     }
   }
+  const acting = actingAgents(sorted);
+  const missing = sorted.filter(
+    (e) =>
+      e.source.kind === "observed" &&
+      e.change !== undefined &&
+      now - Date.parse(e.time) <= PERIOD_MS &&
+      (e.type === "change.opened" || e.type === "change.updated" || e.type.startsWith("review.")) &&
+      (e.actor?.kind === "person" || (e.actor === undefined && e.type === "change.updated")) &&
+      !acting.has(e.id),
+  );
   return {
+    unattributed: { count: missing.length, changes: [...new Set(missing.map((e) => e.change!))].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b)) },
     open: [...state.values()].filter((s) => s === "open").length,
     merged: rounds.length,
     leadTimeMedianMs: median(leadTimes),

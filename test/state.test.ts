@@ -167,3 +167,32 @@ test("#17: howl status shows the role after the state", () => {
   const rows = agentStates([tool("agent-1", 30, "Bash", "gh", { role: "review" })], NOW);
   assert.match(renderStatus(rows, NOW).split("\n")[0]!, /^agent-1\s+working\s+review\s/);
 });
+
+test("#26: a session that names no change or task has the gap; one with HOWL_CHANGE has none", () => {
+  const bare = agentStates([tool("agent-1", 30, "Bash", "gh", { branch: "main" })], NOW)[0]!;
+  assert.ok(bare.gaps.includes("no change or task named"), JSON.stringify(bare.gaps));
+  const named = agentStates([tool("agent-1", 30, "Bash", "gh", { branch: "main", change: "30", role: "review" })], NOW)[0]!;
+  assert.deepEqual(named.gaps, []);
+});
+
+test("#26: a session without a role has the gap", () => {
+  const row = agentStates([tool("agent-1", 30, "Bash", "gh", { change: "30" })], NOW)[0]!;
+  assert.deepEqual(row.gaps, ["no role"]);
+});
+
+test("#26: an agent whose earlier session was signed and whose current one is not has the gap 'unsigned'", () => {
+  const sig = { key: "c".repeat(64), value: "x" };
+  const row = agentStates(
+    [
+      agentEvent("agent-1", "session.started", 3600, { session: "old", change: "30", role: "review", sig }),
+      agentEvent("agent-1", "session.started", 60, { session: "new", change: "31", role: "review" }),
+    ],
+    NOW,
+  )[0]!;
+  assert.deepEqual(row.gaps, ["unsigned"]);
+});
+
+test("#26: howl status shows a row's gaps", () => {
+  const rows = agentStates([tool("agent-1", 30, "Bash", "gh", { branch: "main" })], NOW);
+  assert.match(renderStatus(rows, NOW), /missing: no change or task named, no role/);
+});

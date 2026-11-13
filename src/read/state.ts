@@ -5,6 +5,8 @@ import type { LedgerEvent } from "../ledger/schema.ts";
 
 export type AgentState = "needs-input" | "working" | "waiting" | "idle" | "ended";
 
+const DAY_MS = 24 * 3600_000;
+
 /** A tool call or a session event within this time counts as working. */
 export const WORKING_WITHIN_MS = 5 * 60_000;
 
@@ -26,6 +28,8 @@ export interface AgentRow {
   last: string;
   /** The type of the agent's last event of its own session. */
   lastType?: string;
+  /** #26: what the current session leaves out, so a broken chain shows: "no change or task named", "no role", "unsigned". */
+  gaps: string[];
 }
 
 export interface StateOptions {
@@ -61,7 +65,7 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     const own = list.filter((e) => e.source.kind === "claimed");
     const lastOwn = own.at(-1);
     const last = list.at(-1)!;
-    const row: AgentRow = { agent, state: stateOf(lastOwn, now), last: last.time };
+    const row: AgentRow = { agent, state: stateOf(lastOwn, now), last: last.time, gaps: [] };
     if (lastOwn) {
       row.lastType = lastOwn.type;
       if (lastOwn.branch !== undefined) row.branch = lastOwn.branch;
@@ -87,6 +91,12 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     const task = named.task ?? (named.change === undefined ? fromBranch?.task : undefined) ?? taskOf(row.branch, options.taskFromBranch);
     if (change !== undefined) row.change = change;
     if (task !== undefined) row.task = task;
+    if (lastOwn) {
+      if (row.change === undefined && row.task === undefined) row.gaps.push("no change or task named");
+      if (row.role === undefined) row.gaps.push("no role");
+      const signedBefore = own.some((e) => e.sig !== undefined && e.session !== lastOwn.session && now - Date.parse(e.time) <= DAY_MS);
+      if (signedBefore && !current.some((e) => e.sig !== undefined)) row.gaps.push("unsigned");
+    }
     rows.push(row);
   }
   const first = (r: AgentRow) => (r.state === "needs-input" ? 0 : 1);
@@ -154,7 +164,11 @@ export function renderStatus(rows: AgentRow[], now: number): string {
     since(r.last, now),
   ]);
   const widths = table[0]!.map((_, c) => Math.max(...table.map((cells) => cells[c]!.length)));
-  const lines = table.map((cells) => cells.map((cell, c) => (c === cells.length - 1 ? cell : cell.padEnd(widths[c]!))).join("  "));
+  const lines = table.map((cells, i) => {
+    const line = cells.map((cell, c) => (c === cells.length - 1 ? cell : cell.padEnd(widths[c]!))).join("  ");
+    const gaps = rows[i]!.gaps;
+    return gaps.length > 0 ? `${line}  missing: ${gaps.join(", ")}` : line;
+  });
   const needs = countOf(rows, "needs-input");
   lines.push("", `${rows.length} agent${rows.length === 1 ? "" : "s"}, ${needs} need${needs === 1 ? "s" : ""} input, ${countOf(rows, "waiting")} waiting`);
   return lines.join("\n");
