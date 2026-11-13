@@ -1,10 +1,11 @@
 // `howl serve`: the dashboard's server. It answers on 127.0.0.1 only, serves the
 // built page and read-only JSON over the ledger and the activity file. It takes
 // no lock and never writes.
-import { createReadStream, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { extname, join, normalize, sep } from "node:path";
+import { basename, dirname, extname, join, normalize, sep } from "node:path";
 import { LedgerError } from "../ledger/errors.ts";
+import { isProjectName } from "../ledger/place.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
 import { activityBeside, byTime, Tail, type Read } from "../read/reader.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
@@ -12,14 +13,25 @@ import { agentStates } from "../read/state.ts";
 import { parseFilters, wantsActivity } from "../read/watch.ts";
 
 export interface ServeOptions {
-  ledger: string;
+  /** One ledger only. */
+  ledger?: string;
+  /** Else every project in this folder that holds a ledger.jsonl. */
+  home?: string;
+  /** The project shown first; else the first by name. */
+  defaultProject?: string;
   /** 0 picks a free port. */
   port: number;
   /** The folder of the built page. */
   root: string;
   /** Only a loopback address is accepted. */
   host?: string;
+  /** For the default project (or the one ledger) only: it comes from that project's howl.yml. */
   taskFromBranch?: RegExp;
+}
+
+interface Project {
+  name: string;
+  ledger: string;
 }
 
 export interface Served {
@@ -55,16 +67,18 @@ const TYPES: Record<string, string> = {
 export async function startServer(options: ServeOptions): Promise<Served> {
   const host = options.host ?? "127.0.0.1";
   if (!LOOPBACK.has(host)) throw new LedgerError(`howl serve answers on 127.0.0.1 only, not on ${host}`);
-  statSync(options.ledger);
+  if (options.ledger !== undefined) statSync(options.ledger);
+  else if (options.home === undefined) throw new LedgerError("howl serve needs a ledger or the folder of the projects");
 
-  // Verifying reads the whole ledger: keep the verdict until the file changes.
-  let verdict: { size: number; mtime: number; value: Verdict } | null = null;
-  const ledgerVerdict = (): Verdict => {
-    const s = statSync(options.ledger);
-    if (!verdict || verdict.size !== s.size || verdict.mtime !== s.mtimeMs) {
-      verdict = { size: s.size, mtime: s.mtimeMs, value: verify(options.ledger) };
-    }
-    return verdict.value;
+  // Verifying reads the whole ledger: keep each verdict until its file changes.
+  const verdicts = new Map<string, { size: number; mtime: number; value: Verdict }>();
+  const ledgerVerdict = (ledger: string): Verdict => {
+    const s = statSync(ledger);
+    const kept = verdicts.get(ledger);
+    if (kept && kept.size === s.size && kept.mtime === s.mtimeMs) return kept.value;
+    const value = verify(ledger);
+    verdicts.set(ledger, { size: s.size, mtime: s.mtimeMs, value });
+    return value;
   };
 
   const server = createServer((req, res) => {
@@ -92,36 +106,87 @@ export async function startServer(options: ServeOptions): Promise<Served> {
   };
 }
 
-function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions, ledgerVerdict: () => Verdict): void {
+/** The projects served: the one ledger, or every folder of the home that holds a ledger, by name. */
+function projectsOf(options: ServeOptions): Project[] {
+  if (options.ledger !== undefined) {
+    const name = basename(dirname(options.ledger));
+    return [{ name: isProjectName(name) ? name : "ledger", ledger: options.ledger }];
+  }
+  let names: string[];
+  try {
+    names = readdirSync(options.home!);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((name) => isProjectName(name) && existsSync(join(options.home!, name, "ledger.jsonl")))
+    .sort()
+    .map((name) => ({ name, ledger: join(options.home!, name, "ledger.jsonl") }));
+}
+
+function defaultOf(projects: Project[], options: ServeOptions): Project | undefined {
+  return projects.find((p) => p.name === options.defaultProject) ?? projects[0];
+}
+
+/** The project a call asks for: only a name from the list, never a path. */
+function projectFor(params: URLSearchParams, options: ServeOptions): Project {
+  const projects = projectsOf(options);
+  const asked = params.get("project");
+  const found = asked === null ? defaultOf(projects, options) : projects.find((p) => p.name === asked);
+  if (!found) throw new LedgerError(asked === null ? "no project with a ledger" : `no project ${JSON.stringify(asked)}`);
+  return found;
+}
+
+function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions, ledgerVerdict: (ledger: string) => Verdict): void {
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405, { allow: "GET, HEAD" }).end();
     return;
   }
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  if (url.pathname === "/api/projects") {
+    const projects = projectsOf(options);
+    json(res, 200, { default: defaultOf(projects, options)?.name ?? null, projects: projects.map((p) => ({ name: p.name, lines: lineCount(p.ledger) })) });
+    return;
+  }
+  if (!url.pathname.startsWith("/api/")) {
+    file(res, options.root, url.pathname);
+    return;
+  }
+  const project = projectFor(url.searchParams, options);
+  const ledger = project.ledger;
+  const pattern = options.ledger !== undefined || project.name === options.defaultProject ? options.taskFromBranch : undefined;
   switch (url.pathname) {
     case "/api/agents": {
       const now = Date.now();
-      const reads = byTime([...new Tail(options.ledger, "ledger").read(), ...new Tail(activityBeside(options.ledger), "activity").read()]);
-      json(res, 200, { now, rows: agentStates(reads.map((r) => r.event), now, { taskFromBranch: options.taskFromBranch }) });
+      const reads = byTime([...new Tail(ledger, "ledger").read(), ...new Tail(activityBeside(ledger), "activity").read()]);
+      json(res, 200, { now, rows: agentStates(reads.map((r) => r.event), now, { taskFromBranch: pattern }) });
       return;
     }
     case "/api/events":
-      json(res, 200, { now: Date.now(), events: events(options.ledger, url.searchParams) });
+      json(res, 200, { now: Date.now(), events: events(ledger, url.searchParams) });
       return;
     case "/api/overview": {
       const now = Date.now();
-      const items = ledgerItems(options.ledger);
+      const items = ledgerItems(ledger);
       json(res, 200, { now, figures: keyFigures(items.map((i) => i.event), now), handovers: handovers(items).slice(0, 50) });
       return;
     }
     case "/api/ledger": {
-      const v = ledgerVerdict();
+      const v = ledgerVerdict(ledger);
       json(res, 200, v.ok ? { ok: true, lines: v.lines, head: v.head, trial: v.trial } : { ok: false, lines: v.lines, line: v.line, faults: v.faults });
       return;
     }
     default:
-      file(res, options.root, url.pathname);
+      json(res, 404, { error: `no endpoint ${url.pathname}` });
   }
+}
+
+/** The number of whole lines of a file. */
+function lineCount(path: string): number {
+  const bytes = readFileSync(path);
+  let n = 0;
+  for (const b of bytes) if (b === 0x0a) n++;
+  return n;
 }
 
 /** The ledger lines after `after` (all when absent), with the activity file when asked or filtered for, the newest `limit`. */

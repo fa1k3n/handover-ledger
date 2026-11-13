@@ -41,7 +41,7 @@ The dashboard is a page built with React and Tailwind; howl serves it on this ma
 
 ```sh
 npm run build:dashboard                         # into dist/dashboard, at most 300 kB gzipped
-npm run howl -- serve --project example         # http://127.0.0.1:4317
+npm run howl -- serve --project example         # http://127.0.0.1:4317, every project, example first
 npm run dev:dashboard                           # while working on the page, beside a running howl serve
 ```
 

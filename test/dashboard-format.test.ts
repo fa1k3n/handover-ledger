@@ -83,3 +83,12 @@ test("#16: the tab title starts with how many agents need input", () => {
   assert.equal(tabTitle(1), "(1) Handover Ledger");
   assert.equal(tabTitle(2), "(2) Handover Ledger");
 });
+
+test("#15: the view and the project are kept in the address", async () => {
+  const { hashFor, parseHash } = await import("../src/dashboard/format.ts");
+  assert.deepEqual(parseHash("#stream?project=demo"), { view: "stream", project: "demo" });
+  assert.deepEqual(parseHash(""), { view: "overview", project: null });
+  assert.deepEqual(parseHash("#overview"), { view: "overview", project: null });
+  assert.equal(hashFor("stream", "a b"), "#stream?project=a+b");
+  assert.deepEqual(parseHash(hashFor("stream", "a b")), { view: "stream", project: "a b" });
+});

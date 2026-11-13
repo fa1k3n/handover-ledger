@@ -5,7 +5,7 @@ import type { AgentRow, AgentState } from "../read/state.ts";
 import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
-import { concerns, decodedFields, detail, filterPairs, standsOut, tabTitle, whenShort } from "./format.ts";
+import { concerns, decodedFields, detail, filterPairs, hashFor, parseHash, standsOut, tabTitle, whenShort, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -21,24 +21,33 @@ function usePoll(fn: () => void, ms: number, active = true) {
   }, [fn, ms, active]);
 }
 
-type View = "overview" | "stream";
-const viewOf = (hash: string): View => (hash === "#stream" ? "stream" : "overview");
-
 export function App() {
-  const [view, setView] = useState<View>(() => viewOf(location.hash));
+  const [route, setRoute] = useState(() => parseHash(location.hash));
   useEffect(() => {
-    const changed = () => setView(viewOf(location.hash));
+    const changed = () => setRoute(parseHash(location.hash));
     addEventListener("hashchange", changed);
     return () => removeEventListener("hashchange", changed);
   }, []);
+  const view = route.view;
   const [error, setError] = useState<string | null>(null);
   const fail = useCallback((e: unknown) => setError((e as Error).message), []);
+
+  // The projects: the one in the address when it is there, else the server's default.
+  const [projects, setProjects] = useState<api.Projects | null>(null);
+  usePoll(
+    useCallback(() => {
+      api.projects().then(setProjects, fail);
+    }, [fail]),
+    30_000,
+  );
+  const project = projects === null ? null : (projects.projects.find((p) => p.name === route.project)?.name ?? projects.default);
+  api.setProject(project);
 
   const [agents, setAgents] = useState<api.Agents | null>(null);
   usePoll(
     useCallback(() => {
-      api.agents().then((a) => (setAgents(a), setError(null)), fail);
-    }, [fail]),
+      if (project !== null) api.agents().then((a) => (setAgents(a), setError(null)), fail);
+    }, [fail, project]),
     POLL_MS,
   );
 
@@ -57,15 +66,15 @@ export function App() {
   const [ledger, setLedger] = useState<api.LedgerState | null>(null);
   usePoll(
     useCallback(() => {
-      api.ledger().then(setLedger, fail);
-    }, [fail]),
+      if (project !== null) api.ledger().then(setLedger, fail);
+    }, [fail, project]),
     LEDGER_POLL_MS,
   );
 
   return (
     <div className="min-h-screen">
-      <Header view={view} />
-      <main className="mx-auto flex max-w-[1360px] flex-col gap-5 px-4 py-6 sm:px-8">
+      <Header view={view} project={project} projects={projects} />
+      <main key={project ?? ""} className="mx-auto flex max-w-[1360px] flex-col gap-5 px-4 py-6 sm:px-8">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <div className="flex flex-col gap-1">
             <h1 className="m-0 text-[26px] font-semibold tracking-tight">{view === "overview" ? texts.overview.title : texts.title}</h1>
@@ -73,7 +82,7 @@ export function App() {
           </div>
           <div className="flex-1" />
           {needing.length > 0 && (
-            <a href="#stream" className="flex items-center gap-2 rounded-full bg-accent px-3.5 py-2.5 text-sm font-semibold text-white no-underline">
+            <a href={hashFor("stream", project)} className="flex items-center gap-2 rounded-full bg-accent px-3.5 py-2.5 text-sm font-semibold text-white no-underline">
               <span className="h-2 w-2 rounded-full bg-white" />
               {texts.needsInput(needing.length)}
             </a>
@@ -85,12 +94,12 @@ export function App() {
             {texts.error(error)}
           </p>
         )}
-        {view === "overview" ? (
-          <Overview onError={fail} />
+        {project === null ? null : view === "overview" ? (
+          <Overview onError={fail} project={project} />
         ) : (
           <>
             <Team agents={agents} notify={notify} onNotify={setNotify} />
-            <Stream onError={fail} />
+            <Stream onError={fail} project={project} />
           </>
         )}
       </main>
@@ -98,7 +107,7 @@ export function App() {
   );
 }
 
-function Header({ view }: { view: View }) {
+function Header({ view, project, projects }: { view: View; project: string | null; projects: api.Projects | null }) {
   const tab = (active: boolean) =>
     `rounded-lg px-3.5 py-2.5 no-underline ${active ? "bg-white/10 font-medium text-white" : "text-pale hover:text-white"}`;
   return (
@@ -121,13 +130,32 @@ function Header({ view }: { view: View }) {
           </div>
         </div>
         <nav aria-label={texts.nav.label} className="flex flex-wrap gap-1">
-          <a href="#overview" aria-current={view === "overview" ? "page" : undefined} className={tab(view === "overview")}>
+          <a href={hashFor("overview", project)} aria-current={view === "overview" ? "page" : undefined} className={tab(view === "overview")}>
             {texts.nav.overview}
           </a>
-          <a href="#stream" aria-current={view === "stream" ? "page" : undefined} className={tab(view === "stream")}>
+          <a href={hashFor("stream", project)} aria-current={view === "stream" ? "page" : undefined} className={tab(view === "stream")}>
             {texts.nav.stream}
           </a>
         </nav>
+        <div className="flex-1" />
+        {projects && projects.projects.length > 1 ? (
+          <label className="flex items-center gap-2 text-[13px] text-pale">
+            {texts.project}
+            <select
+              value={project ?? ""}
+              onChange={(e) => (location.hash = hashFor(view, e.target.value))}
+              className="min-h-11 rounded-lg border-0 bg-white px-3 text-sm text-ink"
+            >
+              {projects.projects.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          project && <span className="font-mono text-[13px] text-pale">{project}</span>
+        )}
       </div>
     </header>
   );
@@ -149,7 +177,7 @@ function LedgerBadge({ ledger }: { ledger: api.LedgerState | null }) {
   );
 }
 
-function Overview({ onError }: { onError: (e: unknown) => void }) {
+function Overview({ onError, project }: { onError: (e: unknown) => void; project: string }) {
   const [data, setData] = useState<{ figures: KeyFigures; handovers: Handover[] } | null>(null);
   usePoll(
     useCallback(() => {
@@ -188,7 +216,7 @@ function Overview({ onError }: { onError: (e: unknown) => void }) {
           </h2>
           <span className="text-[13px] text-mute">{texts.overview.note}</span>
           <div className="flex-1" />
-          <a href="#stream" className="py-2.5 text-sm font-medium text-ink">
+          <a href={hashFor("stream", project)} className="py-2.5 text-sm font-medium text-ink">
             {texts.overview.toStream}
           </a>
         </div>
@@ -359,7 +387,7 @@ function keyOf(item: Item): string {
   return item.event.id;
 }
 
-function Stream({ onError }: { onError: (e: unknown) => void }) {
+function Stream({ onError }: { onError: (e: unknown) => void; project: string }) {
   const [paused, setPaused] = useState(false);
   const [tools, setTools] = useState(false);
   const [draft, setDraft] = useState("");

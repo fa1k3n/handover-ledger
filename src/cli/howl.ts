@@ -35,8 +35,10 @@ const USAGE = `usage:
             agent that asks in the text of its answer looks done and shows
             as waiting. --follow redraws it every second
   serve     the dashboard on http://127.0.0.1:4317: the team right now and the
-            event stream. Read-only, on this machine only. Build the page
-            first with npm run build:dashboard
+            event stream of every project, picked in the page; --project
+            shows that one first, --ledger serves one ledger only.
+            Read-only, on this machine only. Build the page first with
+            npm run build:dashboard
 
 watch, show, status, serve and verify also take --project <name> or --ledger <path>. They
 only read: they take no lock and run while the writer appends.
@@ -324,7 +326,6 @@ async function showCommand(args: string[]): Promise<number> {
 
 async function serveCommand(args: string[]): Promise<number> {
   const { values } = parse(args, { ledger: { type: "string" }, project: { type: "string" }, port: { type: "string" } });
-  const ledger = await ledgerToRead(values);
   const port = values.port === undefined ? 4317 : Number(values.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError("--port must be a port number");
   const { existsSync } = await import("node:fs");
@@ -335,8 +336,23 @@ async function serveCommand(args: string[]): Promise<number> {
     throw new LedgerError(`no built dashboard in ${root}: run npm run build:dashboard first`);
   }
   const { startServer } = await import("../serve/server.ts");
-  const server = await startServer({ ledger, port, root, taskFromBranch: await branchPattern() });
-  console.log(`howl serve: ${server.url} (read-only, ${ledger})`);
+  const taskFromBranch = await branchPattern();
+  let server;
+  if (values.ledger !== undefined) {
+    const { statSync } = await import("node:fs");
+    statSync(values.ledger);
+    server = await startServer({ ledger: values.ledger, port, root, taskFromBranch });
+    console.log(`howl serve: ${server.url} (read-only, ${values.ledger})`);
+  } else {
+    // Every project of the howl home; first the one asked for, else that of the nearest howl.yml.
+    const { howlHome, isProjectName } = await import("../ledger/place.ts");
+    const { findProject } = await import("../howl/project.ts");
+    if (values.project !== undefined && !isProjectName(values.project)) throw new UsageError(`no project ${values.project}`);
+    const home = howlHome();
+    const defaultProject = values.project ?? findProject(process.cwd())?.project;
+    server = await startServer({ home, defaultProject, port, root, taskFromBranch });
+    console.log(`howl serve: ${server.url} (read-only, every project in ${home}${defaultProject ? `, ${defaultProject} first` : ""})`);
+  }
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);

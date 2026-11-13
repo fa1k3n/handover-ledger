@@ -92,3 +92,15 @@ export function whenShort(time: string, now: number, timeZone?: string): string 
 export function tabTitle(needsInput: number): string {
   return needsInput > 0 ? `(${needsInput}) Handover Ledger` : "Handover Ledger";
 }
+
+export type View = "overview" | "stream";
+
+/** The view and the project in the address: `#stream?project=name`. */
+export function parseHash(hash: string): { view: View; project: string | null } {
+  const [path = "", query = ""] = hash.replace(/^#/, "").split("?");
+  return { view: path === "stream" ? "stream" : "overview", project: new URLSearchParams(query).get("project") };
+}
+
+export function hashFor(view: View, project: string | null): string {
+  return project === null ? `#${view}` : `#${view}?${new URLSearchParams({ project })}`;
+}

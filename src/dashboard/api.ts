@@ -10,8 +10,16 @@ export interface Agents {
 
 export type LedgerState = { ok: true; lines: number; head: string; trial: boolean } | { ok: false; lines: number; line: number; faults: string[] };
 
+/** The project every call asks for; set by the page. */
+let project: string | null = null;
+export function setProject(name: string | null): void {
+  project = name;
+}
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: { accept: "application/json" } });
+  const url = new URL(path, location.href);
+  if (project !== null && url.pathname !== "/api/projects") url.searchParams.set("project", project);
+  const res = await fetch(url, { headers: { accept: "application/json" } });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `${res.status} ${res.statusText}`);
@@ -19,6 +27,12 @@ async function get<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface Projects {
+  default: string | null;
+  projects: { name: string; lines: number }[];
+}
+
+export const projects = () => get<Projects>("/api/projects");
 export const agents = () => get<Agents>("/api/agents");
 export const ledger = () => get<LedgerState>("/api/ledger");
 export const overview = () => get<{ now: number; figures: KeyFigures; handovers: Handover[] }>("/api/overview");

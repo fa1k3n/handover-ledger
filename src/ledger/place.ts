@@ -52,7 +52,8 @@ export function cursorPath(project: string, env: Env = process.env, home: string
   return join(projectDir(project, env, home), "observe.json");
 }
 
-function howlHome(env: Env, home: string): string {
+/** The folder that holds every project. */
+export function howlHome(env: Env = process.env, home: string = homedir()): string {
   if (env.HOWL_HOME) {
     if (!isAbsolute(env.HOWL_HOME)) {
       throw new LedgerError(`HOWL_HOME must be an absolute path, not ${JSON.stringify(env.HOWL_HOME)}`);

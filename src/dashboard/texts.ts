@@ -3,6 +3,7 @@ export const texts = {
   brand: "Handover",
   brandSub: "Ledger",
   nav: { label: "Main menu", overview: "Overview", stream: "Team and stream" },
+  project: "Project",
   title: "Team and event stream",
   subtitle: "Read-only · times in local time",
   verified: (lines: number) => `Ledger verified · ${lines} lines`,
