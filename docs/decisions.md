@@ -35,6 +35,13 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - Requirements stay in the team's tool; the platform only links.
 - The boundary to what a team programs is a protocol between processes (JSON in, JSON out), not an API inside the engine; the event schema is JSON Schema, from which both the TypeScript types and a Python package are generated; the Python package has no dependencies and runs on old Python versions; `howl` is delivered so that a developer's machine needs no Node. (2026-11-13)
 - Commissioning ([commissioning.md](commissioning.md)): one instance per R&D organisation with the project as the boundary for rules and evidence; the repository declares in `.howl/` and the instance decides; discovery only proposes an enrolment; ownership lies on paths, never on a binding of team to repository; a repository belongs to one project; an agent is an identity, a runner and a computed entitlement with a short-lived key per assignment. (2026-11-13)
+- **The business model: an open core, standards packs on a yearly licence, consulting.** The core (ledger, hooks, adapters, dashboard, `howl verify` and `howl export`) is open and fully useful alone; it builds trust. The standards packs (control mappings, rules, export templates and a tool qualification kit per version, per ISO 26262-8) are sold as yearly licences that keep them current as standards, editions and laws change. Consulting takes a client up the levels. Conditions (2026-11-13):
+  - **Evidence is never locked by a licence.** Without a licence a pack stops being updated; everything already recorded or exported stays verifiable for ever, and the client keeps the pack version it paid for. An audit can come years after the code was written.
+  - **No text of a standard** in a pack: clause numbers, our own interpretation, rules and templates only. The interpretation is what is worth paying for.
+  - **The licence works offline:** a signed licence file checked locally, never a call home, as clients run closed networks.
+  - **The core and the packs are kept apart in law as in code:** the copyright of the core is held by one party, so a contributor signs a CLA, which lets an open core and closed packs stand side by side.
+  - **"Kept current" is a promise with a time:** for example updated within six months of a new edition, and reviewed by an assessor.
+  - **The unit of the licence** is the organisation and the pack, or the product with its own safety case; not the developer, as agents do much of the work.
 
 ## Open
 
