@@ -171,16 +171,19 @@ The first round reads the whole history of the repository: on a repository with 
 
 ```
 $ howl watch --filter type=review.* --filter change=30
-2026-01-01T08:20:00Z observed person-0a0a0a0a  review.changes_requested task 12  change 30  aaaaaaa
-2026-01-01T08:55:00Z observed person-0a0a0a0a  review.approved          task 12  change 30  ccccccc
+times in Europe/Stockholm (UTC+01:00); --utc for UTC
+2026-01-01 09:20:00 observed person-0a0a0a0a  review.changes_requested task 12  change 30  aaaaaaa
+2026-01-01 09:55:00 observed person-0a0a0a0a  review.approved          task 12  change 30  ccccccc
 ```
 
-`--filter field=value` can be given more than once, and all must match; a value may end in `*`. The fields are those of the event, with `actor`, `kind` (claimed or observed) and `adapter` besides. `--since <time>` passes over what came before; `--json` prints the lines as they stand in the files; `--no-follow` stops after what is there. A wait for a person, failed checks and a review that asks for changes stand out in colour; not when the output is not a terminal, or when `NO_COLOR` is set.
+Times are in the local time zone (`TZ`); `--utc` prints them as stored, `2026-01-01T08:20:00Z`. Tool calls are left out unless `--activity` is given or a filter asks for `type=tool.used`.
+
+`--filter field=value` can be given more than once, and all must match; a value may end in `*`. The fields are those of the event, with `actor`, `kind` (claimed or observed) and `adapter` besides. `--since <time>` passes over what came before (without an offset it is local time); `--json` prints the lines as they stand in the files; `--no-follow` stops after what is there. A wait for a person, failed checks and a review that asks for changes stand out in colour; not when the output is not a terminal, or when `NO_COLOR` is set.
 
 **`howl show <task or change>`** gives the timeline of one assignment: `12`, `task:12` or `change:30`. It gathers what names the task, its changes, the hook events on their branches and commits, and the rest of those sessions; never what names another task.
 
 ```
-$ howl show 12
+$ howl show 12 --utc
 Task 12: merged
 
 Hand-over
