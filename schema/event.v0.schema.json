@@ -54,7 +54,9 @@
         "task.opened",
         "task.closed",
         "change.closed",
-        "review.commented"
+        "review.commented",
+        "key.issued",
+        "key.revoked"
       ]
     },
     "source": {
@@ -201,6 +203,23 @@
     "class": {
       "description": "The code class.",
       "$ref": "#/$defs/name"
+    },
+    "sig": {
+      "description": "The Ed25519 signature of the event's fixed form without sig, by the key of an assignment (key.issued) or by the issuer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": {
+          "description": "The key's id: the SHA-256 of its raw public key.",
+          "$ref": "#/$defs/sha256"
+        },
+        "value": {
+          "description": "The signature, base64url.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "data": {
       "description": "What belongs to this type of event only.",

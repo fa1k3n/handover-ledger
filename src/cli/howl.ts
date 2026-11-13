@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import { parseArgs, type ParseArgsConfig } from "node:util";
 
 const USAGE = `usage:
-  howl verify [--project <name>] [--ledger <path>]
+  howl verify [--project <name>] [--ledger <path>] [--issuer <fingerprint>]
+  howl key issue --actor <agent> [--task <id>] [--change <id>] [--role <name>] [--hours <n>]
+  howl key revoke <key id>
   howl hook
   howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
   howl ingest [--project <name>] [--watch] [--interval <seconds>]
@@ -14,7 +16,11 @@ const USAGE = `usage:
   howl status [--follow] [--json]
   howl serve [--port <n>]
 
-  verify    check every line of the ledger and the chain between the lines
+  verify    check every line of the ledger and the chain between the lines,
+            then every signed claim against the key issued for it
+  key       issue a key for one assignment of an agent (8 hours by default),
+            or revoke one. The private key goes to the session as HOWL_KEY;
+            the hook then signs every event of the session
   hook      called by the hooks of Claude Code: leaves an event in the inbox.
             Prints nothing and always ends with 0
   emit      leave an event in the inbox from a script
@@ -74,6 +80,8 @@ async function main(argv: string[]): Promise<number> {
     switch (command) {
       case "verify":
         return await verifyCommand(rest);
+      case "key":
+        return await keyCommand(rest);
       case "emit":
         return await emitCommand(rest);
       case "ingest":
@@ -126,7 +134,7 @@ function parse<T extends NonNullable<ParseArgsConfig["options"]>>(args: string[]
 }
 
 async function verifyCommand(args: string[]): Promise<number> {
-  const { values } = parse(args, { project: { type: "string" }, ledger: { type: "string" } });
+  const { values } = parse(args, { project: { type: "string" }, ledger: { type: "string" }, issuer: { type: "string" } });
   const { ledgerPath } = await import("../ledger/place.ts");
   const { verify } = await import("../ledger/verify.ts");
   let path = values.ledger;
@@ -143,7 +151,64 @@ async function verifyCommand(args: string[]): Promise<number> {
   }
   console.log(`ok: ${count(verdict.lines, "line")} checked, head ${verdict.head}`);
   if (verdict.trial) console.log("a trial: it does not count as evidence");
-  return 0;
+  // #23: the signed claims, held to the keys issued for them.
+  const { readFileSync } = await import("node:fs");
+  const { checkSignatures } = await import("../keys/keys.ts");
+  if (values.issuer !== undefined && !/^[0-9a-f]{64}$/.test(values.issuer)) throw new UsageError("--issuer must be a key id: 64 hex digits");
+  const text = readFileSync(path, "utf8");
+  const lines = text
+    .split("\n")
+    .slice(0, -1)
+    .map((raw, i) => ({ n: i + 1, event: (JSON.parse(raw) as { event: import("../ledger/schema.ts").LedgerEvent }).event }));
+  const sigs = checkSignatures(lines, values.issuer);
+  console.log(`signatures: ${sigs.signed} signed, ${sigs.unsigned} unsigned claimed${sigs.issuer ? `, issuer ${sigs.issuer}` : ""}`);
+  for (const f of sigs.faults) console.log(`line ${f.line}: ${f.reason}`);
+  return sigs.faults.length > 0 ? 1 : 0;
+}
+
+async function keyCommand(args: string[]): Promise<number> {
+  const [sub, ...rest] = args;
+  const { values, positionals } = parse(
+    rest,
+    {
+      project: { type: "string" },
+      actor: { type: "string" },
+      task: { type: "string" },
+      change: { type: "string" },
+      role: { type: "string" },
+      hours: { type: "string" },
+    },
+    1,
+  );
+  const { findProject } = await import("../howl/project.ts");
+  const { configDir, inboxPath, projectDir } = await import("../ledger/place.ts");
+  const { leave } = await import("../inbox/inbox.ts");
+  const { issueKey, revokeKey } = await import("../keys/keys.ts");
+  const { join } = await import("node:path");
+  const project = values.project ?? findProject(process.cwd())?.project;
+  if (project === undefined) throw new UsageError("key needs --project, or a .howl/howl.yml above the working directory");
+  const places = { configDir: configDir(project), keysDir: join(projectDir(project), "keys") };
+  if (sub === "issue") {
+    if (!values.actor) throw new UsageError("key issue needs --actor");
+    const r = issueKey(
+      project,
+      { actor: values.actor, task: values.task, change: values.change, role: values.role, hours: values.hours === undefined ? 8 : Number(values.hours) },
+      places,
+    );
+    leave(inboxPath(project), r.event);
+    if (r.issuerMade) console.log(`a new issuer key for ${project}: ${r.issuerId}. Keep this fingerprint somewhere else.`);
+    console.log(`key ${r.keyId} for ${values.actor}`);
+    console.log(`HOWL_KEY=${r.file}`);
+    return 0;
+  }
+  if (sub === "revoke") {
+    const [keyId] = positionals;
+    if (!keyId) throw new UsageError("key revoke needs a key id");
+    leave(inboxPath(project), revokeKey(project, keyId, places));
+    console.log(`key ${keyId} revoked`);
+    return 0;
+  }
+  throw new UsageError("key needs issue or revoke");
 }
 
 async function emitCommand(args: string[]): Promise<number> {

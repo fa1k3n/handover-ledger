@@ -19,6 +19,7 @@ import { inboxPath } from "../ledger/place.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { git, originUrl, repoName } from "../howl/git.ts";
 import { findActor, findProject } from "../howl/project.ts";
+import { readKey, signEvent } from "../keys/keys.ts";
 
 type Input = Record<string, unknown>;
 
@@ -73,7 +74,17 @@ export function runHook(stdin: string, env: Record<string, string | undefined>, 
     prompt: rolePrompt(env.HOWL_ROLE_PROMPT, project.root),
     data: what.data,
   };
-  leave(inboxPath(project.project, env), event);
+  // #23: signed with the key of the assignment, when the session has one. A key that cannot be read never stops the hook.
+  let out = event;
+  const keyFile = named(env.HOWL_KEY);
+  if (keyFile !== undefined) {
+    try {
+      out = signEvent(event, readKey(keyFile));
+    } catch {
+      out = event;
+    }
+  }
+  leave(inboxPath(project.project, env), out);
 }
 
 /** The role prompt by its file within the repository and the SHA-256 of its content; none when it cannot be read there. */

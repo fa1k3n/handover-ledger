@@ -125,3 +125,26 @@ test("#22: the change view keeps what it shows in the address", async () => {
   assert.deepEqual(parseHash("#change?project=example&what=change%3A30"), { view: "change", project: "example", what: "change:30" });
   assert.deepEqual(parseHash("#change"), { view: "change", project: null });
 });
+
+test("#23: the decoded event says whether it is signed, by which key and for what", () => {
+  const base = {
+    n: 4,
+    from: "ledger" as const,
+    hash: "a".repeat(64),
+    prev: "b".repeat(64),
+    raw: "{}",
+    event: {
+      v: 0 as const,
+      id: "s",
+      time: "2026-11-13T09:40:18Z",
+      type: "session.started" as const,
+      source: { adapter: "claude-code-hook", kind: "claimed" as const },
+      project: "p",
+      actor: { kind: "agent" as const, id: "agent-1" },
+    },
+  };
+  const sig = (s: object) => decodedFields({ ...base, signed: s } as never, "UTC").find((f) => f.k === "Signature")?.v;
+  assert.equal(sig({ key: "c".repeat(64), actor: "agent-1", change: "30", until: "2026-11-13T17:00:00Z", ok: true }), `valid · key ${"c".repeat(12)} · agent-1 · change 30 · until 2026-11-13 17:00:00 UTC`);
+  assert.equal(sig({ key: "c".repeat(64), actor: "agent-1", until: "2026-11-13T17:00:00Z", ok: false, reason: "signed after the key was revoked" }), "does not hold: signed after the key was revoked");
+  assert.equal(decodedFields(base as never, "UTC").find((f) => f.k === "Signature")?.v, "unsigned");
+});

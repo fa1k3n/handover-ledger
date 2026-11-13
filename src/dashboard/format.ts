@@ -51,6 +51,27 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
     e.session !== undefined ? { k: "Session", v: e.session } : null,
     e.model !== undefined ? { k: "Model", v: [e.model, e.effort].filter(Boolean).join(" · ") } : null,
     e.role !== undefined ? { k: "Role", v: e.role } : null,
+    item.from === "ledger" && e.source.kind === "claimed" && !e.type.startsWith("key.")
+      ? {
+          k: "Signature",
+          v: item.signed
+            ? item.signed.ok
+              ? [
+                  "valid",
+                  `key ${item.signed.key.slice(0, 12)}`,
+                  item.signed.actor,
+                  item.signed.task !== undefined ? `task ${item.signed.task}` : null,
+                  item.signed.change !== undefined ? `change ${item.signed.change}` : null,
+                  `until ${utcTime(item.signed.until)}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : `does not hold: ${item.signed.reason ?? "unknown"}`
+            : e.sig
+              ? "does not hold: its key is not issued in the ledger"
+              : "unsigned",
+        }
+      : null,
     e.prompt !== undefined ? { k: "Role prompt", v: `${e.prompt.file} · ${e.prompt.sha256.slice(0, 12)}` } : null,
     e.type === "tool.used" ? { k: "Tool", v: [d.tool, d.target, d.outcome].filter((x) => typeof x === "string").join(" ") } : null,
   ];

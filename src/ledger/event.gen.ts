@@ -46,7 +46,9 @@ export interface LedgerEvent {
     | "task.opened"
     | "task.closed"
     | "change.closed"
-    | "review.commented";
+    | "review.commented"
+    | "key.issued"
+    | "key.revoked";
   /**
    * Where the event comes from.
    */
@@ -151,6 +153,19 @@ export interface LedgerEvent {
    * The code class.
    */
   class?: string;
+  /**
+   * The Ed25519 signature of the event's fixed form without sig, by the key of an assignment (key.issued) or by the issuer.
+   */
+  sig?: {
+    /**
+     * The key's id: the SHA-256 of its raw public key.
+     */
+    key: string;
+    /**
+     * The signature, base64url.
+     */
+    value: string;
+  };
   /**
    * What belongs to this type of event only.
    */

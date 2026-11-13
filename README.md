@@ -93,6 +93,18 @@ HOWL_ACTOR=agent-2 HOWL_CHANGE=30 HOWL_TASK=12 HOWL_ROLE=review HOWL_ROLE_PROMPT
 
 `HOWL_ROLE` names the session's role, a name the team chooses; the dashboard, `howl status` and `howl show` show it. `HOWL_ROLE_PROMPT` is the role prompt's path in the repository: each event records its file and the SHA-256 of its content, so a change shows which prompt the agent ran with.
 
+**Signing a session's claims.** Whoever starts an agent's session can issue a key for that one assignment and hand it over; the hook then signs every event of the session, and `howl verify` holds each signed event to its key: the agent, the task and change, the time window, and no use after a revocation.
+
+```sh
+howl key issue --actor agent-2 --change 30 --task 12 --role review --hours 8
+# key 3f…  for agent-2
+# HOWL_KEY=/home/you/.local/state/howl/example/keys/3f….pem
+HOWL_KEY=… HOWL_ACTOR=agent-2 HOWL_CHANGE=30 claude …
+howl key revoke 3f…
+```
+
+The project's issuer key is made on first use in `~/.config/howl/<project>/issuer.key` (or `$HOWL_CONFIG`); keep the fingerprint it prints somewhere else and give it to `howl verify --issuer`. Said plainly: on one machine with one user, that user can read an agent's key. Signing binds each claim to an issued assignment, makes a later change show and bounds misuse to the key's window; keeping keys out of the user's reach is a step of its own.
+
 **3. Add the hooks** to `.claude/settings.json` of the repository:
 
 ```json

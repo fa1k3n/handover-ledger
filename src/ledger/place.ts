@@ -52,6 +52,20 @@ export function cursorPath(project: string, env: Env = process.env, home: string
   return join(projectDir(project, env, home), "observe.json");
 }
 
+/**
+ * Where a project's issuer key lives, never in a repository or beside the ledger:
+ * `$HOWL_CONFIG`, else `$XDG_CONFIG_HOME/howl`, else `~/.config/howl`; in it `<project>`.
+ */
+export function configDir(project: string, env: Env = process.env, home: string = homedir()): string {
+  if (!isProjectName(project)) throw new LedgerError(`${JSON.stringify(project)} is not a project name`);
+  if (env.HOWL_CONFIG) {
+    if (!isAbsolute(env.HOWL_CONFIG)) throw new LedgerError(`HOWL_CONFIG must be an absolute path, not ${JSON.stringify(env.HOWL_CONFIG)}`);
+    return join(env.HOWL_CONFIG, project);
+  }
+  if (env.XDG_CONFIG_HOME && isAbsolute(env.XDG_CONFIG_HOME)) return join(env.XDG_CONFIG_HOME, "howl", project);
+  return join(home, ".config", "howl", project);
+}
+
 /** The folder that holds every project. */
 export function howlHome(env: Env = process.env, home: string = homedir()): string {
   if (env.HOWL_HOME) {

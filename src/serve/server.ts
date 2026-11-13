@@ -8,6 +8,7 @@ import { LedgerError } from "../ledger/errors.ts";
 import { isProjectName } from "../ledger/place.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
 import { activityBeside, byTime, Tail, type Read } from "../read/reader.ts";
+import { checkSignatures } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
 import { parseAsked, show } from "../read/show.ts";
@@ -52,6 +53,8 @@ export interface Item {
   raw: string;
   /** The agent behind a person's account at the code host, when one matches (#14). */
   by?: string;
+  /** The signature's check (#23): the key, its assignment, and whether it holds. */
+  signed?: { key: string; actor: string; task?: string; change?: string; role?: string; until: string; ok: boolean; reason?: string };
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -223,9 +226,13 @@ export function events(ledger: string, params: URLSearchParams): Item[] {
   const items: Item[] = ledgerItems(ledger, after);
   // Matched over the whole ledger, so a session before `after` still counts.
   const acting = actingAgents((after > 0 ? ledgerItems(ledger) : items).map((i) => i.event));
+  const all = after > 0 ? ledgerItems(ledger) : items;
+  const signatures = checkSignatures(all.map((i) => ({ n: i.n ?? 0, event: i.event }))).byEvent;
   for (const item of items) {
     const by = acting.get(item.event.id)?.agent;
     if (by !== undefined) item.by = by;
+    const signed = signatures.get(item.event.id);
+    if (signed !== undefined) item.signed = signed;
   }
   if (params.get("activity") === "1" || wantsActivity(pairs)) {
     for (const r of new Tail(activityBeside(ledger), "activity").read()) items.push({ from: "activity", event: r.event, raw: r.raw });
