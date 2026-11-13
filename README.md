@@ -34,6 +34,7 @@ One repository, TypeScript throughout.
 - [docs/traceability.md](docs/traceability.md): the trace chain, the rules around it and the evidence package.
 - [docs/standards.md](docs/standards.md): how the functions map to ISO 26262, ISO/SAE 21434, ISO/IEC 27001 and others. A draft, clause numbers not yet verified.
 - [docs/architecture.md](docs/architecture.md): principles, core concepts, ports and adapters, the event fields, the ledger's demands.
+- [docs/observation.md](docs/observation.md): the first thing to build: `howl` beside a working team, recording only.
 - [docs/commissioning.md](docs/commissioning.md): where it runs, who owns what, the `.howl/` folder, how agents are provisioned, the steps from a trial to an organisation.
 - [docs/decisions.md](docs/decisions.md): what is decided, what is open, and the order of the work.
 

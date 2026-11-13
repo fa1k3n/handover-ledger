@@ -14,7 +14,8 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **Named agents:** identity is lasting, memory is not; role, model and effort belong to the assignment. (2026-11-12)
 - **Safe defaults:** agents never merge, high risk needs a person. (2026-11-12)
 - **Wording:** "supports certification" or "audit-ready", never "ISO certified". (2026-11-12)
-- **Languages:** the engine, the CLI, the dashboard and the VS Code extension are built in TypeScript. Whatever a development team itself programs (checks, adapters to in-house tools, scripts in `.howl/`) is Python: embedded developers do not know TypeScript. (2026-11-13)
+- **Languages:** the engine, the CLI, the dashboard and the VS Code extension are built in TypeScript. Whatever a development team itself programs (checks, adapters to in-house tools, scripts in `.howl/`) is Python, and a shell script shall work as well: embedded developers do not know TypeScript. (2026-11-13)
+- **Observation mode first:** `howl` is tried beside a team whose agents already work, recording only, for what it shows of the agents' work ([observation.md](observation.md)). (2026-11-13)
 
 ## Proposed, not yet answered
 
@@ -44,7 +45,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 ## The order of the work
 
 0. Before code: check the clause numbers of the control mapping and show it to two or three safety managers or an assessor; ask every team the five questions.
-1. The event schema, the hash chain, `howl verify` and the local file adapter, which is also the test environment.
+1. The event schema, the hash chain, `howl verify` and the local file adapter, which is also the test environment. Then `howl hook` with the inbox ([observation.md](observation.md), steps 1 and 2).
 2. An adapter that reads merge and pull requests. This is level 0.
 3. Level 1: a runner for a reviewer, the rules around it, the share of dismissed findings.
 4. The evidence export and the control mapping for one safety standard.

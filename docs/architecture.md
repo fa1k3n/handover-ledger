@@ -47,7 +47,7 @@ The first version only **records**: a ledger over a flow that exists (level 0). 
 
 ## What a team programs itself
 
-Embedded developers know Python, not TypeScript. So everything a development team writes or changes itself is Python:
+Embedded developers know Python and shell, not TypeScript. So everything a development team writes or changes itself is Python or a shell script:
 
 - mandatory checks before a review (a wrapper around a static analyser, a coverage limit),
 - adapters to in-house tools (an export from a requirements tool, an internal tracker),
@@ -55,7 +55,7 @@ Embedded developers know Python, not TypeScript. So everything a development tea
 
 Rules are configuration first, and code only where configuration is not enough.
 
-The boundary is a protocol between processes, not an API inside the engine: the engine starts the script, sends JSON on standard input and reads JSON on standard output. Python then needs no place inside the TypeScript code, and any other language works as well.
+The boundary is a protocol between processes, not an API inside the engine: the engine starts the script, sends JSON on standard input and reads JSON on standard output. Python then needs no place inside the TypeScript code, and a shell script or any other language works as well. `howl emit` writes an event from a script without building the JSON by hand.
 
 - The event schema is written as JSON Schema. The TypeScript types and a Python package are generated from it.
 - The Python package has no dependencies, runs on old Python versions and can be copied in as files: development networks are often closed and their Python environments locked.
