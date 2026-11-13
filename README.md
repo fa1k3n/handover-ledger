@@ -103,6 +103,8 @@ HOWL_KEY=… HOWL_ACTOR=agent-2 HOWL_CHANGE=30 claude …
 howl key revoke 3f…
 ```
 
+**Keys held by a service.** `howl keyd` holds the issuer key and every assignment's key and signs on a local socket, so a session never sees a private key: with `HOWL_KEYD=<socket>` and `HOWL_KEYD_ADMIN=<admin token file>`, `howl key issue` asks keyd and prints `HOWL_KEY=keyd:<socket>#<key>:<token>`, and the hook signs through it. keyd refuses a claim for another agent, change or task, after the window, or after a revocation. Run as the same user as the sessions it keeps keys out of files and enforces the assignment; run it as another user, or on another machine, for the keys to be out of the sessions' reach. Where it should live for good (the developer's machine, the organisation's instance, a hardware key) is still to be decided.
+
 The project's issuer key is made on first use in `~/.config/howl/<project>/issuer.key` (or `$HOWL_CONFIG`); keep the fingerprint it prints somewhere else and give it to `howl verify --issuer`. Said plainly: on one machine with one user, that user can read an agent's key. Signing binds each claim to an issued assignment, makes a later change show and bounds misuse to the key's window; keeping keys out of the user's reach is a step of its own.
 
 **3. Add the hooks** to `.claude/settings.json` of the repository:

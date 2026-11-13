@@ -10,6 +10,7 @@ const USAGE = `usage:
   howl anchor [--project <name>] [--ledger <path>] [--to <git | file:path | ->] [--sign <ssh key>]
   howl key issue --actor <agent> [--task <id>] [--change <id>] [--role <name>] [--hours <n>]
   howl key revoke <key id>
+  howl keyd [--project <name>] [--socket <path>] [--state <folder>]
   howl hook
   howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
   howl ingest [--project <name>] [--watch] [--interval <seconds>]
@@ -30,7 +31,11 @@ const USAGE = `usage:
             default), or in a file, or printed. --sign signs it with an SSH key
   key       issue a key for one assignment of an agent (8 hours by default),
             or revoke one. The private key goes to the session as HOWL_KEY;
-            the hook then signs every event of the session
+            the hook then signs every event of the session. With HOWL_KEYD
+            (keyd's socket) and HOWL_KEYD_ADMIN (its admin token file), keyd
+            holds the key and the session gets a token instead
+  keyd      a signing service that holds the keys, so a session never sees one.
+            Run it as another user for the keys to be out of the sessions' reach
   hook      called by the hooks of Claude Code: leaves an event in the inbox.
             Prints nothing and always ends with 0
   emit      leave an event in the inbox from a script
@@ -79,7 +84,7 @@ async function main(argv: string[]): Promise<number> {
   if (command === "hook") {
     try {
       const { runHook } = await import("../hook/hook.ts");
-      runHook(readFileSync(0, "utf8"), process.env, process.cwd());
+      await runHook(readFileSync(0, "utf8"), process.env, process.cwd());
     } catch {
       // Never disturb the session.
     }
@@ -92,6 +97,8 @@ async function main(argv: string[]): Promise<number> {
         return await verifyCommand(rest);
       case "key":
         return await keyCommand(rest);
+      case "keyd":
+        return await keydCommand(rest);
       case "anchor":
         return await anchorCommand(rest);
       case "export":
@@ -308,6 +315,40 @@ async function keyCommand(args: string[]): Promise<number> {
   const project = values.project ?? findProject(process.cwd())?.project;
   if (project === undefined) throw new UsageError("key needs --project, or a .howl/howl.yml above the working directory");
   const places = { configDir: configDir(project), keysDir: join(projectDir(project), "keys") };
+  // #24: through keyd when it runs: it holds the keys; the session gets a token.
+  const keyd = process.env.HOWL_KEYD;
+  if (keyd) {
+    const { request } = await import("../keys/keyd.ts");
+    const adminFile = process.env.HOWL_KEYD_ADMIN ?? join(places.configDir, "keyd", "admin.token");
+    const admin = readFileSync(adminFile, "utf8").trim();
+    const { LedgerError } = await import("../ledger/errors.ts");
+    if (sub === "issue") {
+      if (!values.actor) throw new UsageError("key issue needs --actor");
+      const a = await request(keyd, {
+        op: "issue",
+        admin,
+        actor: values.actor,
+        task: values.task,
+        change: values.change,
+        role: values.role,
+        hours: values.hours === undefined ? 8 : Number(values.hours),
+      });
+      if (!a.ok) throw new LedgerError(`keyd refused: ${a.error}`);
+      leave(inboxPath(project), a.event as import("../ledger/schema.ts").LedgerEvent);
+      console.log(`key ${a.key} for ${values.actor}, held by keyd`);
+      console.log(`HOWL_KEY=keyd:${keyd}#${a.key}:${a.token}`);
+      return 0;
+    }
+    if (sub === "revoke") {
+      const [keyId] = positionals;
+      if (!keyId) throw new UsageError("key revoke needs a key id");
+      const a = await request(keyd, { op: "revoke", admin, key: keyId });
+      if (!a.ok) throw new LedgerError(`keyd refused: ${a.error}`);
+      leave(inboxPath(project), a.event as import("../ledger/schema.ts").LedgerEvent);
+      console.log(`key ${keyId} revoked by keyd`);
+      return 0;
+    }
+  }
   if (sub === "issue") {
     if (!values.actor) throw new UsageError("key issue needs --actor");
     const r = issueKey(
@@ -329,6 +370,28 @@ async function keyCommand(args: string[]): Promise<number> {
     return 0;
   }
   throw new UsageError("key needs issue or revoke");
+}
+
+async function keydCommand(args: string[]): Promise<number> {
+  const { values } = parse(args, { project: { type: "string" }, socket: { type: "string" }, state: { type: "string" } });
+  const { findProject } = await import("../howl/project.ts");
+  const { configDir, projectDir } = await import("../ledger/place.ts");
+  const { join } = await import("node:path");
+  const project = values.project ?? findProject(process.cwd())?.project;
+  if (project === undefined) throw new UsageError("keyd needs --project, or a .howl/howl.yml above the working directory");
+  const socket = values.socket ?? (process.env.XDG_RUNTIME_DIR ? join(process.env.XDG_RUNTIME_DIR, `howl-${project}.sock`) : join(projectDir(project), "keyd.sock"));
+  const state = values.state ?? join(configDir(project), "keyd");
+  const signal = stopSignal();
+  const { startKeyd } = await import("../keys/keyd.ts");
+  const server = await startKeyd(project, socket, state);
+  console.log(`howl keyd: ${socket}, keys in ${state}; admin token in ${join(state, "admin.token")}`);
+  await new Promise<void>((resolve) => {
+    if (signal.stopped) return resolve();
+    signal.wake = resolve;
+  });
+  signal.off();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return 0;
 }
 
 async function emitCommand(args: string[]): Promise<number> {

@@ -19,6 +19,7 @@ import { inboxPath } from "../ledger/place.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { git, originUrl, repoName } from "../howl/git.ts";
 import { findActor, findProject } from "../howl/project.ts";
+import { parseKeydKey, request } from "../keys/keyd.ts";
 import { readKey, signEvent } from "../keys/keys.ts";
 
 type Input = Record<string, unknown>;
@@ -36,7 +37,7 @@ const WAITS = new Set([
  * Leaves one event in the inbox for a hook's input, or nothing. Throws on what
  * it cannot do; the caller swallows it, so that the session is never disturbed.
  */
-export function runHook(stdin: string, env: Record<string, string | undefined>, cwd: string): void {
+export async function runHook(stdin: string, env: Record<string, string | undefined>, cwd: string): Promise<void> {
   let input: unknown;
   try {
     input = JSON.parse(stdin);
@@ -79,7 +80,14 @@ export function runHook(stdin: string, env: Record<string, string | undefined>, 
   const keyFile = named(env.HOWL_KEY);
   if (keyFile !== undefined) {
     try {
-      out = signEvent(event, readKey(keyFile));
+      // #24: through keyd, which holds the key, when HOWL_KEY names it; else from a key file.
+      const viaKeyd = parseKeydKey(keyFile);
+      if (viaKeyd) {
+        const a = await request(viaKeyd.socket, { op: "sign", key: viaKeyd.key, token: viaKeyd.token, event }, 1500);
+        if (a.ok && a.sig) out = { ...event, sig: a.sig as LedgerEvent["sig"] };
+      } else {
+        out = signEvent(event, readKey(keyFile));
+      }
     } catch {
       out = event;
     }

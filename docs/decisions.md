@@ -46,6 +46,8 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 
 ## Open
 
+- **Where agents' keys live for good:** `howl keyd` on the developer's machine as another user, a service of the organisation's instance, or a hardware key (TPM, a token); and how an agent proves to it which assignment it holds. A first form of keyd exists (2026-11-13).
+
 - **Licence:** Apache 2.0 for the widest spread, or AGPL as protection against hosted copies. The income is consulting and not hosting, and legal departments in regulated industries often stop AGPL, which speaks for Apache 2.0. To be checked with a lawyer.
 - **Name check:** GitHub, npm, the VS Code Marketplace and the domain, and a trade mark search at EUIPO and PRV. "Handover" alone is already used by other products. Check also that `howl` is free as a package name and is not the command of another program; a scoped package that installs the command `howl` solves the first.
 - **Accounts for agents:** an app of the code host (cannot be assigned tasks everywhere), one machine account per agent (check the host's terms), or one shared bot account with the name in comment and label. Separation of duties needs more than a person's own account.
