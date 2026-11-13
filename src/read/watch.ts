@@ -6,6 +6,8 @@ import { activityBeside, byTime, Tail, type Read } from "./reader.ts";
 export interface WatchOptions {
   since?: string;
   filters: string[];
+  /** Also the activity file (tool calls). A filter on a tool call's type implies it. */
+  activity: boolean;
   json: boolean;
   follow: boolean;
   /** Seconds between two looks at the files while following. */
@@ -103,6 +105,15 @@ function short(event: LedgerEvent): string {
   }
 }
 
+/** Whether a `type` filter can match a tool call, so that it needs the activity file. */
+export function wantsActivity(pairs: string[]): boolean {
+  return pairs.some((pair) => {
+    if (!pair.startsWith("type=")) return false;
+    const value = pair.slice("type=".length);
+    return value.endsWith("*") ? "tool.used".startsWith(value.slice(0, -1)) : value === "tool.used";
+  });
+}
+
 /** Prints what is there, then, when following, what comes, until the process is stopped. */
 export async function watch(ledger: string, options: WatchOptions, write: (line: string) => void): Promise<void> {
   const filters = parseFilters(options.filters);
@@ -114,7 +125,8 @@ export async function watch(ledger: string, options: WatchOptions, write: (line:
     filters.every((f) => f(r.event));
   const print = (r: Read) => write(options.json ? r.raw : formatLine(r.event, options.colour));
 
-  const tails = [new Tail(ledger, "ledger"), new Tail(activityBeside(ledger), "activity")];
+  const tails = [new Tail(ledger, "ledger")];
+  if (options.activity || wantsActivity(options.filters)) tails.push(new Tail(activityBeside(ledger), "activity"));
   const seen = new Set<string>();
   const take = (reads: Read[]) => {
     for (const r of reads) {

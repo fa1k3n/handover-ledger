@@ -23,7 +23,7 @@ function eventLines(stdout: string): string[] {
 
 test("howl watch prints one line per event with time, actor, type and what it concerns", () => {
   const ledger = writeStory();
-  const result = once(ledger);
+  const result = once(ledger, ["--activity"]);
   assert.equal(result.status, 0, result.stderr);
   const lines = eventLines(result.stdout);
   // The ledger without its first line, and the activity file.
@@ -73,7 +73,7 @@ test("a wrong filter is refused", () => {
 
 test("--json gives the lines of the ledger and the activity file unchanged", () => {
   const ledger = writeStory();
-  const out = once(ledger, ["--json"]).stdout.split("\n").filter(Boolean);
+  const out = once(ledger, ["--json", "--activity"]).stdout.split("\n").filter(Boolean);
   const activity = readFileSync(ledger.replace(/ledger\.jsonl$/, "activity.jsonl"), "utf8").split("\n").filter(Boolean);
   const ledgerLines = rawLines(ledger).slice(1);
   assert.deepEqual([...out].sort(), [...ledgerLines, ...activity].sort());

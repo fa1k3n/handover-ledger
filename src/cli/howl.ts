@@ -9,7 +9,7 @@ const USAGE = `usage:
   howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
   howl ingest [--project <name>] [--watch] [--interval <seconds>]
   howl observe [--once] [--interval <seconds>]
-  howl watch [--since <time>] [--filter <field>=<value> ...] [--json] [--no-follow]
+  howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--json] [--no-follow]
   howl show <task or change> [--json]
 
   verify    check every line of the ledger and the chain between the lines
@@ -21,8 +21,9 @@ const USAGE = `usage:
             and records what happened at the code host since the last round.
             Read access is enough. GitHub: a token from $HOWL_GITHUB_TOKEN,
             else $GITHUB_TOKEN, else \`gh auth token\`
-  watch     print the events of the ledger and the activity file, then follow
-            them. A field and a value filter: type=review.*, actor=agent-1,
+  watch     print the events of the ledger, then follow them. --activity adds
+            the tool calls of the activity file; a filter on type=tool.used
+            does too. A field and a value filter: type=review.*, actor=agent-1,
             kind=claimed, change=12. Colour unless NO_COLOR is set
   show      the timeline of one assignment, from the hand-over to the merge:
             12, task:12 or change:30
@@ -250,6 +251,7 @@ async function watchCommand(args: string[]): Promise<number> {
     project: { type: "string" },
     since: { type: "string" },
     filter: { type: "string", multiple: true },
+    activity: { type: "boolean" },
     json: { type: "boolean" },
     "no-follow": { type: "boolean" },
     interval: { type: "string" },
@@ -269,6 +271,7 @@ async function watchCommand(args: string[]): Promise<number> {
       {
         since: values.since,
         filters: values.filter ?? [],
+        activity: values.activity ?? false,
         json: values.json ?? false,
         follow: !values["no-follow"],
         interval,
