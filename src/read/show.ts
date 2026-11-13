@@ -10,7 +10,7 @@
 // per person. Everything is ordered and computed by `time`, never by the order
 // of the lines.
 import type { LedgerEvent } from "../ledger/schema.ts";
-import { shortTime } from "./watch.ts";
+import { shortTime, zoneLine } from "./watch.ts";
 
 type Actor = NonNullable<LedgerEvent["actor"]>;
 
@@ -335,10 +335,10 @@ function summarise(events: LedgerEvent[], end: End): Summary {
 }
 
 /** The timeline as text for a person to read. */
-export function render(shown: Shown): string {
+export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   const out: string[] = [];
   const who = (a?: Actor) => a?.id ?? "someone";
-  const t = shortTime;
+  const t = (time: string) => shortTime(time, options.utc ?? false);
   const title = shown.task !== undefined ? `Task ${shown.task}` : `Change ${shown.changes[0]?.change}`;
   out.push(`${title}: ${shown.end.state}`, "");
 
@@ -404,6 +404,7 @@ export function render(shown: Shown): string {
   );
   out.push(`  review rounds: ${s.reviewRounds}`);
   out.push(`  taking part: ${s.actors.map((a) => a.id).join(", ")}`);
+  if (!options.utc) out.push("", zoneLine());
   return out.join("\n");
 }
 

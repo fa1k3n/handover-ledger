@@ -9,8 +9,8 @@ const USAGE = `usage:
   howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
   howl ingest [--project <name>] [--watch] [--interval <seconds>]
   howl observe [--once] [--interval <seconds>]
-  howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--json] [--no-follow]
-  howl show <task or change> [--json]
+  howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--utc] [--json] [--no-follow]
+  howl show <task or change> [--utc] [--json]
   howl status [--follow] [--json]
   howl serve [--port <n>]
 
@@ -26,7 +26,9 @@ const USAGE = `usage:
   watch     print the events of the ledger, then follow them. --activity adds
             the tool calls of the activity file; a filter on type=tool.used
             does too. A field and a value filter: type=review.*, actor=agent-1,
-            kind=claimed, change=12. Colour unless NO_COLOR is set
+            kind=claimed, change=12. Colour unless NO_COLOR is set. Times
+            in the local time zone (TZ), --utc as stored; --since without
+            an offset is local time
   show      the timeline of one assignment, from the hand-over to the merge:
             12, task:12 or change:30
   status    one line per agent: NEEDS INPUT, working, waiting, idle or ended,
@@ -268,6 +270,7 @@ async function watchCommand(args: string[]): Promise<number> {
     since: { type: "string" },
     filter: { type: "string", multiple: true },
     activity: { type: "boolean" },
+    utc: { type: "boolean" },
     json: { type: "boolean" },
     "no-follow": { type: "boolean" },
     interval: { type: "string" },
@@ -289,6 +292,7 @@ async function watchCommand(args: string[]): Promise<number> {
         filters: values.filter ?? [],
         activity: values.activity ?? false,
         json: values.json ?? false,
+        utc: values.utc ?? false,
         follow: !values["no-follow"],
         interval,
         colour,
@@ -303,7 +307,11 @@ async function watchCommand(args: string[]): Promise<number> {
 }
 
 async function showCommand(args: string[]): Promise<number> {
-  const { values, positionals } = parse(args, { ledger: { type: "string" }, project: { type: "string" }, json: { type: "boolean" } }, 1);
+  const { values, positionals } = parse(
+    args,
+    { ledger: { type: "string" }, project: { type: "string" }, json: { type: "boolean" }, utc: { type: "boolean" } },
+    1,
+  );
   const [what] = positionals;
   if (what === undefined) throw new UsageError("show needs a task or a change: 12, task:12 or change:30");
   const ledger = await ledgerToRead(values);
@@ -320,7 +328,7 @@ async function showCommand(args: string[]): Promise<number> {
     console.error(`howl: nothing in the ledger names ${what}`);
     return 1;
   }
-  console.log(values.json ? JSON.stringify(shown, null, 2) : render(shown));
+  console.log(values.json ? JSON.stringify(shown, null, 2) : render(shown, { utc: values.utc ?? false }));
   return 0;
 }
 

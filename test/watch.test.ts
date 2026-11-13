@@ -23,7 +23,7 @@ function eventLines(stdout: string): string[] {
 
 test("howl watch prints one line per event with time, actor, type and what it concerns", () => {
   const ledger = writeStory();
-  const result = once(ledger, ["--activity"]);
+  const result = once(ledger, ["--activity", "--utc"]);
   assert.equal(result.status, 0, result.stderr);
   const lines = eventLines(result.stdout);
   // The ledger without its first line, and the activity file.

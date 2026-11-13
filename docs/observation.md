@@ -24,7 +24,7 @@ An event from a hook is a claim by the agent's own session; an event read from t
 1. **The schema and the ledger.** The event schema as JSON Schema, a ledger file with a hash chain kept outside the repository, and `howl verify`. An event does not know its place: the hash of the line before belongs to the line, not to the event.
 2. **`howl hook`.** Reads the hook's JSON and puts an event in an inbox. Several sessions write at once, so only one process brings the events into the chain. `howl emit` lets a script do the same.
 3. **`howl observe`.** The reader of the code host. It also empties the inbox.
-4. **`howl watch` and `howl show <task>`.** The stream in the terminal, and the timeline of one assignment from the hand-over to the merge. `howl watch` shows the handovers of the ledger; `--activity` adds the tool calls.
+4. **`howl watch` and `howl show <task>`.** The stream in the terminal, and the timeline of one assignment from the hand-over to the merge. `howl watch` shows the handovers of the ledger; `--activity` adds the tool calls. Both print local time; `--utc` prints the times as stored.
 
 Steps 1 and 2 already show the agents' work as it happens. The dashboard and the editor extension wait.
 
