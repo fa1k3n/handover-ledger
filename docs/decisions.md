@@ -4,9 +4,9 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 
 ## Decided
 
-- **Name:** Handover Ledger. The repository was first named Handoff Ledger by mistake and was renamed the same day; "handoff" also collides with a well-known product feature and with the broad term "agent handoff". The command is `how`. (2026-11-12)
+- **Name:** Handover Ledger. The repository was first named Handoff Ledger by mistake and was renamed the same day; "handoff" also collides with a well-known product feature and with the broad term "agent handoff". The command is `howl`, short for Handover Ledger; it was first `how` and was changed 2026-11-13. (2026-11-12)
 - **Own repository that stands entirely on its own.** It is tied to no other project: no shared code, field names or plans. (2026-11-13)
-- **Private first,** public when the event schema and `how verify` work and the licence is chosen. (2026-11-12)
+- **Private first,** public when the event schema and `howl verify` work and the licence is chosen. (2026-11-12)
 - **Several parts:** core, adapters, CLI, dashboard, VS Code extension. (2026-11-12)
 - **Open source with consulting** for the integration at clients. (2026-11-12)
 - **Levels of autonomy** as the way in for a team, combined with traceability so that it fits ISO and similar standards. (2026-11-12)
@@ -29,7 +29,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 ## Open
 
 - **Licence:** Apache 2.0 for the widest spread, or AGPL as protection against hosted copies. The income is consulting and not hosting, and legal departments in regulated industries often stop AGPL, which speaks for Apache 2.0. To be checked with a lawyer.
-- **Name check:** GitHub, npm, the VS Code Marketplace and the domain, and a trade mark search at EUIPO and PRV. "Handover" alone is already used by other products. `how` is most likely taken as a package name; a scoped package that installs the command `how` solves that.
+- **Name check:** GitHub, npm, the VS Code Marketplace and the domain, and a trade mark search at EUIPO and PRV. "Handover" alone is already used by other products. Check also that `howl` is free as a package name and is not the command of another program; a scoped package that installs the command `howl` solves the first.
 - **Accounts for agents:** an app of the code host (cannot be assigned tasks everywhere), one machine account per agent (check the host's terms), or one shared bot account with the name in comment and label. Separation of duties needs more than a person's own account.
 - **Own account or an organisation** for the repository when it becomes public. It can be moved later.
 - **The second adapter:** GitLab seems the likely one for the first clients. The answers to the five questions in [vision.md](vision.md) decide.
@@ -42,7 +42,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 ## The order of the work
 
 0. Before code: check the clause numbers of the control mapping and show it to two or three safety managers or an assessor; ask every team the five questions.
-1. The event schema, the hash chain, `how verify` and the local file adapter, which is also the test environment.
+1. The event schema, the hash chain, `howl verify` and the local file adapter, which is also the test environment.
 2. An adapter that reads merge and pull requests. This is level 0.
 3. Level 1: a runner for a reviewer, the rules around it, the share of dismissed findings.
 4. The evidence export and the control mapping for one safety standard.

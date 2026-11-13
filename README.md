@@ -2,7 +2,7 @@
 
 Audit-ready ledger of handovers in mixed teams of people and AI agents.
 
-**Status:** an idea written down, nothing built yet. This repository is private until the event schema and `how verify` work and a licence is chosen. No licence yet: all rights reserved until then.
+**Status:** an idea written down, nothing built yet. This repository is private until the event schema and `howl verify` work and a licence is chosen. No licence yet: all rights reserved until then.
 
 ## The idea in short
 
@@ -21,7 +21,7 @@ The method is the offer. The tool makes the method binding and measurable.
 |---|---|---|
 | `ledger` (core) | Event schema, hash chain, rules, levels | Yes |
 | Adapters | Read what happened in the team's tools and turn it into events | Yes, through the core |
-| `how` (CLI) | `how init`, `how verify`, `how status`, `how export` | Yes, through the core |
+| `howl` (CLI) | `howl init`, `howl verify`, `howl status`, `howl export` | Yes, through the core |
 | Dashboard | Views over the ledger | No |
 | VS Code extension | The team and the chain per change, in the editor | No |
 

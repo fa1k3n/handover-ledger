@@ -37,7 +37,7 @@ The core knows only its own concepts: task, team member (agent or person), assig
 |---|---|---|
 | `ledger` (core) | Event schema, hash chain, rules, levels | Yes |
 | Adapters | Read what happened and turn it into events | Yes, through the core |
-| `how` (CLI) | `how init`, `how verify`, `how status`, `how export` | Yes, through the core |
+| `howl` (CLI) | `howl init`, `howl verify`, `howl status`, `howl export` | Yes, through the core |
 | Dashboard | Views over the ledger | No |
 | VS Code extension | The team and the chain per change, in the editor | No |
 
@@ -93,7 +93,7 @@ One file per project (working name `.agentteam.yml`): the team, the table of mod
 ## The ledger
 
 - Append-only, one line per event.
-- Each line holds the hash of the line before. `how verify` names the first line that does not match.
+- Each line holds the hash of the line before. `howl verify` names the first line that does not match.
 - A chain shows a changed or removed line, not lines cut off the end, and a file that one party both writes and keeps proves little. Signing the lines, or keeping the last hash somewhere else, is needed before it counts as evidence.
 - Only one writer at a time.
 - Configurable retention and export ([traceability.md](traceability.md)).
