@@ -11,11 +11,11 @@
 // Only an agent's session is recorded. A tool call keeps the tool, the target,
 // the outcome and a hash of the input: never the input, the answer or a message.
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { leave } from "../inbox/inbox.ts";
 import { fixedForm } from "../ledger/fixed.ts";
-import { inboxPath } from "../ledger/place.ts";
+import { inboxPath, projectDir } from "../ledger/place.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { git, originUrl, repoName } from "../howl/git.ts";
 import { findActor, findProject } from "../howl/project.ts";
@@ -23,6 +23,11 @@ import { parseKeydKey, request } from "../keys/keyd.ts";
 import { readKey, signEvent } from "../keys/keys.ts";
 
 type Input = Record<string, unknown>;
+
+/** How long the hook waits for keyd: well within a tool call. */
+export const KEYD_TIMEOUT_MS = 500;
+/** After keyd failed to answer, how long the hook does not ask it again. */
+export const KEYD_PAUSE_MS = 60_000;
 
 /** The notifications that mean the agent waits for a person. */
 const WAITS = new Set([
@@ -83,8 +88,13 @@ export async function runHook(stdin: string, env: Record<string, string | undefi
       // #24: through keyd, which holds the key, when HOWL_KEY names it; else from a key file.
       const viaKeyd = parseKeydKey(keyFile);
       if (viaKeyd) {
-        const a = await request(viaKeyd.socket, { op: "sign", key: viaKeyd.key, token: viaKeyd.token, event }, 1500);
-        if (a.ok && a.sig) out = { ...event, sig: a.sig as LedgerEvent["sig"] };
+        // #30: a keyd that hangs or is gone never slows a session: after a failure it is not asked for a while.
+        const down = join(projectDir(project.project, env), "keyd.down");
+        if (!recentlyDown(down)) {
+          const a = await request(viaKeyd.socket, { op: "sign", key: viaKeyd.key, token: viaKeyd.token, event }, KEYD_TIMEOUT_MS);
+          if (a.ok && a.sig) out = { ...event, sig: a.sig as LedgerEvent["sig"] };
+          else if (!a.ok && a.unreachable) markDown(down);
+        }
       } else {
         out = signEvent(event, readKey(keyFile));
       }
@@ -93,6 +103,25 @@ export async function runHook(stdin: string, env: Record<string, string | undefi
     }
   }
   leave(inboxPath(project.project, env), out);
+}
+
+/** Whether keyd failed to answer within the pause; a file that cannot be read is no failure. */
+function recentlyDown(file: string): boolean {
+  try {
+    const at = Date.parse(readFileSync(file, "utf8").trim());
+    return Number.isFinite(at) && Date.now() - at < KEYD_PAUSE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function markDown(file: string): void {
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${new Date().toISOString()}\n`);
+  } catch {
+    // The hook never fails over this: keyd is asked again the next time.
+  }
 }
 
 /** The role prompt by its file within the repository and the SHA-256 of its content; none when it cannot be read there. */

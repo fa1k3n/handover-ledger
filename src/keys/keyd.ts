@@ -22,7 +22,8 @@ interface Held {
   revokedAt?: string;
 }
 
-export type Answer = { ok: true; [k: string]: unknown } | { ok: false; error: string };
+/** `unreachable`: keyd gave no answer (no socket, no reply in time, not JSON), as against a refusal. */
+export type Answer = { ok: true; [k: string]: unknown } | { ok: false; error: string; unreachable?: true };
 
 function sameToken(a: string | undefined, b: string): boolean {
   if (typeof a !== "string" || a.length !== b.length) return false;
@@ -131,7 +132,7 @@ export function request(socket: string, req: Record<string, unknown>, timeoutMs 
       conn.destroy();
       resolve(a);
     };
-    const timer = setTimeout(() => done({ ok: false, error: "keyd did not answer" }), timeoutMs);
+    const timer = setTimeout(() => done({ ok: false, error: "keyd did not answer", unreachable: true }), timeoutMs);
     conn.setEncoding("utf8");
     conn.on("connect", () => conn.write(`${JSON.stringify(req)}\n`));
     conn.on("data", (chunk) => {
@@ -141,11 +142,11 @@ export function request(socket: string, req: Record<string, unknown>, timeoutMs 
         try {
           done(JSON.parse(buf.slice(0, at)) as Answer);
         } catch {
-          done({ ok: false, error: "keyd's answer is not JSON" });
+          done({ ok: false, error: "keyd's answer is not JSON", unreachable: true });
         }
       }
     });
-    conn.on("error", (e) => done({ ok: false, error: `keyd: ${e.message}` }));
+    conn.on("error", (e) => done({ ok: false, error: `keyd: ${e.message}`, unreachable: true }));
   });
 }
 
