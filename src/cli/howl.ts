@@ -5,6 +5,8 @@ import { parseArgs, type ParseArgsConfig } from "node:util";
 
 const USAGE = `usage:
   howl verify [--project <name>] [--ledger <path>] [--issuer <fingerprint>] [--checkpoint <file | git>] [--signers <file>]
+  howl verify --bundle <file> [--signers <file>]
+  howl export (--change <id> | --task <id> | --since <time> --until <time>) [--out <file>]
   howl anchor [--project <name>] [--ledger <path>] [--to <git | file:path | ->] [--sign <ssh key>]
   howl key issue --actor <agent> [--task <id>] [--change <id>] [--role <name>] [--hours <n>]
   howl key revoke <key id>
@@ -19,6 +21,10 @@ const USAGE = `usage:
 
   verify    check every line of the ledger and the chain between the lines,
             then every signed claim against the key issued for it
+  export    an evidence bundle (.tar.gz) of a change, a task or a period: the
+            ledger up to its head, the lines selected, the timeline, the
+            checkpoints and a manifest; never the activity file or people.json.
+            howl verify --bundle checks it offline
   anchor    keep the ledger's head outside this machine: a checkpoint (lines and
             head) as a commit on refs/howl/checkpoints, pushed to origin (the
             default), or in a file, or printed. --sign signs it with an SSH key
@@ -88,6 +94,8 @@ async function main(argv: string[]): Promise<number> {
         return await keyCommand(rest);
       case "anchor":
         return await anchorCommand(rest);
+      case "export":
+        return await exportCommand(rest);
       case "emit":
         return await emitCommand(rest);
       case "ingest":
@@ -146,7 +154,17 @@ async function verifyCommand(args: string[]): Promise<number> {
     issuer: { type: "string" },
     checkpoint: { type: "string" },
     signers: { type: "string" },
+    bundle: { type: "string" },
   });
+  // #19: a bundle is checked on its own, offline.
+  if (values.bundle !== undefined) {
+    const { verifyBundle } = await import("../export/export.ts");
+    const r = verifyBundle(readFileSync(values.bundle), values.signers);
+    console.log(values.bundle);
+    for (const m of r.messages) console.log(m);
+    console.log(r.ok ? "ok: the bundle holds" : "the bundle does not hold");
+    return r.ok ? 0 : 1;
+  }
   const { ledgerPath } = await import("../ledger/place.ts");
   const { verify } = await import("../ledger/verify.ts");
   let path = values.ledger;
@@ -164,7 +182,6 @@ async function verifyCommand(args: string[]): Promise<number> {
   console.log(`ok: ${count(verdict.lines, "line")} checked, head ${verdict.head}`);
   if (verdict.trial) console.log("a trial: it does not count as evidence");
   // #23: the signed claims, held to the keys issued for them.
-  const { readFileSync } = await import("node:fs");
   const { checkSignatures } = await import("../keys/keys.ts");
   if (values.issuer !== undefined && !/^[0-9a-f]{64}$/.test(values.issuer)) throw new UsageError("--issuer must be a key id: 64 hex digits");
   const text = readFileSync(path, "utf8");
@@ -209,6 +226,37 @@ function readCheckpointFile(file: string): { text: string; sig?: string } {
 /** howl's own version, for a checkpoint. */
 function version(): string {
   return (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version;
+}
+
+async function exportCommand(args: string[]): Promise<number> {
+  const { values } = parse(args, {
+    project: { type: "string" },
+    ledger: { type: "string" },
+    change: { type: "string" },
+    task: { type: "string" },
+    since: { type: "string" },
+    until: { type: "string" },
+    out: { type: "string" },
+  });
+  const chosen = [values.change !== undefined, values.task !== undefined, values.since !== undefined || values.until !== undefined].filter(Boolean).length;
+  if (chosen !== 1) throw new UsageError("export needs one of --change, --task, or --since with --until");
+  if ((values.since === undefined) !== (values.until === undefined)) throw new UsageError("--since and --until go together");
+  const ledger = await ledgerToRead(values);
+  const { buildBundle } = await import("../export/export.ts");
+  const { writeTar } = await import("../export/tar.ts");
+  const { writeFileSync } = await import("node:fs");
+  const selection =
+    values.change !== undefined
+      ? { kind: "change" as const, id: values.change }
+      : values.task !== undefined
+        ? { kind: "task" as const, id: values.task }
+        : { since: values.since!, until: values.until! };
+  const files = buildBundle(ledger, selection, { version: version(), repo: process.cwd() });
+  const name = values.change ?? values.task ?? new Date().toISOString().slice(0, 10);
+  const out = values.out ?? `howl-${values.change !== undefined ? "change" : values.task !== undefined ? "task" : "period"}-${name}.tar.gz`;
+  writeFileSync(out, writeTar(files, true));
+  console.log(`${out}: ${files.size} files; check it with howl verify --bundle ${out}`);
+  return 0;
 }
 
 async function anchorCommand(args: string[]): Promise<number> {
