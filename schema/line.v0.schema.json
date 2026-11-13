@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:howl:line:0",
+  "title": "LedgerLine",
+  "description": "One line of the ledger: an event and its place in the chain. The event is checked against the event schema on its own.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "prev",
+    "hash",
+    "event"
+  ],
+  "properties": {
+    "prev": {
+      "description": "SHA-256, in hex, of the bytes of the line before as they stand in the file, without its line break. Null on the first line.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "hash": {
+      "description": "SHA-256, in hex, of the event in its fixed form: the JSON Canonicalization Scheme, RFC 8785, in UTF-8.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "event": {
+      "description": "The event, in its fixed form.",
+      "type": "object"
+    }
+  }
+}

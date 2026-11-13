@@ -1,10 +1,11 @@
-// `howl verify`, run as a process of its own. The tests of issue #1, in its order.
+// `howl verify`, run as a process of its own: the tests of issues #1 and #5.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { test } from "node:test";
+import { eventHash, fixedForm } from "../src/ledger/fixed.ts";
 import { openLedger } from "../src/ledger/ledger.ts";
-import { howl, ledgerWith, PROJECT, rawLines, sha256, writeLines } from "./helpers.ts";
+import { howl, ledgerWith, PROJECT, rawLines, sha256, writeLines, type Line } from "./helpers.ts";
 
 /** Runs `howl verify` and expects it to name `line`, and no other line, and to end with 1. */
 function failsAt(path: string, line: number, why?: RegExp): void {
@@ -15,61 +16,86 @@ function failsAt(path: string, line: number, why?: RegExp): void {
   if (why) assert.match(result.stdout, why);
 }
 
-test("howl verify on an untouched ledger ends with 0 and the count", () => {
+/** Changes line `n` (from 1) of the ledger with `change`, writing the line back with its event in fixed form. */
+function changeLine(path: string, n: number, change: (line: Line) => void): void {
+  const raw = rawLines(path);
+  const line = JSON.parse(raw[n - 1]!) as Line;
+  change(line);
+  raw[n - 1] =
+    `{"prev":${JSON.stringify(line.prev)},"hash":${JSON.stringify(line.hash)},"event":${fixedForm(line.event).toString("utf8")}}`;
+  writeLines(path, raw);
+}
+
+test("howl verify passes an untouched ledger, and ends with 0 and the count", () => {
   const path = ledgerWith(4);
   const result = howl(["verify", "--ledger", path]);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /\b5 lines\b/);
 });
 
-test("with one line changed it names the first line that fails and ends with 1", () => {
+test("with a field of an event changed and hash left as it was, it names that line: the hash does not match", () => {
   const path = ledgerWith(4);
-  const lines = rawLines(path);
-  // Line 3 is changed and is still a valid event. Line 4 holds the hash of what it was.
-  const changed = JSON.parse(lines[2]!);
-  changed.task = "another";
-  lines[2] = JSON.stringify(changed);
-  writeLines(path, lines);
-  failsAt(path, 4, /prev/);
+  changeLine(path, 3, (line) => {
+    line.event.task = "another";
+  });
+  failsAt(path, 3, /hash: .*not the hash of the event/);
+});
+
+test("with a field of an event changed and hash set right, it names the next line: prev does not match", () => {
+  const path = ledgerWith(4);
+  changeLine(path, 3, (line) => {
+    line.event.task = "another";
+    line.hash = eventHash(line.event as never);
+  });
+  failsAt(path, 4, /prev: /);
 });
 
 test("with one line removed it names the first line that fails and ends with 1", () => {
   const path = ledgerWith(4);
-  const lines = rawLines(path);
-  lines.splice(2, 1);
-  writeLines(path, lines);
-  failsAt(path, 3, /prev/);
+  const raw = rawLines(path);
+  raw.splice(2, 1);
+  writeLines(path, raw);
+  failsAt(path, 3, /prev: /);
 });
 
 test("with the first line removed it names line 1", () => {
   const path = ledgerWith(4);
   writeLines(path, rawLines(path).slice(1));
-  failsAt(path, 1, /prev/);
+  failsAt(path, 1, /prev: /);
 });
 
 test("with two lines swapped it names the first line that fails and ends with 1", () => {
   const path = ledgerWith(4);
-  const lines = rawLines(path);
-  [lines[2], lines[3]] = [lines[3]!, lines[2]!];
-  writeLines(path, lines);
-  failsAt(path, 3, /prev/);
+  const raw = rawLines(path);
+  [raw[2], raw[3]] = [raw[3]!, raw[2]!];
+  writeLines(path, raw);
+  failsAt(path, 3, /prev: /);
 });
 
 test("a line that is not JSON is named", () => {
   const path = ledgerWith(4);
-  const lines = rawLines(path);
-  lines[2] = "this is not JSON";
-  writeLines(path, lines);
-  failsAt(path, 3, /JSON/);
+  const raw = rawLines(path);
+  raw[2] = "this is not JSON";
+  writeLines(path, raw);
+  failsAt(path, 3, /not JSON/);
 });
 
-test("a line that does not follow the schema is named", () => {
+test("a line that does not follow the line schema is named", () => {
   const path = ledgerWith(2);
-  const lines = rawLines(path);
-  // Chained as it should be, but with a field the schema does not know.
-  const extra = { ...JSON.parse(lines[2]!), colour: "red", prev: sha256(lines[2]!) };
-  writeLines(path, [...lines, JSON.stringify(extra)]);
-  failsAt(path, 4, /colour/);
+  const raw = rawLines(path);
+  const extra = { ...(JSON.parse(raw[2]!) as Line), colour: "red" };
+  raw[2] = JSON.stringify(extra);
+  writeLines(path, raw);
+  failsAt(path, 3, /line: colour/);
+});
+
+test("an event that does not follow the event schema is named, also when hash and prev are right", () => {
+  const path = ledgerWith(2);
+  const raw = rawLines(path);
+  const event = { ...(JSON.parse(raw[2]!) as Line).event, colour: "red" };
+  const line = `{"prev":"${sha256(raw[2]!)}","hash":"${eventHash(event as never)}","event":${fixedForm(event).toString("utf8")}}`;
+  writeLines(path, [...raw, line]);
+  failsAt(path, 4, /event: colour/);
 });
 
 test("an empty file, and a last line without its line break, fail", () => {

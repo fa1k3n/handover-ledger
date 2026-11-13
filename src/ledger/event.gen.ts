@@ -3,7 +3,7 @@
 export type Name = string;
 
 /**
- * One line of the ledger: something that happened, who or what did it, and the hash of the line before.
+ * Something that happened, and who or what did it. An event does not know its place in a ledger: that belongs to the line.
  */
 export interface LedgerEvent {
   /**
@@ -144,8 +144,4 @@ export interface LedgerEvent {
   data?: {
     [k: string]: unknown;
   };
-  /**
-   * SHA-256, in hex, of the bytes of the line before as they stand in the file, without its line break. Null on the first line.
-   */
-  prev: string | null;
 }

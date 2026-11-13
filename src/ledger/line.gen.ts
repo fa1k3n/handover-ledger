@@ -1,0 +1,19 @@
+// Generated from schema/line.v0.schema.json by `npm run gen`. Do not edit.
+
+/**
+ * One line of the ledger: an event and its place in the chain. The event is checked against the event schema on its own.
+ */
+export interface LedgerLine {
+  /**
+   * SHA-256, in hex, of the bytes of the line before as they stand in the file, without its line break. Null on the first line.
+   */
+  prev: string | null;
+  /**
+   * SHA-256, in hex, of the event in its fixed form: the JSON Canonicalization Scheme, RFC 8785, in UTF-8.
+   */
+  hash: string;
+  /**
+   * The event, in its fixed form.
+   */
+  event: {};
+}

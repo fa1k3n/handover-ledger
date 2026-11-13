@@ -37,7 +37,9 @@ npm test            # every test
 npm run check       # type check, generated types up to date, every test
 ```
 
-`howl verify` checks a ledger: every line is JSON, follows the schema in [schema/event.v0.schema.json](schema/event.v0.schema.json), and holds the SHA-256 of the line before.
+A line of the ledger is `{"prev", "hash", "event"}`. The event does not know its place: `prev` and `hash` belong to the line ([schema/line.v0.schema.json](schema/line.v0.schema.json)). `hash` is the SHA-256 of the event in its fixed form, the JSON Canonicalization Scheme (RFC 8785), and the event stands in the line in that form.
+
+`howl verify` checks every line: it is JSON, it follows the line schema, its event follows [schema/event.v0.schema.json](schema/event.v0.schema.json), `hash` is the hash of the event, and `prev` is the SHA-256 of the line before.
 
 ```sh
 npm run howl -- verify --project example       # the ledger of a project

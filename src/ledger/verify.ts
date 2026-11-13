@@ -1,12 +1,15 @@
-// The check of a ledger file: every line is an event the schema accepts, and
-// every line holds the hash of the line before. It reads from the first line
-// and stops at the first line that fails. It writes nothing and takes no lock.
+// The check of a ledger file. For every line, from the first: it is JSON, it
+// follows the line schema, its event follows the event schema, `hash` is the
+// hash of the event, and `prev` is the hash of the line before. It stops at the
+// first line that fails. It writes nothing and takes no lock.
 //
 // What the check cannot show: lines cut off the end. The head it reports has
 // to be compared with one kept somewhere else.
 import { closeSync, openSync, readSync } from "node:fs";
+import { LedgerError } from "./errors.ts";
+import { eventHash } from "./fixed.ts";
 import { hashLine } from "./ledger.ts";
-import { eventFaults } from "./schema.ts";
+import { eventFaults, lineFaults, type LedgerLine } from "./schema.ts";
 
 export type Verdict =
   | { ok: true; lines: number; head: string; trial: boolean }
@@ -24,6 +27,7 @@ export function verify(path: string): Verdict {
     const expected = head;
     head = hashLine(bytes);
 
+    // 1. JSON
     if (bytes.length === 0) return ["the line is empty"];
     let value: unknown;
     try {
@@ -31,18 +35,31 @@ export function verify(path: string): Verdict {
     } catch {
       return ["the line is not JSON"];
     }
-    const faults = eventFaults(value);
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return faults;
-    const event = value as { type?: unknown; prev?: unknown; data?: { mode?: unknown } };
 
+    // 2. The line schema. Without it the other checks have nothing to stand on.
+    const faults = lineFaults(value).map((f) => `line: ${f}`);
+    if (faults.length > 0) return faults;
+    const line = value as LedgerLine;
+
+    // 3. The event schema, and the rules of the first line.
+    faults.push(...eventFaults(line.event).map((f) => `event: ${f}`));
     if (n === 1) {
-      if (event.type !== "ledger.created") faults.push("type: the first line must be ledger.created");
-      trial = event.data?.mode === "trial";
-    } else if (event.type === "ledger.created") {
-      faults.push("type: only the first line can be ledger.created");
+      if (line.event.type !== "ledger.created") faults.push("event: type: the first line must be ledger.created");
+      trial = line.event.data?.mode === "trial";
+    } else if (line.event.type === "ledger.created") {
+      faults.push("event: type: only the first line can be ledger.created");
     }
 
-    if (event.prev !== expected) {
+    // 4. hash
+    try {
+      if (eventHash(line.event) !== line.hash) faults.push("hash: is not the hash of the event: the event was changed");
+    } catch (e) {
+      if (!(e instanceof LedgerError)) throw e;
+      faults.push(`hash: the event has no fixed form: ${e.message}`);
+    }
+
+    // 5. prev
+    if (line.prev !== expected) {
       faults.push(
         n === 1
           ? "prev: is not null, so this is not the first line of a ledger: lines before it were removed"

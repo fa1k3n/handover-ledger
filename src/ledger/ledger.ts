@@ -1,8 +1,10 @@
-// The ledger file: one event per line, each line holding the hash of the line before.
+// The ledger file: one line per event. A line is {"prev", "hash", "event"}:
+// the event does not know its place, the line does.
 //
-// The hash is SHA-256 over the bytes of the line as they stand in the file,
-// without the line break. Nothing is re-serialised to check the chain, so a
-// shell script with sha256sum can check it as well.
+// `prev` is the SHA-256 of the bytes of the line before as they stand in the
+// file, without the line break; a shell script with sha256sum can check it.
+// `hash` is the SHA-256 of the event in its fixed form (fixed.ts), and the
+// event stands in the line in that form: the bytes hashed are the bytes in the file.
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -17,16 +19,15 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import { isCode, LedgerError } from "./errors.ts";
-import { eventFaults, FIELD_ORDER, type LedgerEvent } from "./schema.ts";
+import { fixedForm } from "./fixed.ts";
+import { eventFaults, type LedgerEvent } from "./schema.ts";
 
 export { LedgerError };
-
-/** An event before it is written: the writer sets the version and the link itself. */
-export type NewEvent = Omit<LedgerEvent, "v" | "prev">;
+export type { LedgerEvent };
 
 export interface LedgerWriter {
   /** Adds one event to the end of the ledger. Returns the hash of the new line. */
-  append(event: NewEvent): string;
+  append(event: LedgerEvent): string;
   /** Lets go of the lock. The writer writes no more. */
   close(): void;
 }
@@ -55,7 +56,7 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
       fd = openSync(path, "r+");
     }
     if (created) {
-      head = write(fd, 0, {
+      head = write(fd, 0, null, {
         v: 0,
         id: randomUUID(),
         time: new Date().toISOString(),
@@ -63,7 +64,6 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
         source: { adapter: "howl", kind: "observed" },
         project: options.project,
         data: { mode: "trial" },
-        prev: null,
       });
     } else {
       head = hashLine(lastLine(fd, path));
@@ -84,7 +84,7 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
           `not an event of this ledger: project is ${JSON.stringify(event.project)}, the ledger is ${JSON.stringify(options.project)}`,
         );
       }
-      head = write(file, fstatSync(file).size, { ...event, v: 0, prev: head });
+      head = write(file, fstatSync(file).size, head, event);
       return head;
     },
     close() {
@@ -96,27 +96,30 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
   };
 }
 
-/** Writes one event as a line at `at`. Refuses an event the schema does not accept; nothing is written then. */
-function write(fd: number, at: number, event: LedgerEvent): string {
-  const line = toLine(event);
+/**
+ * Writes one event as a line at `at`, after the line whose hash is `prev`.
+ * Refuses an event the schema does not accept; nothing is written then.
+ * Returns the hash of the line written.
+ */
+function write(fd: number, at: number, prev: string | null, event: LedgerEvent): string {
+  const line = toLine(prev, event);
   writeSync(fd, line, 0, line.length, at);
   fsyncSync(fd);
   return hashLine(line.subarray(0, -1));
 }
 
 /** The bytes of the line for an event, line break included. */
-function toLine(event: LedgerEvent): Buffer {
-  const ordered: Record<string, unknown> = {};
-  for (const field of FIELD_ORDER) {
-    if (event[field] !== undefined) ordered[field] = event[field];
-  }
-  // Fields the schema does not know are kept so that the check below names them.
-  for (const [field, value] of Object.entries(event)) {
-    if (!(field in ordered) && value !== undefined) ordered[field] = value;
-  }
-  const faults = eventFaults(ordered);
+function toLine(prev: string | null, event: LedgerEvent): Buffer {
+  // The event is checked as it will stand in the file, in its fixed form.
+  const fixed = fixedForm(event);
+  const faults = eventFaults(JSON.parse(fixed.toString("utf8")));
   if (faults.length > 0) throw new LedgerError(`not a valid event: ${faults.join("; ")}`);
-  return Buffer.from(JSON.stringify(ordered) + "\n", "utf8");
+  const hash = createHash("sha256").update(fixed).digest("hex");
+  return Buffer.concat([
+    Buffer.from(`{"prev":${JSON.stringify(prev)},"hash":"${hash}","event":`),
+    fixed,
+    Buffer.from("}\n"),
+  ]);
 }
 
 /** The bytes of the last line, read from the end of the file without reading the lines before it. */

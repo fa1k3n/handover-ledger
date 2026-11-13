@@ -83,7 +83,7 @@ An own schema; a CloudEvents envelope is an option. First draft of the fields:
 
 Types, to begin with: task assigned, change opened or updated, tests written, checks passed or failed, review approved or changes requested, finding fixed, dismissed or left open, change merged, level changed, rule broken, escalated to a person.
 
-An event does not know its place in a ledger. A line of the ledger holds the event, the hash of the event in its fixed form and `prev`, the SHA-256 of the line before. The same event can then wait in an inbox, and later be kept in more than one ledger.
+An event does not know its place in a ledger. A line of the ledger holds `prev`, the SHA-256 of the line before; `hash`, the SHA-256 of the event in its fixed form; and the event itself, in that fixed form. The fixed form is the JSON Canonicalization Scheme (RFC 8785), so that the Python package gives the same bytes as the engine. The same event can then wait in an inbox, and later be kept in more than one ledger.
 
 An event says what happened, not who shall do the next step. The dispatcher applies the rules.
 

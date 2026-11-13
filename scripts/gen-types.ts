@@ -1,17 +1,28 @@
-// Writes src/ledger/event.gen.ts from schema/event.v0.schema.json.
-// With --check it writes nothing and fails if the file is out of date.
+// Writes the TypeScript types in src/ledger/ from the schemas in schema/.
+// With --check it writes nothing and fails if a file is out of date.
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { compileFromFile } from "json-schema-to-typescript";
 
-const schema = new URL("../schema/event.v0.schema.json", import.meta.url);
-const target = new URL("../src/ledger/event.gen.ts", import.meta.url);
+const pairs = [
+  ["event.v0.schema.json", "event.gen.ts"],
+  ["line.v0.schema.json", "line.gen.ts"],
+] as const;
 
-const generated = await compileFromFile(schema.pathname, {
-  bannerComment: "// Generated from schema/event.v0.schema.json by `npm run gen`. Do not edit.",
-  additionalProperties: false,
-});
+const check = process.argv.includes("--check");
+let stale = false;
 
-if (process.argv.includes("--check")) {
+for (const [schema, types] of pairs) {
+  const source = fileURLToPath(new URL(`../schema/${schema}`, import.meta.url));
+  const target = new URL(`../src/ledger/${types}`, import.meta.url);
+  const generated = await compileFromFile(source, {
+    bannerComment: `// Generated from schema/${schema} by \`npm run gen\`. Do not edit.`,
+    additionalProperties: false,
+  });
+  if (!check) {
+    writeFileSync(target, generated);
+    continue;
+  }
   let current = "";
   try {
     current = readFileSync(target, "utf8");
@@ -19,9 +30,9 @@ if (process.argv.includes("--check")) {
     // A missing file is out of date.
   }
   if (current !== generated) {
-    console.error("src/ledger/event.gen.ts is out of date: run `npm run gen`");
-    process.exit(1);
+    console.error(`src/ledger/${types} is out of date: run \`npm run gen\``);
+    stale = true;
   }
-} else {
-  writeFileSync(target, generated);
 }
+
+if (stale) process.exit(1);

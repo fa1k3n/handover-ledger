@@ -28,6 +28,8 @@ Handover Ledger: an audit-ready ledger of handovers in teams of people and AI ag
 
 - Append-only, one JSON line per event, each line holding the SHA-256 of the line before.
 - An event does not know its place: `prev` and the hash of the event belong to the line, not to the event.
+- The fixed form of an event is JCS (RFC 8785). Only `fixedForm` and `eventHash` in `src/ledger/fixed.ts` make it.
+- Test vectors that must match byte for byte, escapes included, are kept in `test/fixtures/`, not written into the tests.
 - The chain holds evidence. Activity (tool calls) goes to a file of its own without a chain and expires.
 - Only an agent's session is recorded. A person is named by a pseudonym kept beside the ledger, and no figure is given per person.
 - Kept outside the repository, never under the working directory.

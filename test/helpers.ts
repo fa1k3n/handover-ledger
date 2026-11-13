@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after } from "node:test";
 import { fileURLToPath } from "node:url";
-import { openLedger, type NewEvent } from "../src/ledger/ledger.ts";
+import { openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
 
 const CLI = fileURLToPath(new URL("../src/cli/howl.ts", import.meta.url));
 
@@ -26,9 +26,10 @@ export function folder(): string {
 let count = 0;
 
 /** An event with every field that is always there, and a task of its own. */
-export function event(over: Partial<NewEvent> = {}): NewEvent {
+export function event(over: Partial<LedgerEvent> = {}): LedgerEvent {
   count++;
   return {
+    v: 0,
     id: `test-${count}`,
     time: "2026-01-02T03:04:05Z",
     type: "task.assigned",
@@ -48,10 +49,21 @@ export function ledgerWith(events: number, dir = folder()): string {
   return path;
 }
 
+/** A line of the ledger, read back. */
+export interface Line {
+  prev: string | null;
+  hash: string;
+  event: Record<string, unknown>;
+}
+
 /** The lines of a file as they stand in it, without their line breaks. */
 export function rawLines(path: string): string[] {
   const text = readFileSync(path, "utf8");
   return text.split("\n").slice(0, -1);
+}
+
+export function lines(path: string): Line[] {
+  return rawLines(path).map((line) => JSON.parse(line) as Line);
 }
 
 export function writeLines(path: string, lines: string[]): void {

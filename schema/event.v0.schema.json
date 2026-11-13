@@ -2,10 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:howl:event:0",
   "title": "LedgerEvent",
-  "description": "One line of the ledger: something that happened, who or what did it, and the hash of the line before.",
+  "description": "Something that happened, and who or what did it. An event does not know its place in a ledger: that belongs to the line.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["v", "id", "time", "type", "source", "project", "prev"],
+  "required": [
+    "v",
+    "id",
+    "time",
+    "type",
+    "source",
+    "project"
+  ],
   "properties": {
     "v": {
       "description": "Version of the line format.",
@@ -45,7 +52,10 @@
       "description": "Where the event comes from.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["adapter", "kind"],
+      "required": [
+        "adapter",
+        "kind"
+      ],
       "properties": {
         "adapter": {
           "description": "The adapter that read or received it.",
@@ -53,7 +63,10 @@
         },
         "kind": {
           "description": "observed: read from the team's tools. claimed: sent by a session about itself.",
-          "enum": ["observed", "claimed"]
+          "enum": [
+            "observed",
+            "claimed"
+          ]
         }
       }
     },
@@ -65,9 +78,17 @@
       "description": "The team member who did it.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "id"],
+      "required": [
+        "kind",
+        "id"
+      ],
       "properties": {
-        "kind": { "enum": ["person", "agent"] },
+        "kind": {
+          "enum": [
+            "person",
+            "agent"
+          ]
+        },
         "id": {
           "description": "The identity of the team member.",
           "$ref": "#/$defs/name"
@@ -94,7 +115,10 @@
       "description": "For an agent: the role prompt.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["file", "sha256"],
+      "required": [
+        "file",
+        "sha256"
+      ],
       "properties": {
         "file": {
           "description": "The file of the role prompt.",
@@ -134,19 +158,25 @@
     "requirements": {
       "description": "IDs of the requirements the event is linked to.",
       "type": "array",
-      "items": { "$ref": "#/$defs/name" },
+      "items": {
+        "$ref": "#/$defs/name"
+      },
       "uniqueItems": true
     },
     "clauses": {
       "description": "IDs of the clauses of those requirements.",
       "type": "array",
-      "items": { "$ref": "#/$defs/name" },
+      "items": {
+        "$ref": "#/$defs/name"
+      },
       "uniqueItems": true
     },
     "tests": {
       "description": "Names of the tests that cover them.",
       "type": "array",
-      "items": { "$ref": "#/$defs/name" },
+      "items": {
+        "$ref": "#/$defs/name"
+      },
       "uniqueItems": true
     },
     "level": {
@@ -163,29 +193,36 @@
       "description": "What belongs to this type of event only.",
       "type": "object",
       "additionalProperties": true
-    },
-    "prev": {
-      "description": "SHA-256, in hex, of the bytes of the line before as they stand in the file, without its line break. Null on the first line.",
-      "type": ["string", "null"],
-      "pattern": "^[0-9a-f]{64}$"
     }
   },
   "if": {
     "type": "object",
-    "required": ["type"],
-    "properties": { "type": { "const": "ledger.created" } }
+    "required": [
+      "type"
+    ],
+    "properties": {
+      "type": {
+        "const": "ledger.created"
+      }
+    }
   },
   "then": {
     "type": "object",
-    "required": ["data"],
+    "required": [
+      "data"
+    ],
     "properties": {
       "data": {
         "type": "object",
-        "required": ["mode"],
+        "required": [
+          "mode"
+        ],
         "properties": {
           "mode": {
             "description": "trial: the ledger serves observation and does not count as evidence.",
-            "enum": ["trial"]
+            "enum": [
+              "trial"
+            ]
           }
         }
       }
