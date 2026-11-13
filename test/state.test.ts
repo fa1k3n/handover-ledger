@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
-import { agentStates, WORKING_WITHIN_MS } from "../src/read/state.ts";
+import { agentStates, renderStatus, WORKING_WITHIN_MS } from "../src/read/state.ts";
 import { PROJECT } from "./helpers.ts";
 
 const NOW = Date.UTC(2026, 0, 1, 12, 0, 0);
@@ -46,10 +46,10 @@ test("#11: a session with tool calls a minute ago is working, with the last tool
   assert.equal(row!.last, ago(60));
 });
 
-test("#11: agent.waiting after the tool calls is waiting, and a later tool call makes it working again", () => {
+test("#11, #16: an idle wait after the tool calls is waiting, and a later tool call makes it working again", () => {
   const events = [
     tool("agent-1", 200, "Bash", "make"),
-    agentEvent("agent-1", "agent.waiting", 100, { data: { notification_type: "permission_prompt" } }),
+    agentEvent("agent-1", "agent.waiting", 100, { data: { notification_type: "idle_prompt" } }),
   ];
   assert.equal(agentStates(events, NOW)[0]!.state, "waiting");
   assert.equal(agentStates([...events, tool("agent-1", 30, "Edit", "src/a.ts")], NOW)[0]!.state, "working");
@@ -113,4 +113,37 @@ test("#11: two agents give two rows, the most recent first", () => {
     rows.map((r) => r.agent),
     ["agent-2", "agent-1"],
   );
+});
+
+test("#16: a permission prompt needs input; an idle prompt only waits; a later tool call is working", () => {
+  const ask = (kind: string) => [tool("agent-1", 200, "Bash", "make"), agentEvent("agent-1", "agent.waiting", 100, { data: { notification_type: kind } })];
+  assert.equal(agentStates(ask("permission_prompt"), NOW)[0]!.state, "needs-input");
+  assert.equal(agentStates(ask("elicitation_dialog"), NOW)[0]!.state, "needs-input");
+  assert.equal(agentStates(ask("idle_prompt"), NOW)[0]!.state, "waiting");
+  assert.equal(agentStates([...ask("permission_prompt"), tool("agent-1", 10, "Bash", "make")], NOW)[0]!.state, "working");
+});
+
+test("#16: rows that need input come first, before more recent ones", () => {
+  const rows = agentStates(
+    [
+      tool("agent-1", 300, "Bash", "make"),
+      agentEvent("agent-1", "agent.waiting", 250, { data: { notification_type: "permission_prompt" } }),
+      tool("agent-2", 5, "Read", "x"),
+    ],
+    NOW,
+  );
+  assert.deepEqual(
+    rows.map((r) => `${r.agent} ${r.state}`),
+    ["agent-1 needs-input", "agent-2 working"],
+  );
+});
+
+test("#16: howl status prints NEEDS INPUT first and counts it", () => {
+  const rows = agentStates(
+    [tool("agent-2", 5, "Read", "x"), agentEvent("agent-1", "agent.waiting", 60, { data: { notification_type: "permission_prompt" } })],
+    NOW,
+  );
+  const lines = renderStatus(rows, NOW).split("\n");
+  assert.match(lines[0]!, /^agent-1\s+NEEDS INPUT/);
+  assert.match(lines.at(-1)!, /1 needs? input/);
 });

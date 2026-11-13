@@ -29,9 +29,11 @@ const USAGE = `usage:
             kind=claimed, change=12. Colour unless NO_COLOR is set
   show      the timeline of one assignment, from the hand-over to the merge:
             12, task:12 or change:30
-  status    one line per agent: working, waiting, idle or ended, what it
-            works on, its model, its last tool and how long ago. --follow
-            redraws it every second
+  status    one line per agent: NEEDS INPUT, working, waiting, idle or ended,
+            what it works on, its model, its last tool and how long ago.
+            NEEDS INPUT is a wait for a person, as a permission prompt; an
+            agent that asks in the text of its answer looks done and shows
+            as waiting. --follow redraws it every second
   serve     the dashboard on http://127.0.0.1:4317: the team right now and the
             event stream. Read-only, on this machine only. Build the page
             first with npm run build:dashboard

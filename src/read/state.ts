@@ -3,7 +3,7 @@
 // rows out, the clock passed in. People are never a row.
 import type { LedgerEvent } from "../ledger/schema.ts";
 
-export type AgentState = "working" | "waiting" | "idle" | "ended";
+export type AgentState = "needs-input" | "working" | "waiting" | "idle" | "ended";
 
 /** A tool call or a session event within this time counts as working. */
 export const WORKING_WITHIN_MS = 5 * 60_000;
@@ -85,17 +85,25 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     if (task !== undefined) row.task = task;
     rows.push(row);
   }
-  return rows.sort((a, b) => Date.parse(b.last) - Date.parse(a.last));
+  const first = (r: AgentRow) => (r.state === "needs-input" ? 0 : 1);
+  return rows.sort((a, b) => first(a) - first(b) || Date.parse(b.last) - Date.parse(a.last));
 }
 
 /**
- * Waiting: its last event is a wait, or a stopped turn (it waits for its next
- * prompt). Ended: its session ended and nothing followed. Working: its last
+ * Needs input: its last event is a wait for a person (a permission prompt, a
+ * question from a tool), not the idle wait after a turn. An agent that asks in
+ * the text of its answer and ends its turn cannot be told from one that is
+ * done: that is waiting. Waiting: its last event is the idle wait, or a
+ * stopped turn (it waits for its next prompt). Ended: its session ended and nothing followed. Working: its last
  * event is recent. Idle otherwise.
  */
 function stateOf(last: LedgerEvent | undefined, now: number): AgentState {
   if (last === undefined) return "idle";
-  if (last.type === "agent.waiting" || last.type === "session.stopped") return "waiting";
+  if (last.type === "agent.waiting") {
+    const kind = (last.data as Record<string, unknown> | undefined)?.notification_type;
+    return kind === "idle_prompt" ? "waiting" : "needs-input";
+  }
+  if (last.type === "session.stopped") return "waiting";
   if (last.type === "session.ended") return "ended";
   return now - Date.parse(last.time) <= WORKING_WITHIN_MS ? "working" : "idle";
 }
@@ -124,9 +132,9 @@ export function worksOn(row: AgentRow): string {
     .join(" · ");
 }
 
-/** The agents waiting, for the team: how many, never who they wait for. */
-export function waitingCount(rows: AgentRow[]): number {
-  return rows.filter((r) => r.state === "waiting").length;
+/** How many agents are in a state, for the team: never who they wait for. */
+export function countOf(rows: AgentRow[], state: AgentState): number {
+  return rows.filter((r) => r.state === state).length;
 }
 
 /** The rows as lines for a terminal. */
@@ -134,7 +142,7 @@ export function renderStatus(rows: AgentRow[], now: number): string {
   if (rows.length === 0) return "no agent in the ledger yet";
   const table = rows.map((r) => [
     r.agent,
-    r.state,
+    r.state === "needs-input" ? "NEEDS INPUT" : r.state,
     worksOn(r) || (r.branch ?? "-"),
     [r.model, r.effort].filter(Boolean).join(" ") || "-",
     [r.tool, r.target].filter(Boolean).join(" ") || "-",
@@ -142,7 +150,7 @@ export function renderStatus(rows: AgentRow[], now: number): string {
   ]);
   const widths = table[0]!.map((_, c) => Math.max(...table.map((cells) => cells[c]!.length)));
   const lines = table.map((cells) => cells.map((cell, c) => (c === cells.length - 1 ? cell : cell.padEnd(widths[c]!))).join("  "));
-  const waiting = waitingCount(rows);
-  lines.push("", `${rows.length} agent${rows.length === 1 ? "" : "s"}, ${waiting} waiting`);
+  const needs = countOf(rows, "needs-input");
+  lines.push("", `${rows.length} agent${rows.length === 1 ? "" : "s"}, ${needs} need${needs === 1 ? "s" : ""} input, ${countOf(rows, "waiting")} waiting`);
   return lines.join("\n");
 }

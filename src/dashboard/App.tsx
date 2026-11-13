@@ -1,11 +1,11 @@
 // The dashboard page: the team right now and the event stream, read-only over howl serve.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { duration, type Handover, type KeyFigures } from "../read/overview.ts";
 import type { AgentRow, AgentState } from "../read/state.ts";
 import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
-import { concerns, decodedFields, detail, filterPairs, standsOut, whenShort } from "./format.ts";
+import { concerns, decodedFields, detail, filterPairs, standsOut, tabTitle, whenShort } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -40,8 +40,19 @@ export function App() {
       api.agents().then((a) => (setAgents(a), setError(null)), fail);
     }, [fail]),
     POLL_MS,
-    view === "stream",
   );
+
+  // The agents that need input: in the tab title, the header and, when turned on, a notification.
+  const needing = useMemo(() => (agents?.rows ?? []).filter((r) => r.state === "needs-input").map((r) => r.agent), [agents]);
+  const [notify, setNotify] = useNotify();
+  const seen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    document.title = tabTitle(needing.length);
+    if (seen.current !== null && notify === "on") {
+      for (const agent of needing) if (!seen.current.has(agent)) new Notification(texts.team.notification(agent));
+    }
+    seen.current = new Set(needing);
+  }, [needing, notify]);
 
   const [ledger, setLedger] = useState<api.LedgerState | null>(null);
   usePoll(
@@ -61,6 +72,12 @@ export function App() {
             <span className="text-[13px] text-mute">{view === "overview" ? texts.overview.subtitle : texts.subtitle}</span>
           </div>
           <div className="flex-1" />
+          {needing.length > 0 && (
+            <a href="#stream" className="flex items-center gap-2 rounded-full bg-accent px-3.5 py-2.5 text-sm font-semibold text-white no-underline">
+              <span className="h-2 w-2 rounded-full bg-white" />
+              {texts.needsInput(needing.length)}
+            </a>
+          )}
           <LedgerBadge ledger={ledger} />
         </div>
         {error && (
@@ -72,7 +89,7 @@ export function App() {
           <Overview onError={fail} />
         ) : (
           <>
-            <Team agents={agents} />
+            <Team agents={agents} notify={notify} onNotify={setNotify} />
             <Stream onError={fail} />
           </>
         )}
@@ -217,14 +234,45 @@ function Overview({ onError }: { onError: (e: unknown) => void }) {
   );
 }
 
+type Notify = "off" | "on" | "blocked" | "unsupported";
+
+/** Browser notifications, only after the viewer turns them on; the choice is kept in this browser. */
+function useNotify(): [Notify, () => void] {
+  const supported = typeof Notification !== "undefined";
+  const [state, setState] = useState<Notify>(() => {
+    if (!supported) return "unsupported";
+    if (Notification.permission === "denied") return "blocked";
+    try {
+      return Notification.permission === "granted" && localStorage.getItem("howl.notify") === "on" ? "on" : "off";
+    } catch {
+      return "off";
+    }
+  });
+  const toggle = useCallback(() => {
+    if (!supported) return;
+    const keep = (v: Notify) => {
+      try {
+        localStorage.setItem("howl.notify", v);
+      } catch {
+        // Kept for this visit only.
+      }
+      setState(v);
+    };
+    if (state === "on") return keep("off");
+    Notification.requestPermission().then((p) => (p === "granted" ? keep("on") : setState(p === "denied" ? "blocked" : "off")));
+  }, [state, supported]);
+  return [state, toggle];
+}
+
 const STATE_STYLE: Record<AgentState, { pill: string; dot: string }> = {
+  "needs-input": { pill: "bg-accent text-white font-semibold", dot: "bg-white" },
   working: { pill: "bg-ok-pale text-ok-ink", dot: "bg-ok" },
-  waiting: { pill: "bg-warn-pale text-warn-ink", dot: "bg-accent" },
+  waiting: { pill: "bg-[#e6eef8] text-[#1e3a5f]", dot: "bg-[#3b6ea5]" },
   idle: { pill: "bg-faint text-mute", dot: "bg-gray-400" },
   ended: { pill: "bg-faint text-mute", dot: "bg-ink" },
 };
 
-function Team({ agents }: { agents: api.Agents | null }) {
+function Team({ agents, notify, onNotify }: { agents: api.Agents | null; notify: Notify; onNotify: () => void }) {
   const rows = agents?.rows ?? [];
   const waiting = rows.filter((r) => r.state === "waiting").length;
   const th = "px-3 py-2 font-medium";
@@ -235,7 +283,20 @@ function Team({ agents }: { agents: api.Agents | null }) {
           {texts.team.heading}
         </h2>
         <span className="text-[13px] text-mute">{texts.team.note(waiting)}</span>
+        <div className="flex-1" />
+        {notify !== "unsupported" && (
+          <button
+            type="button"
+            onClick={onNotify}
+            disabled={notify === "blocked"}
+            aria-pressed={notify === "on"}
+            className="min-h-11 cursor-pointer rounded-lg border border-pale bg-white px-4 text-sm font-medium text-ink disabled:cursor-default disabled:text-mute"
+          >
+            {notify === "on" ? texts.team.notifyOff : notify === "blocked" ? texts.team.notifyBlocked : texts.team.notifyOn}
+          </button>
+        )}
       </div>
+      <p className="m-0 mb-1 text-[13px] text-mute">{texts.team.limit}</p>
       {agents && rows.length === 0 ? (
         <p className="m-0 text-mute">{texts.team.empty}</p>
       ) : (
@@ -266,7 +327,7 @@ function Team({ agents }: { agents: api.Agents | null }) {
 function AgentLine({ row, now }: { row: AgentRow; now: number }) {
   const style = STATE_STYLE[row.state];
   return (
-    <tr className="border-t border-faint">
+    <tr className={`border-t border-faint ${row.state === "needs-input" ? "bg-accent-pale" : ""}`}>
       <td className="py-3 pr-3">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] border-[1.5px] border-accent bg-accent-pale font-semibold text-accent">

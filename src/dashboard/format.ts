@@ -87,3 +87,8 @@ export function whenShort(time: string, now: number, timeZone?: string): string 
   if (day(at) === day(new Date(now))) return localTime(time, timeZone);
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(at).replace(",", "");
 }
+
+/** The title of the tab: the number of agents that need input first, so it shows from another tab. */
+export function tabTitle(needsInput: number): string {
+  return needsInput > 0 ? `(${needsInput}) Handover Ledger` : "Handover Ledger";
+}

@@ -1,7 +1,7 @@
 // The pure parts of the dashboard page: the tests of issue #12.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decodedFields, filterPairs, localTime, utcTime, whenShort } from "../src/dashboard/format.ts";
+import { decodedFields, filterPairs, localTime, tabTitle, utcTime, whenShort } from "../src/dashboard/format.ts";
 
 test("#12: the filter text is split into field=value pairs; empty gives none", () => {
   assert.deepEqual(filterPairs("  actor=agent-1   type=review.* "), ["actor=agent-1", "type=review.*"]);
@@ -76,4 +76,10 @@ test("#13: a time from another day shows its date; one from today only the time"
   assert.equal(whenShort("2026-11-12T21:14:00Z", now, "UTC"), "12 Nov 21:14");
   // Midnight is where the viewer is: 23:30 UTC on the 12th is the 13th in Stockholm.
   assert.equal(whenShort("2026-11-12T23:30:00Z", now, "Europe/Stockholm"), "00:30:00");
+});
+
+test("#16: the tab title starts with how many agents need input", () => {
+  assert.equal(tabTitle(0), "Handover Ledger");
+  assert.equal(tabTitle(1), "(1) Handover Ledger");
+  assert.equal(tabTitle(2), "(2) Handover Ledger");
 });
