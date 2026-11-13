@@ -4,6 +4,7 @@ export const texts = {
   brandSub: "Ledger",
   nav: { label: "Main menu", overview: "Overview", stream: "Team and stream" },
   project: "Project",
+  via: (account: string) => `via ${account}`,
   title: "Team and event stream",
   subtitle: "Read-only · times in local time",
   verified: (lines: number) => `Ledger verified · ${lines} lines`,

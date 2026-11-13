@@ -2,6 +2,7 @@
 // from changes and reviews, and the key figures. Pure: events in, rows out.
 // No figure is given per person.
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { actingAgents } from "./acting.ts";
 
 const DAY = 24 * 3600_000;
 /** The period of the figures. */
@@ -15,6 +16,8 @@ export interface Handover {
   /** An actor, or `merged` when the merge ends the chain. */
   to: string;
   step: "Implementation → review" | "Review → fix" | "Review → merge";
+  /** The person's account the agents acted through, when the code host named a person (#14). */
+  via?: string;
   /** The agent's model and effort at the time, when an agent hands over. */
   model?: string;
   effort?: string;
@@ -24,19 +27,24 @@ export interface Handover {
 /** The handovers, newest first. A review by the author of the change is none. */
 export function handovers(items: { event: LedgerEvent; hash?: string }[]): Handover[] {
   const sorted = byTime(items);
+  const acting = actingAgents(sorted.map((i) => i.event));
   const author = new Map<string, string>();
+  const authorVia = new Map<string, string>();
   const task = new Map<string, string>();
   const rows: Handover[] = [];
   for (const { event: e, hash } of sorted) {
     if (e.change === undefined) continue;
     if (e.task !== undefined) task.set(e.change, e.task);
-    const actor = e.actor?.id;
+    const matched = acting.get(e.id);
+    const actor = matched?.agent ?? e.actor?.id;
     if (e.type === "change.opened" && actor !== undefined) {
       author.set(e.change, actor);
+      if (matched) authorVia.set(e.change, matched.via);
       continue;
     }
     const by = author.get(e.change);
-    const base = { time: e.time, change: e.change, task: e.task ?? task.get(e.change), hash };
+    const via = matched?.via ?? authorVia.get(e.change);
+    const base = { time: e.time, change: e.change, task: e.task ?? task.get(e.change), hash, ...(via !== undefined && e.type.startsWith("review.") ? { via } : {}) };
     if (e.type.startsWith("review.") && actor !== undefined && by !== undefined && actor !== by) {
       rows.push(
         e.type === "review.changes_requested"

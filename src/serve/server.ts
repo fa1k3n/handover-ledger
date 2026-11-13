@@ -8,6 +8,7 @@ import { LedgerError } from "../ledger/errors.ts";
 import { isProjectName } from "../ledger/place.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
 import { activityBeside, byTime, Tail, type Read } from "../read/reader.ts";
+import { actingAgents } from "../read/acting.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
 import { agentStates } from "../read/state.ts";
 import { parseFilters, wantsActivity } from "../read/watch.ts";
@@ -48,6 +49,8 @@ export interface Item {
   event: Read["event"];
   /** The line as it stands in its file. */
   raw: string;
+  /** The agent behind a person's account at the code host, when one matches (#14). */
+  by?: string;
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -197,6 +200,12 @@ export function events(ledger: string, params: URLSearchParams): Item[] {
   const limit = Math.max(1, Math.min(5000, Number(params.get("limit") ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
 
   const items: Item[] = ledgerItems(ledger, after);
+  // Matched over the whole ledger, so a session before `after` still counts.
+  const acting = actingAgents((after > 0 ? ledgerItems(ledger) : items).map((i) => i.event));
+  for (const item of items) {
+    const by = acting.get(item.event.id)?.agent;
+    if (by !== undefined) item.by = by;
+  }
   if (params.get("activity") === "1" || wantsActivity(pairs)) {
     for (const r of new Tail(activityBeside(ledger), "activity").read()) items.push({ from: "activity", event: r.event, raw: r.raw });
   }

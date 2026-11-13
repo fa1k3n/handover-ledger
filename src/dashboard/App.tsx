@@ -245,6 +245,7 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
                     </td>
                     <td className="p-3 whitespace-nowrap">
                       {h.from} → {h.to === "merged" ? texts.overview.merged : h.to}
+                      {h.via && <span className="text-mute"> {texts.via(h.via)}</span>}
                     </td>
                     <td className="p-3">{h.step}</td>
                     <td className="p-3 font-mono text-[13px]">{[h.model, h.effort].filter(Boolean).join(" · ") || "–"}</td>
@@ -507,7 +508,15 @@ function Stream({ onError }: { onError: (e: unknown) => void; project: string })
                         </button>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{whenShort(item.event.time, Date.now())}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{item.event.actor?.id ?? "–"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {item.by ? (
+                          <>
+                            {item.by} <span className="text-mute">{texts.via(item.event.actor?.id ?? "")}</span>
+                          </>
+                        ) : (
+                          (item.event.actor?.id ?? "–")
+                        )}
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.event.type}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{concerns(item)}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-mute">{item.event.source.kind}</td>

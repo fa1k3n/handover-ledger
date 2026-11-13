@@ -10,6 +10,7 @@
 // per person. Everything is ordered and computed by `time`, never by the order
 // of the lines.
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { actingAgents, type Acting } from "./acting.ts";
 import { shortTime, zoneLine } from "./watch.ts";
 
 type Actor = NonNullable<LedgerEvent["actor"]>;
@@ -45,12 +46,13 @@ export interface Head {
 export interface ChangePart {
   change: string;
   branch?: string;
-  opened?: { time: string; actor?: Actor };
+  /** `by`: the agent behind a person's account, when one matches (#14). */
+  opened?: { time: string; actor?: Actor; by?: string };
   heads: Head[];
 }
 
 export interface Round {
-  reviews: { time: string; actor?: Actor; outcome: string }[];
+  reviews: { time: string; actor?: Actor; outcome: string; by?: string }[];
   /** The type of what came next: a new head, the merge, or none yet. */
   followedBy: string | null;
 }
@@ -131,15 +133,16 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   const events = all.filter((e) => !elsewhere(e) && (direct(e) || (e.session !== undefined && sessions.has(e.session))));
 
   const end = endOf(events);
+  const acting = actingAgents(all);
   return {
     task,
-    changes: changeParts(events, changes),
+    changes: changeParts(events, changes, acting),
     events,
     handover: events
       .filter((e) => e.type === "task.assigned")
       .map((e) => defined({ time: e.time, actor: e.actor, kind: e.source.kind })),
     sessions: sessionParts(events, activityFrom),
-    reviews: rounds(events),
+    reviews: rounds(events, acting),
     end,
     summary: summarise(events, end),
   };
@@ -185,7 +188,7 @@ function sessionParts(events: LedgerEvent[], activityFrom: string | null): Sessi
     .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
 }
 
-function changeParts(events: LedgerEvent[], changes: Set<string>): ChangePart[] {
+function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<string, Acting> = new Map()): ChangePart[] {
   const parts: ChangePart[] = [];
   for (const change of changes) {
     const own = events.filter((e) => e.change === change);
@@ -204,7 +207,7 @@ function changeParts(events: LedgerEvent[], changes: Set<string>): ChangePart[] 
       defined({
         change,
         branch: own.find((e) => e.branch)?.branch,
-        opened: opened ? defined({ time: opened.time, actor: opened.actor }) : undefined,
+        opened: opened ? defined({ time: opened.time, actor: opened.actor, by: acting.get(opened.id)?.agent }) : undefined,
         heads,
       }),
     );
@@ -213,7 +216,7 @@ function changeParts(events: LedgerEvent[], changes: Set<string>): ChangePart[] 
 }
 
 /** Reviews as rounds: a review after a new head commit starts a new round. */
-function rounds(events: LedgerEvent[]): Round[] {
+function rounds(events: LedgerEvent[], acting: Map<string, Acting> = new Map()): Round[] {
   const found: Round[] = [];
   let current: Round | null = null;
   let newHead = false;
@@ -225,7 +228,7 @@ function rounds(events: LedgerEvent[]): Round[] {
         found.push(current);
         newHead = false;
       }
-      current.reviews.push(defined({ time: e.time, actor: e.actor, outcome: e.type.slice("review.".length) }));
+      current.reviews.push(defined({ time: e.time, actor: e.actor, outcome: e.type.slice("review.".length), by: acting.get(e.id)?.agent }));
       lastReview = i;
     } else if (e.type === "change.updated" && current !== null) {
       newHead = true;
@@ -339,6 +342,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   const out: string[] = [];
   const who = (a?: Actor) => a?.id ?? "someone";
   const t = (time: string) => shortTime(time, options.utc ?? false);
+  const by = (agent: string | undefined, actor?: Actor) => (agent === undefined ? who(actor) : `${agent} via ${who(actor)}`);
   const title = shown.task !== undefined ? `Task ${shown.task}` : `Change ${shown.changes[0]?.change}`;
   out.push(`${title}: ${shown.end.state}`, "");
 
@@ -373,7 +377,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
 
   for (const c of shown.changes) {
     out.push("", `Change ${c.change}${c.branch ? `  branch ${c.branch}` : ""}`);
-    if (c.opened) out.push(`  ${t(c.opened.time)}  observed  opened by ${who(c.opened.actor)}`);
+    if (c.opened) out.push(`  ${t(c.opened.time)}  observed  opened by ${by(c.opened.by, c.opened.actor)}`);
     for (const [i, h] of c.heads.entries()) {
       const checks = h.checks ? `, checks ${h.checks} at ${t(h.checksTime!)}` : "";
       out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${checks}`);
@@ -383,7 +387,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   out.push("", "Reviews");
   if (shown.reviews.length === 0) out.push("  none");
   for (const [i, r] of shown.reviews.entries()) {
-    const reviews = r.reviews.map((x) => `${who(x.actor)} ${x.outcome.replace("_", " ")}`).join(", ");
+    const reviews = r.reviews.map((x) => `${by(x.by, x.actor)} ${x.outcome.replace("_", " ")}`).join(", ");
     const next = r.followedBy === null ? "" : `; followed by ${FOLLOWED[r.followedBy] ?? r.followedBy}`;
     out.push(`  round ${i + 1}: ${reviews}${next}`);
   }

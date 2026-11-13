@@ -40,6 +40,7 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
     { k: "Time", v: `${localTime(e.time, timeZone)} local · ${utcTime(e.time)}` },
     { k: "Type", v: e.type },
     actor ? { k: "Actor", v: actor } : null,
+    item.by !== undefined ? { k: "Acted by", v: `${item.by} (matched to its session)` } : null,
     { k: "Source", v: `${e.source.kind} · ${e.source.adapter}` },
     e.task !== undefined ? { k: "Task", v: e.task } : null,
     e.change !== undefined ? { k: "Change", v: e.change } : null,
