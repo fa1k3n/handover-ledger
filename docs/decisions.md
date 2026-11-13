@@ -5,7 +5,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 ## Decided
 
 - **Name:** Handover Ledger. The repository was first named Handoff Ledger by mistake and was renamed the same day; "handoff" also collides with a well-known product feature and with the broad term "agent handoff". The command is `how`. (2026-11-12)
-- **Own repository,** kept apart from the first user's development. The first user depends on Handover Ledger, never the other way round. Code is rewritten here against the schema, not copied. (2026-11-12)
+- **Own repository that stands entirely on its own.** It is tied to no other project: no shared code, field names or plans. (2026-11-13)
 - **Private first,** public when the event schema and `how verify` work and the licence is chosen. (2026-11-12)
 - **Several parts:** core, adapters, CLI, dashboard, VS Code extension. (2026-11-12)
 - **Open source with consulting** for the integration at clients. (2026-11-12)
@@ -43,7 +43,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 
 0. Before code: check the clause numbers of the control mapping and show it to two or three safety managers or an assessor; ask every team the five questions.
 1. The event schema, the hash chain, `how verify` and the local file adapter, which is also the test environment.
-2. An adapter that reads merge and pull requests. This is level 0. The first user is the first to run it.
+2. An adapter that reads merge and pull requests. This is level 0.
 3. Level 1: a runner for a reviewer, the rules around it, the share of dismissed findings.
 4. The evidence export and the control mapping for one safety standard.
 5. The requirements port: tables in the repository first, then one requirements tool.
@@ -57,4 +57,4 @@ The order in the first discussion was: core with ledger and two adapters, dashbo
 
 - A licence file.
 - The name check.
-- Read every document once more for anything that names a client, a private project's issues or a person.
+- Read every document once more for anything that names a client or a person.

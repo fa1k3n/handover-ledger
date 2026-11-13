@@ -52,9 +52,9 @@ Less covered: rules and governance independent of the tool, mixed teams of peopl
 ## Risks, said plainly
 
 - **Scope.** Core, CLI, dashboard, editor extension and several adapters are too much for one person at once. Build the smallest thing that serves levels 0 and 1, and wait with the rest until someone asks. This is where it fails if it fails.
-- **The reference is weak.** The first user is a private web application with one person. It shows the mechanism, not independence in the sense of a standard. The first real proof is a pilot with a client team.
+- **No reference yet.** Nothing has run with a team. The first real proof is a pilot with a client team, which is also the first that can show independence in the sense of a standard.
 - **A hash chain proves little alone.** A file that the same party both writes and keeps convinces no auditor without signing or keeping the last hash elsewhere.
-- **Noise at the first level.** In the first user's own runs about a quarter of a reviewing agent's doubts were unfounded. Developers stop reading a noisy reviewer. Measure the share of dismissed findings from the first day.
+- **Noise at the first level.** A reviewing agent raises doubts that turn out to be unfounded, and developers stop reading a noisy reviewer. Measure the share of dismissed findings from the first day.
 - **Complacency.** If people review less carefully because an agent already looked, the safety argument is undermined. Watch for it.
 - **The name.** "Handover" alone is used by other products, and "Ledger" is a well-known brand. Check package names, the domain and trade marks before the repository becomes public ([decisions.md](decisions.md)).
 

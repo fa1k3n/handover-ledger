@@ -41,7 +41,7 @@ The core knows only its own concepts: task, team member (agent or person), assig
 | Dashboard | Views over the ledger | No |
 | VS Code extension | The team and the chain per change, in the editor | No |
 
-The dashboard and the extension read only the ledger, so they work whatever the tracker. One repository, TypeScript throughout: the extension needs it and the first user's scripts are Node.
+The dashboard and the extension read only the ledger, so they work whatever the tracker. One repository, TypeScript throughout: the extension needs it.
 
 The first version only **records**: a ledger over a flow that exists (level 0). Steering comes after.
 
@@ -63,8 +63,6 @@ An own schema; a CloudEvents envelope is an option. First draft of the fields:
 | `requirements`, `clauses`, `tests` | The trace links ([traceability.md](traceability.md)) |
 | `level`, `class` | The level in force and the code class |
 | `prev` | SHA-256 of the line before |
-
-The names `v`, `rules`, `prev`, `sha`, `model`, `effort` and `prompt` are fixed: the first user writes its log with them.
 
 Types, to begin with: task assigned, change opened or updated, tests written, checks passed or failed, review approved or changes requested, finding fixed, dismissed or left open, change merged, level changed, rule broken, escalated to a person.
 

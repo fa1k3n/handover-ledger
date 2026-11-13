@@ -38,4 +38,4 @@ One repository, TypeScript throughout.
 
 ## A rule for this repository
 
-It holds only general material. Never a client's rules, flows, names or data, and nothing from a private project's issues or requirements.
+It holds only general material. Never a client's rules, flows, names or data.

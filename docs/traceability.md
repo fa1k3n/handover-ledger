@@ -18,7 +18,7 @@ For each link the ledger says who or what performed the step (a person, or an ag
 
 - **Requirements stay with the team.** The platform reads requirement IDs from the team's own tool (Polarion, DOORS, codebeamer, Jama, or tables in the repository) through a port, and records the links. It never becomes a requirements tool.
 - **The same gate for people and agents.** In a code class that demands it, a change without a link to a requirement does not go on. The check is mechanical.
-- **A link an agent claims is not enough.** An agent that writes the code and also states "this covers requirement X" is reporting on itself. The link is confirmed by the name of the test and by the reviewer, clause by clause. The lesson behind this: a clause without a test became a clause that was not built and still reported as done.
+- **A link an agent claims is not enough.** An agent that writes the code and also states "this covers requirement X" is reporting on itself. The link is confirmed by the name of the test and by the reviewer, clause by clause. Otherwise a clause without a test easily becomes a clause that is not built and still reported as done.
 - **Per clause, not per requirement.** A review answers, for each clause of each requirement of the task, which test would fail if the clause were not built.
 - **Tests name what they cover.** A test's name or comment starts with the ID of the requirement it covers, so the link can be read from the code and not only from a tool.
 - **The level is itself a recorded change.** The ledger shows which level was in force for the code class when the change was made, and who approved that level.
