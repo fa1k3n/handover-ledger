@@ -10,7 +10,7 @@ const USAGE = `usage:
   howl hook
   howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
   howl ingest [--project <name>] [--watch] [--interval <seconds>]
-  howl observe [--once] [--interval <seconds>]
+  howl observe [--once] [--interval <seconds>] [--since <date | now>]
   howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--utc] [--json] [--no-follow]
   howl show <task or change> [--utc] [--json]
   howl status [--follow] [--json]
@@ -235,6 +235,7 @@ async function emitCommand(args: string[]): Promise<number> {
 }
 
 async function ingestCommand(args: string[]): Promise<number> {
+  const signal = stopSignal();
   const { values } = parse(args, {
     project: { type: "string" },
     watch: { type: "boolean" },
@@ -263,11 +264,12 @@ async function ingestCommand(args: string[]): Promise<number> {
     if (pass.rejected > 0) console.error(`howl: ${pass.rejected} rejected, see ${places.inbox}/rejected`);
   };
 
-  return await repeat(values.watch ? interval : null, once, () => writer.close());
+  return await repeat(values.watch ? interval : null, once, () => writer.close(), signal);
 }
 
 async function observeCommand(args: string[]): Promise<number> {
-  const { values } = parse(args, { once: { type: "boolean" }, interval: { type: "string" } });
+  const signal = stopSignal();
+  const { values } = parse(args, { once: { type: "boolean" }, interval: { type: "string" }, since: { type: "string" } });
   const { findProject } = await import("../howl/project.ts");
   const { activityPath, cursorPath, inboxPath, ledgerPath, peoplePath } = await import("../ledger/place.ts");
   const { openLedger } = await import("../ledger/ledger.ts");
@@ -286,6 +288,18 @@ async function observeCommand(args: string[]): Promise<number> {
       throw new LedgerError(`task_from_branch in .howl/howl.yml is not a regular expression: ${found.taskFromBranch}`);
     }
   }
+  // #6: where the first round starts. Only without a cursor: it says where to go on.
+  let start: string | undefined;
+  if (values.since !== undefined) {
+    const { existsSync } = await import("node:fs");
+    if (existsSync(cursorPath(found.project))) {
+      throw new UsageError(`--since is for the first round only: ${cursorPath(found.project)} already says where to go on`);
+    }
+    const text = values.since === "now" ? new Date().toISOString() : /^\d{4}-\d{2}-\d{2}$/.test(values.since) ? `${values.since}T00:00:00Z` : values.since;
+    const time = /^\d{4}-\d{2}-\d{2}T/.test(text) ? Date.parse(text) : Number.NaN;
+    if (Number.isNaN(time)) throw new UsageError(`--since ${values.since}: give a date (2026-11-01), a time in UTC or now`);
+    start = new Date(time).toISOString();
+  }
   const host = await codeHost(found);
 
   const { project } = found;
@@ -301,6 +315,7 @@ async function observeCommand(args: string[]): Promise<number> {
       people: new People(peoplePath(project)),
       settings: found,
       warn: (message) => console.error(`howl: ${message}`),
+      start,
     });
   } catch (e) {
     writer.close();
@@ -314,7 +329,7 @@ async function observeCommand(args: string[]): Promise<number> {
     }
     if (pass.rejected > 0) console.error(`howl: ${pass.rejected} rejected, see ${inboxPath(project)}/rejected`);
   };
-  return await repeat(values.once ? null : interval, once, () => writer.close());
+  return await repeat(values.once ? null : interval, once, () => writer.close(), signal);
 }
 
 /** The ledger to read: --ledger, else that of --project, else that of the nearest .howl/howl.yml. */
@@ -511,42 +526,61 @@ async function githubToken(): Promise<string> {
 }
 
 /**
+ * A stop asked for by SIGINT or SIGTERM, listened for from the moment it is made:
+ * made before a writer takes the lock, a signal in between is never the
+ * default kill that leaves the lock behind (#7).
+ */
+function stopSignal() {
+  const s = { stopped: false, wake: undefined as (() => void) | undefined, off: () => {} };
+  const stop = () => {
+    s.stopped = true;
+    s.wake?.();
+  };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  s.off = () => {
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+  };
+  return s;
+}
+
+/**
  * Runs `once`, then again every `interval` seconds until the process is stopped;
  * with no interval, only once. `close` runs at the end, whatever happens.
  */
-async function repeat(interval: number | null, once: () => void | Promise<void>, close: () => void): Promise<number> {
+async function repeat(
+  interval: number | null,
+  once: () => void | Promise<void>,
+  close: () => void,
+  signal: ReturnType<typeof stopSignal> = stopSignal(),
+): Promise<number> {
   if (interval === null) {
     try {
-      await once();
+      if (!signal.stopped) await once();
     } finally {
+      signal.off();
       close();
     }
     return 0;
   }
   // #7: the wait's timer is cleared when stopped, so the process ends at once instead of after the interval.
-  let stopped = false;
-  let wake: (() => void) | undefined;
   let timer: NodeJS.Timeout | undefined;
-  const stop = () => {
-    stopped = true;
-    clearTimeout(timer);
-    wake?.();
-  };
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
   try {
-    while (!stopped) {
+    while (!signal.stopped) {
       await once();
-      if (stopped) break;
+      if (signal.stopped) break;
       await new Promise<void>((resolve) => {
-        wake = resolve;
+        signal.wake = () => {
+          clearTimeout(timer);
+          resolve();
+        };
         timer = setTimeout(resolve, interval * 1000);
       });
     }
   } finally {
     clearTimeout(timer);
-    process.off("SIGINT", stop);
-    process.off("SIGTERM", stop);
+    signal.off();
     close();
   }
   return 0;
