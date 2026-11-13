@@ -79,3 +79,11 @@ export function standsOut(item: Item): "warn" | "error" | null {
   if (e.type === "agent.waiting" && (e.data as Record<string, unknown> | undefined)?.notification_type !== "idle_prompt") return "warn";
   return null;
 }
+
+/** The time of day for an event of today, else its date and time: 12 Nov 21:14. Days are the viewer's. */
+export function whenShort(time: string, now: number, timeZone?: string): string {
+  const day = (t: Date) => new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone }).format(t);
+  const at = new Date(time);
+  if (day(at) === day(new Date(now))) return localTime(time, timeZone);
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(at).replace(",", "");
+}

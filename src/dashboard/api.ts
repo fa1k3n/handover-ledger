@@ -1,4 +1,5 @@
 // The dashboard's calls to howl serve: read-only JSON.
+import type { Handover, KeyFigures } from "../read/overview.ts";
 import type { AgentRow } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 
@@ -20,6 +21,7 @@ async function get<T>(path: string): Promise<T> {
 
 export const agents = () => get<Agents>("/api/agents");
 export const ledger = () => get<LedgerState>("/api/ledger");
+export const overview = () => get<{ now: number; figures: KeyFigures; handovers: Handover[] }>("/api/overview");
 
 export function events(filters: string[], activity: boolean, limit = 200): Promise<{ now: number; events: Item[] }> {
   const q = new URLSearchParams();

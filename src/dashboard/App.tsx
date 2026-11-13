@@ -1,10 +1,11 @@
 // The dashboard page: the team right now and the event stream, read-only over howl serve.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { duration, type Handover, type KeyFigures } from "../read/overview.ts";
 import type { AgentRow, AgentState } from "../read/state.ts";
 import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
-import { concerns, decodedFields, detail, filterPairs, localTime, standsOut } from "./format.ts";
+import { concerns, decodedFields, detail, filterPairs, standsOut, whenShort } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -20,7 +21,16 @@ function usePoll(fn: () => void, ms: number, active = true) {
   }, [fn, ms, active]);
 }
 
+type View = "overview" | "stream";
+const viewOf = (hash: string): View => (hash === "#stream" ? "stream" : "overview");
+
 export function App() {
+  const [view, setView] = useState<View>(() => viewOf(location.hash));
+  useEffect(() => {
+    const changed = () => setView(viewOf(location.hash));
+    addEventListener("hashchange", changed);
+    return () => removeEventListener("hashchange", changed);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const fail = useCallback((e: unknown) => setError((e as Error).message), []);
 
@@ -30,6 +40,7 @@ export function App() {
       api.agents().then((a) => (setAgents(a), setError(null)), fail);
     }, [fail]),
     POLL_MS,
+    view === "stream",
   );
 
   const [ledger, setLedger] = useState<api.LedgerState | null>(null);
@@ -42,12 +53,12 @@ export function App() {
 
   return (
     <div className="min-h-screen">
-      <Header />
+      <Header view={view} />
       <main className="mx-auto flex max-w-[1360px] flex-col gap-5 px-4 py-6 sm:px-8">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <div className="flex flex-col gap-1">
-            <h1 className="m-0 text-[26px] font-semibold tracking-tight">{texts.title}</h1>
-            <span className="text-[13px] text-mute">{texts.subtitle}</span>
+            <h1 className="m-0 text-[26px] font-semibold tracking-tight">{view === "overview" ? texts.overview.title : texts.title}</h1>
+            <span className="text-[13px] text-mute">{view === "overview" ? texts.overview.subtitle : texts.subtitle}</span>
           </div>
           <div className="flex-1" />
           <LedgerBadge ledger={ledger} />
@@ -57,14 +68,22 @@ export function App() {
             {texts.error(error)}
           </p>
         )}
-        <Team agents={agents} />
-        <Stream onError={fail} />
+        {view === "overview" ? (
+          <Overview onError={fail} />
+        ) : (
+          <>
+            <Team agents={agents} />
+            <Stream onError={fail} />
+          </>
+        )}
       </main>
     </div>
   );
 }
 
-function Header() {
+function Header({ view }: { view: View }) {
+  const tab = (active: boolean) =>
+    `rounded-lg px-3.5 py-2.5 no-underline ${active ? "bg-white/10 font-medium text-white" : "text-pale hover:text-white"}`;
   return (
     <header className="bg-ink text-white">
       <div className="mx-auto flex max-w-[1360px] flex-wrap items-center gap-x-7 gap-y-4 px-4 py-4 sm:px-8">
@@ -85,7 +104,10 @@ function Header() {
           </div>
         </div>
         <nav aria-label={texts.nav.label} className="flex flex-wrap gap-1">
-          <a href="#" aria-current="page" className="rounded-lg bg-white/10 px-3.5 py-2.5 font-medium text-white no-underline">
+          <a href="#overview" aria-current={view === "overview" ? "page" : undefined} className={tab(view === "overview")}>
+            {texts.nav.overview}
+          </a>
+          <a href="#stream" aria-current={view === "stream" ? "page" : undefined} className={tab(view === "stream")}>
             {texts.nav.stream}
           </a>
         </nav>
@@ -107,6 +129,91 @@ function LedgerBadge({ ledger }: { ledger: api.LedgerState | null }) {
       {texts.verified(ledger.lines)}
       {ledger.trial && <span className="text-mute">· {texts.trial}</span>}
     </div>
+  );
+}
+
+function Overview({ onError }: { onError: (e: unknown) => void }) {
+  const [data, setData] = useState<{ figures: KeyFigures; handovers: Handover[] } | null>(null);
+  usePoll(
+    useCallback(() => {
+      api.overview().then(setData, onError);
+    }, [onError]),
+    LEDGER_POLL_MS,
+  );
+  const f = data?.figures;
+  const tiles = f
+    ? [
+        { label: texts.overview.open, value: String(f.open), note: texts.overview.openNote },
+        { label: texts.overview.lead, value: f.leadTimeMedianMs === null ? texts.overview.none : duration(f.leadTimeMedianMs), note: texts.overview.leadNote(f.periodDays) },
+        {
+          label: texts.overview.rounds,
+          value: f.reviewRoundsMean === null ? texts.overview.none : f.reviewRoundsMean.toFixed(1),
+          note: texts.overview.roundsNote(f.periodDays, f.merged),
+        },
+      ]
+    : [];
+  const th = "px-3 py-2.5 font-medium";
+  return (
+    <>
+      <section aria-label={texts.overview.figures} className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
+        {tiles.map((t) => (
+          <div key={t.label} className="flex flex-col gap-1.5 rounded-xl border border-line bg-white px-5 py-[18px]">
+            <span className="text-[13px] text-mute">{t.label}</span>
+            <span className="text-3xl font-semibold tracking-tight">{t.value}</span>
+            <span className="text-[13px] text-mute">{t.note}</span>
+          </div>
+        ))}
+      </section>
+      <section aria-labelledby="ho-h" className="flex flex-col gap-3.5 rounded-xl border border-line bg-white px-6 py-[22px]">
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+          <h2 id="ho-h" className="m-0 text-lg font-semibold">
+            {texts.overview.heading}
+          </h2>
+          <span className="text-[13px] text-mute">{texts.overview.note}</span>
+          <div className="flex-1" />
+          <a href="#stream" className="py-2.5 text-sm font-medium text-ink">
+            {texts.overview.toStream}
+          </a>
+        </div>
+        {data && data.handovers.length === 0 ? (
+          <p className="m-0 text-mute">{texts.overview.empty}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs tracking-wider text-mute uppercase">
+                  <th scope="col" className={`${th} pl-0`}>{texts.overview.cols.time}</th>
+                  <th scope="col" className={th}>{texts.overview.cols.change}</th>
+                  <th scope="col" className={th}>{texts.overview.cols.fromTo}</th>
+                  <th scope="col" className={th}>{texts.overview.cols.step}</th>
+                  <th scope="col" className={th}>{texts.overview.cols.model}</th>
+                  <th scope="col" className={`${th} pr-0`}>{texts.overview.cols.hash}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.handovers ?? []).map((h) => (
+                  <tr key={`${h.time}-${h.change}-${h.step}-${h.from}`} className="border-t border-line">
+                    <td className="py-3 pr-3 font-mono text-[13px] whitespace-nowrap">{whenShort(h.time, Date.now())}</td>
+                    <td className="p-3">
+                      <div className="font-medium">{texts.overview.change(h.change)}</div>
+                      {h.task !== undefined && <div className="text-[13px] text-mute">{texts.overview.task(h.task)}</div>}
+                    </td>
+                    <td className="p-3 whitespace-nowrap">
+                      {h.from} → {h.to === "merged" ? texts.overview.merged : h.to}
+                    </td>
+                    <td className="p-3">{h.step}</td>
+                    <td className="p-3 font-mono text-[13px]">{[h.model, h.effort].filter(Boolean).join(" · ") || "–"}</td>
+                    <td className="py-3 pl-3 font-mono text-[13px] text-mute" title={h.hash}>
+                      {h.hash ? `${h.hash.slice(0, 4)}…${h.hash.slice(-4)}` : "–"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -310,7 +417,7 @@ function Stream({ onError }: { onError: (e: unknown) => void }) {
                           {label}
                         </button>
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap">{localTime(item.event.time)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{whenShort(item.event.time, Date.now())}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.event.actor?.id ?? "–"}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.event.type}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{concerns(item)}</td>

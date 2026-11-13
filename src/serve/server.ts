@@ -7,6 +7,7 @@ import { extname, join, normalize, sep } from "node:path";
 import { LedgerError } from "../ledger/errors.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
 import { activityBeside, byTime, Tail, type Read } from "../read/reader.ts";
+import { handovers, keyFigures } from "../read/overview.ts";
 import { agentStates } from "../read/state.ts";
 import { parseFilters, wantsActivity } from "../read/watch.ts";
 
@@ -107,6 +108,12 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     case "/api/events":
       json(res, 200, { now: Date.now(), events: events(options.ledger, url.searchParams) });
       return;
+    case "/api/overview": {
+      const now = Date.now();
+      const items = ledgerItems(options.ledger);
+      json(res, 200, { now, figures: keyFigures(items.map((i) => i.event), now), handovers: handovers(items).slice(0, 50) });
+      return;
+    }
     case "/api/ledger": {
       const v = ledgerVerdict();
       json(res, 200, v.ok ? { ok: true, lines: v.lines, head: v.head, trial: v.trial } : { ok: false, lines: v.lines, line: v.line, faults: v.faults });
@@ -124,8 +131,21 @@ export function events(ledger: string, params: URLSearchParams): Item[] {
   const after = Number(params.get("after") ?? 0) || 0;
   const limit = Math.max(1, Math.min(5000, Number(params.get("limit") ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
 
+  const items: Item[] = ledgerItems(ledger, after);
+  if (params.get("activity") === "1" || wantsActivity(pairs)) {
+    for (const r of new Tail(activityBeside(ledger), "activity").read()) items.push({ from: "activity", event: r.event, raw: r.raw });
+  }
+  const sorted = items
+    .map((item, i) => ({ item, i, t: Date.parse(item.event.time) }))
+    .sort((a, b) => a.t - b.t || a.i - b.i)
+    .map((x) => x.item)
+    .filter((item) => filters.every((f) => f(item.event)));
+  return sorted.slice(-limit);
+}
+
+/** The lines of the ledger after line `after`, numbered by their place in the file, so a line howl cannot read still counts. */
+export function ledgerItems(ledger: string, after = 0): Item[] {
   const items: Item[] = [];
-  // Numbered by their place in the file, so a line howl cannot read still counts.
   const text = readFileSync(ledger, "utf8");
   const whole = text.slice(0, text.lastIndexOf("\n") + 1).split("\n").slice(0, -1);
   whole.forEach((raw, i) => {
@@ -139,15 +159,7 @@ export function events(ledger: string, params: URLSearchParams): Item[] {
       // Not a line howl can read: `howl verify` names it.
     }
   });
-  if (params.get("activity") === "1" || wantsActivity(pairs)) {
-    for (const r of new Tail(activityBeside(ledger), "activity").read()) items.push({ from: "activity", event: r.event, raw: r.raw });
-  }
-  const sorted = items
-    .map((item, i) => ({ item, i, t: Date.parse(item.event.time) }))
-    .sort((a, b) => a.t - b.t || a.i - b.i)
-    .map((x) => x.item)
-    .filter((item) => filters.every((f) => f(item.event)));
-  return sorted.slice(-limit);
+  return items;
 }
 
 function file(res: ServerResponse, root: string, pathname: string): void {

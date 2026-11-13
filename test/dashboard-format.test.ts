@@ -1,7 +1,7 @@
 // The pure parts of the dashboard page: the tests of issue #12.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decodedFields, filterPairs, localTime, utcTime } from "../src/dashboard/format.ts";
+import { decodedFields, filterPairs, localTime, utcTime, whenShort } from "../src/dashboard/format.ts";
 
 test("#12: the filter text is split into field=value pairs; empty gives none", () => {
   assert.deepEqual(filterPairs("  actor=agent-1   type=review.* "), ["actor=agent-1", "type=review.*"]);
@@ -68,4 +68,12 @@ test("#12: a tool call is decoded as activity, with no line or hash", () => {
   assert.equal(fields.find((f) => f.k === "Line"), undefined);
   assert.equal(fields.find((f) => f.k === "File")?.v, "activity.jsonl");
   assert.equal(fields.find((f) => f.k === "Tool")?.v, "Bash make succeeded");
+});
+
+test("#13: a time from another day shows its date; one from today only the time", () => {
+  const now = Date.parse("2026-11-13T15:00:00Z");
+  assert.equal(whenShort("2026-11-13T09:40:18Z", now, "UTC"), "09:40:18");
+  assert.equal(whenShort("2026-11-12T21:14:00Z", now, "UTC"), "12 Nov 21:14");
+  // Midnight is where the viewer is: 23:30 UTC on the 12th is the 13th in Stockholm.
+  assert.equal(whenShort("2026-11-12T23:30:00Z", now, "Europe/Stockholm"), "00:30:00");
 });
