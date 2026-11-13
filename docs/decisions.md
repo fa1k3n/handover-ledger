@@ -20,6 +20,9 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **An event does not know its place in a ledger:** `prev` and the hash of the event belong to the line. (2026-11-13)
 - **Agents are measured one by one, people only as a team.** Only an agent's session is recorded; a person is named by a pseudonym kept beside the ledger. (2026-11-13)
 - **Evidence and activity are kept apart:** the chain holds the handovers, tool calls go to a file of their own and expire. (2026-11-13)
+- **A first dashboard now,** because the first user asked for it: the team right now and the event stream, then the overview, and only what the ledger already holds (#10 to #13). The rest of the design waits for its data. (2026-11-13)
+- **The dashboard is React with Tailwind,** in TypeScript, built with Vite, in the same package. (2026-11-13)
+- **CEL filters later:** the first filters are `field=value` pairs; a CEL expression filter replaces them when more is needed. (2026-11-13)
 
 ## Proposed, not yet answered
 
@@ -57,7 +60,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 5. The requirements port: tables in the repository first, then one requirements tool.
 6. Level 2: the tracker adapter, the dispatcher, named agents.
 7. Level 3: conditional merge, with shadow mode first.
-8. Dashboard and VS Code extension when someone asks for them. An init command and documentation along the way.
+8. A first dashboard came forward on 2026-11-13 (see Decided); the rest of it and the VS Code extension when someone asks for them. An init command and documentation along the way.
 
 The order in the first discussion was: core with ledger and two adapters, dashboard, documentation and init command, Jira adapter, control mapping. It was changed because levels 0 and 1 need only the ledger, a reader of merge requests and a runner, and because the control mapping decides what the ledger has to hold.
 
