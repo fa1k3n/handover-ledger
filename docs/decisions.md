@@ -24,6 +24,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **The dashboard is React with Tailwind,** in TypeScript, built with Vite, in the same package. (2026-11-13)
 - **CEL filters later:** the first filters are `field=value` pairs; a CEL expression filter replaces them when more is needed. (2026-11-13)
 - **Anchoring first, signing optional.** The ledger's head is kept outside the machine that writes it as checkpoints on `refs/howl/checkpoints` of the observed repository, pushed to its remote; a checkpoint may be signed with an SSH key. What a session claims is signed with a key per assignment. A Merkle tree and a transparency log come later. (2026-11-13)
+- **The log follows the repository; a central server is witness, index and dashboard.** Evidence is kept in a git reference of its own in the observed repository (not in the working tree) and travels with every push, so it works offline and in closed networks and a supplier can hand the repository over with its log. A push reaches the code host, not howl's server: the server reads `refs/howl/*` from the code host, or is told by a webhook when they move. When a session can reach the server, its hook also sends each event live, and keeps it locally when it cannot; the reference is the durable path, the live stream is for seeing at once. The server keeps the signed roots it has seen, as a witness that a reference was not rewritten, and the code host refuses force pushes to `refs/howl/*`. Tool calls stay local. The tie of a pseudonym to a person never goes into the repository. Before the server is built, the storage changes from one writer's chain to events as files named by their hash, with signed roots (#27). (2026-11-13)
 
 ## Proposed, not yet answered
 
@@ -57,7 +58,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **The number of review rounds** before a person is asked: two or three.
 - **A separate test author** as a role of its own, or tests written by the one who builds.
 - **The name of the configuration:** a `.howl/` folder in the repository is the suggestion, with `howl.yml` in it.
-- **From the target picture** ([target.md](target.md)): which rule pack comes first; OSCAL and CEL, or simpler forms; how much of the handling of vulnerabilities belongs to the core; where the agents' manifests live; a log in a git reference of the repository; a Merkle tree in place of the chain.
+- **From the target picture** ([target.md](target.md)): which rule pack comes first; OSCAL and CEL, or simpler forms; how much of the handling of vulnerabilities belongs to the core; where the agents' manifests live.
 
 ## The order of the work
 
