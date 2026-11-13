@@ -57,5 +57,5 @@ project: example
 What a team programs itself is Python or a shell script ([architecture.md](architecture.md)). `howl emit` writes an event from a script without building the JSON by hand:
 
 ```sh
-howl emit check.passed --change 123 --data '{"check":"static-analysis"}'
+howl emit checks.passed --change 123 --data '{"check":"static-analysis"}'
 ```

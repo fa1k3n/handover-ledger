@@ -37,7 +37,12 @@ export interface LedgerEvent {
     | "finding.left_open"
     | "level.changed"
     | "rule.broken"
-    | "escalation.raised";
+    | "escalation.raised"
+    | "session.started"
+    | "tool.used"
+    | "agent.waiting"
+    | "session.stopped"
+    | "session.ended";
   /**
    * Where the event comes from.
    */

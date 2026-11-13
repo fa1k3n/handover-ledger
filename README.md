@@ -48,7 +48,7 @@ npm run howl -- verify --ledger path/to/ledger.jsonl
 
 It ends with 0 when the ledger holds, 1 when it does not, naming the first line that fails and why, and 2 when there is no ledger to read. It writes nothing and takes no lock.
 
-The ledger of a project lies in `$HOWL_HOME`, else `$XDG_STATE_HOME/howl`, else `~/.local/state/howl`, as `<project>/ledger.jsonl`. Never inside a repository. Nothing writes to it from the command line yet: `howl hook` and `howl ingest` come next.
+The ledger of a project lies in `$HOWL_HOME`, else `$XDG_STATE_HOME/howl`, else `~/.local/state/howl`, as `<project>/ledger.jsonl`. Never inside a repository. Beside it are `activity.jsonl` and the `inbox/`.
 
 The chain can also be checked without `howl`. The `prev` of line 3 is the hash of line 2 without its line break:
 
@@ -57,6 +57,60 @@ sed -n 2p ledger.jsonl | tr -d '\n' | sha256sum
 ```
 
 A chain shows a line that was changed, removed or moved. It does not show lines cut off the end: compare the head that `howl verify` prints with one kept somewhere else.
+
+## Recording a coding agent
+
+`howl` beside a repository where Claude Code works, recording only ([docs/observation.md](docs/observation.md)). Below, `/path/to/handover-ledger` is where this repository is checked out.
+
+**1. Name the project** in the repository that is observed:
+
+```yaml
+# .howl/howl.yml
+project: example
+activity_days: 30     # how long tool calls are kept; 30 when left out
+```
+
+**2. Name the agent.** Only an agent's session is recorded; a person's session leaves nothing. Set `HOWL_ACTOR` in the agent's environment, or put the agent's name as the one line of `.howl/actor` and let git ignore that file:
+
+```sh
+echo agent-1 > .howl/actor
+echo .howl/actor >> .gitignore
+```
+
+**3. Add the hooks** to `.claude/settings.json` of the repository:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node /path/to/handover-ledger/src/cli/howl.ts hook", "timeout": 5 }] }],
+    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/handover-ledger/src/cli/howl.ts hook", "async": true }] }],
+    "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/handover-ledger/src/cli/howl.ts hook", "async": true }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "node /path/to/handover-ledger/src/cli/howl.ts hook", "timeout": 5 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node /path/to/handover-ledger/src/cli/howl.ts hook", "timeout": 5 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node /path/to/handover-ledger/src/cli/howl.ts hook", "timeout": 5 }] }]
+  }
+}
+```
+
+A hook takes about 0.2 seconds, most of it the start of Node. The tool calls run `async`, so a session does not wait for them. `howl hook` prints nothing and always ends with 0: it never disturbs the session, also when the ledger cannot be reached.
+
+**4. Bring the events in.** Hooks only leave files in the inbox. One process writes them into the ledger:
+
+```sh
+cd the/observed/repository
+node /path/to/handover-ledger/src/cli/howl.ts ingest --watch      # or without --watch, for one pass
+node /path/to/handover-ledger/src/cli/howl.ts verify --project example
+```
+
+A session's start, its end and every wait for a person go into the chain. Tool calls are activity: they go to `activity.jsonl`, one event per line with no chain, and are removed after `activity_days`. A tool call keeps the tool, the path within the repository or the name of the program, the outcome and a hash of the input; never the input, the answer or a message. A file in the inbox that is not a valid event is moved to `inbox/rejected/` with the reason beside it.
+
+**From a script.** `howl emit` leaves an event in the inbox, with the agent from `HOWL_ACTOR` or `.howl/actor` when there is one. It ends with 1 and says why when the type or the JSON is wrong:
+
+```sh
+#!/bin/sh
+if make check; then result=checks.passed; else result=checks.failed; fi
+node /path/to/handover-ledger/src/cli/howl.ts emit "$result" --change "$CHANGE" --data '{"check":"make check"}'
+```
 
 ## Documents
 

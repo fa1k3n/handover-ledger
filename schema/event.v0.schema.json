@@ -45,7 +45,12 @@
         "finding.left_open",
         "level.changed",
         "rule.broken",
-        "escalation.raised"
+        "escalation.raised",
+        "session.started",
+        "tool.used",
+        "agent.waiting",
+        "session.stopped",
+        "session.ended"
       ]
     },
     "source": {
@@ -236,6 +241,12 @@
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "activity": {
+      "description": "The types that are activity, not evidence: they go to a file of their own without a chain, and expire. Every one is also in the list of types.",
+      "enum": [
+        "tool.used"
+      ]
     }
   }
 }

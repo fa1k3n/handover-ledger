@@ -8,6 +8,11 @@ import type { LedgerLine as GeneratedLine } from "./line.gen.ts";
 
 export type { LedgerEvent };
 
+/** The types that are activity, not evidence: they go to a file of their own without a chain. */
+export const ACTIVITY_TYPES: ReadonlySet<LedgerEvent["type"]> = new Set(
+  eventSchema.$defs.activity.enum as LedgerEvent["type"][],
+);
+
 /** A line of the ledger. Its event is checked against the event schema on its own. */
 export type LedgerLine = Omit<GeneratedLine, "event"> & { event: LedgerEvent };
 

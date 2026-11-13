@@ -7,24 +7,42 @@ import { LedgerError } from "./errors.ts";
 /** A project name that is one plain folder name. */
 const PROJECT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
+type Env = Record<string, string | undefined>;
+
+/** Whether a name can be a project's: one plain folder name. */
+export function isProjectName(name: string): boolean {
+  return PROJECT_NAME.test(name) && !name.includes("..");
+}
+
 /**
- * `$HOWL_HOME`, else `$XDG_STATE_HOME/howl`, else `~/.local/state/howl`;
- * in it `<project>/ledger.jsonl`.
+ * The folder of a project: `$HOWL_HOME`, else `$XDG_STATE_HOME/howl`, else
+ * `~/.local/state/howl`; in it `<project>`.
  */
-export function ledgerPath(
-  project: string,
-  env: Record<string, string | undefined> = process.env,
-  home: string = homedir(),
-): string {
-  if (!PROJECT_NAME.test(project) || project.includes("..")) {
+export function projectDir(project: string, env: Env = process.env, home: string = homedir()): string {
+  if (!isProjectName(project)) {
     throw new LedgerError(
       `${JSON.stringify(project)} is not a project name: use letters, digits, '.', '_' and '-', starting with a letter or digit`,
     );
   }
-  return join(howlHome(env, home), project, "ledger.jsonl");
+  return join(howlHome(env, home), project);
 }
 
-function howlHome(env: Record<string, string | undefined>, home: string): string {
+/** The ledger of a project: `<project folder>/ledger.jsonl`. */
+export function ledgerPath(project: string, env: Env = process.env, home: string = homedir()): string {
+  return join(projectDir(project, env, home), "ledger.jsonl");
+}
+
+/** Where hooks and scripts leave events: `<project folder>/inbox`. */
+export function inboxPath(project: string, env: Env = process.env, home: string = homedir()): string {
+  return join(projectDir(project, env, home), "inbox");
+}
+
+/** Activity, with no chain: `<project folder>/activity.jsonl`. */
+export function activityPath(project: string, env: Env = process.env, home: string = homedir()): string {
+  return join(projectDir(project, env, home), "activity.jsonl");
+}
+
+function howlHome(env: Env, home: string): string {
   if (env.HOWL_HOME) {
     if (!isAbsolute(env.HOWL_HOME)) {
       throw new LedgerError(`HOWL_HOME must be an absolute path, not ${JSON.stringify(env.HOWL_HOME)}`);
