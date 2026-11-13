@@ -41,6 +41,8 @@ export interface Session {
 export interface Head {
   sha: string;
   time: string;
+  /** Who pushed it, when the code host does not say and one agent matches (#21). */
+  by?: string;
   checks?: "passed" | "failed";
   checksTime?: string;
 }
@@ -197,7 +199,7 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
     const opened = own.find((e) => e.type === "change.opened");
     const heads: Head[] = own
       .filter((e) => (e.type === "change.opened" || e.type === "change.updated") && e.sha)
-      .map((e) => ({ sha: e.sha!, time: e.time }));
+      .map((e) => defined({ sha: e.sha!, time: e.time, by: e.type === "change.updated" ? acting.get(e.id)?.agent : undefined }));
     for (const head of heads) {
       const checks = own.find((e) => (e.type === "checks.passed" || e.type === "checks.failed") && e.sha === head.sha);
       if (checks) {
@@ -382,7 +384,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
     if (c.opened) out.push(`  ${t(c.opened.time)}  observed  opened by ${by(c.opened.by, c.opened.actor)}`);
     for (const [i, h] of c.heads.entries()) {
       const checks = h.checks ? `, checks ${h.checks} at ${t(h.checksTime!)}` : "";
-      out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${checks}`);
+      out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${h.by ? ` by ${h.by} (matched)` : ""}${checks}`);
     }
   }
 

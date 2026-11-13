@@ -5,6 +5,7 @@ export const texts = {
   nav: { label: "Main menu", overview: "Overview", stream: "Team and stream" },
   project: "Project",
   via: (account: string) => `via ${account}`,
+  matched: "(matched)",
   title: "Team and event stream",
   subtitle: "Read-only · times in local time",
   verified: (lines: number) => `Ledger verified · ${lines} lines`,

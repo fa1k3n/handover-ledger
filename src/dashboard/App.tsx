@@ -513,7 +513,7 @@ function Stream({ onError }: { onError: (e: unknown) => void; project: string })
                       <td className="px-3 py-2 whitespace-nowrap">
                         {item.by ? (
                           <>
-                            {item.by} <span className="text-mute">{texts.via(item.event.actor?.id ?? "")}</span>
+                            {item.by} <span className="text-mute">{item.event.actor ? texts.via(item.event.actor.id) : texts.matched}</span>
                           </>
                         ) : (
                           (item.event.actor?.id ?? "–")

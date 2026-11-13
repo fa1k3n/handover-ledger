@@ -124,3 +124,25 @@ test("#14: the stream marks the agent behind the account; the observed actor sta
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// #21: who pushed a new head the code host names no one for.
+const pushed = (minute: number, extra: Partial<LedgerEvent> = {}) => host("change.updated", minute, { actor: undefined, sha: "f".repeat(40), ...extra });
+
+test("#21: a new head with no actor while one agent's session was on the branch: that agent, matched", () => {
+  const head = pushed(30);
+  const acting = actingAgents([session("agent-a", 29), head]);
+  assert.equal(acting.get(head.id)?.agent, "agent-a");
+  assert.equal(acting.get(head.id)?.via, undefined, "no account was named");
+});
+
+test("#21: two agents on the branch, or none: no actor; nothing invented", () => {
+  const head = pushed(30);
+  assert.equal(actingAgents([session("agent-a", 29), session("agent-b", 29.5), head]).get(head.id), undefined);
+  assert.equal(actingAgents([session("agent-a", 1), head]).get(head.id), undefined);
+});
+
+test("#21: howl show says who pushed each new head", () => {
+  const events = [session("agent-a", 9), host("change.opened", 10, { sha: "e".repeat(40) }), session("agent-a", 29), pushed(30)];
+  const text = render(show(events, { kind: "change", id: "30" }, null)!, { utc: true });
+  assert.match(text, /new head fffffff by agent-a \(matched\)/);
+});

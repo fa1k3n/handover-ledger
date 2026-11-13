@@ -39,7 +39,7 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     const actor = matched?.agent ?? e.actor?.id;
     if (e.type === "change.opened" && actor !== undefined) {
       author.set(e.change, actor);
-      if (matched) authorVia.set(e.change, matched.via);
+      if (matched?.via) authorVia.set(e.change, matched.via);
       continue;
     }
     const by = author.get(e.change);

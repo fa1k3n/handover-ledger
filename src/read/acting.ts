@@ -11,8 +11,8 @@ export const AFTER_MS = 2 * 60_000;
 
 export interface Acting {
   agent: string;
-  /** The account the code host saw. */
-  via: string;
+  /** The account the code host saw; none when it named no one (a new head, #21). */
+  via?: string;
 }
 
 /**
@@ -25,7 +25,11 @@ export function actingAgents(events: LedgerEvent[]): Map<string, Acting> {
   const own = events.filter((e) => e.source.kind === "claimed" && e.actor?.kind === "agent");
   const found = new Map<string, Acting>();
   for (const e of events) {
-    if (e.source.kind !== "observed" || e.actor?.kind !== "person" || e.change === undefined) continue;
+    if (e.source.kind !== "observed" || e.change === undefined) continue;
+    // Through a person's account (#14), or a new head the code host names no one for (#21).
+    const throughPerson = e.actor?.kind === "person";
+    const nameless = e.actor === undefined && e.type === "change.updated";
+    if (!throughPerson && !nameless) continue;
     const isChange = e.type === "change.opened" || e.type === "change.updated";
     if (!isChange && !e.type.startsWith("review.")) continue;
     if (isChange && e.branch === undefined) continue;
@@ -39,7 +43,7 @@ export function actingAgents(events: LedgerEvent[]): Map<string, Acting> {
         })
         .map((s) => s.actor!.id),
     );
-    if (agents.size === 1) found.set(e.id, { agent: [...agents][0]!, via: e.actor.id });
+    if (agents.size === 1) found.set(e.id, throughPerson ? { agent: [...agents][0]!, via: e.actor!.id } : { agent: [...agents][0]! });
   }
   return found;
 }
