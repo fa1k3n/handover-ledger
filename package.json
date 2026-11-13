@@ -1,0 +1,26 @@
+{
+  "name": "handover-ledger",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Audit-ready ledger of handovers in mixed teams of people and AI agents",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "howl": "node src/cli/howl.ts",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "gen": "node scripts/gen-types.ts",
+    "check": "npm run typecheck && node scripts/gen-types.ts --check && npm test"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "json-schema-to-typescript": "16.0.0",
+    "typescript": "7.0.2"
+  }
+}

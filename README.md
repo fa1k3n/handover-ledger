@@ -2,7 +2,7 @@
 
 Audit-ready ledger of handovers in mixed teams of people and AI agents.
 
-**Status:** an idea written down, nothing built yet. This repository is private until the event schema and `howl verify` work and a licence is chosen. No licence yet: all rights reserved until then.
+**Status:** an idea written down. The first step is built: the event schema, the ledger file and `howl verify`. This repository is private until the event schema and `howl verify` work and a licence is chosen. No licence yet: all rights reserved until then.
 
 ## The idea in short
 
@@ -26,6 +26,35 @@ The method is the offer. The tool makes the method binding and measurable.
 | VS Code extension | The team and the chain per change, in the editor | No |
 
 One repository, TypeScript throughout.
+
+## Running it
+
+Node 24 or later is needed to build and test. A `howl` that needs no Node on the developer's machine comes later.
+
+```sh
+npm install
+npm test            # every test
+npm run check       # type check, generated types up to date, every test
+```
+
+`howl verify` checks a ledger: every line is JSON, follows the schema in [schema/event.v0.schema.json](schema/event.v0.schema.json), and holds the SHA-256 of the line before.
+
+```sh
+npm run howl -- verify --project example       # the ledger of a project
+npm run howl -- verify --ledger path/to/ledger.jsonl
+```
+
+It ends with 0 when the ledger holds, 1 when it does not, naming the first line that fails and why, and 2 when there is no ledger to read. It writes nothing and takes no lock.
+
+The ledger of a project lies in `$HOWL_HOME`, else `$XDG_STATE_HOME/howl`, else `~/.local/state/howl`, as `<project>/ledger.jsonl`. Never inside a repository. Nothing writes to it from the command line yet: `howl hook` and `howl ingest` come next.
+
+The chain can also be checked without `howl`. The `prev` of line 3 is the hash of line 2 without its line break:
+
+```sh
+sed -n 2p ledger.jsonl | tr -d '\n' | sha256sum
+```
+
+A chain shows a line that was changed, removed or moved. It does not show lines cut off the end: compare the head that `howl verify` prints with one kept somewhere else.
 
 ## Documents
 

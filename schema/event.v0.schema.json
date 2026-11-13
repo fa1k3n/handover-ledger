@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:howl:event:0",
+  "title": "LedgerEvent",
+  "description": "One line of the ledger: something that happened, who or what did it, and the hash of the line before.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "time", "type", "source", "project", "prev"],
+  "properties": {
+    "v": {
+      "description": "Version of the line format.",
+      "const": 0
+    },
+    "id": {
+      "description": "The identity of the event. The same thing read twice gives the same id.",
+      "$ref": "#/$defs/name"
+    },
+    "time": {
+      "description": "When it happened, in UTC.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    },
+    "type": {
+      "description": "What happened. A new type is added to this list, never used without it.",
+      "enum": [
+        "ledger.created",
+        "task.assigned",
+        "change.opened",
+        "change.updated",
+        "change.merged",
+        "tests.written",
+        "checks.passed",
+        "checks.failed",
+        "review.approved",
+        "review.changes_requested",
+        "finding.fixed",
+        "finding.dismissed",
+        "finding.left_open",
+        "level.changed",
+        "rule.broken",
+        "escalation.raised"
+      ]
+    },
+    "source": {
+      "description": "Where the event comes from.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "kind"],
+      "properties": {
+        "adapter": {
+          "description": "The adapter that read or received it.",
+          "$ref": "#/$defs/name"
+        },
+        "kind": {
+          "description": "observed: read from the team's tools. claimed: sent by a session about itself.",
+          "enum": ["observed", "claimed"]
+        }
+      }
+    },
+    "project": {
+      "description": "The project the event belongs to.",
+      "$ref": "#/$defs/name"
+    },
+    "actor": {
+      "description": "The team member who did it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["person", "agent"] },
+        "id": {
+          "description": "The identity of the team member.",
+          "$ref": "#/$defs/name"
+        }
+      }
+    },
+    "team": {
+      "description": "The team the event belongs to.",
+      "$ref": "#/$defs/name"
+    },
+    "session": {
+      "description": "For an agent: the session the event comes from.",
+      "$ref": "#/$defs/name"
+    },
+    "model": {
+      "description": "For an agent: the model ID of the session.",
+      "$ref": "#/$defs/name"
+    },
+    "effort": {
+      "description": "For an agent: the effort of the session.",
+      "$ref": "#/$defs/name"
+    },
+    "prompt": {
+      "description": "For an agent: the role prompt.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "sha256"],
+      "properties": {
+        "file": {
+          "description": "The file of the role prompt.",
+          "$ref": "#/$defs/name"
+        },
+        "sha256": {
+          "description": "SHA-256 of the content of the file.",
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "rules": {
+      "description": "Version of the rules in force: the commit they ran from.",
+      "$ref": "#/$defs/name"
+    },
+    "repo": {
+      "description": "The repository the event concerns.",
+      "$ref": "#/$defs/name"
+    },
+    "task": {
+      "description": "The task, as the tracker names it.",
+      "$ref": "#/$defs/name"
+    },
+    "change": {
+      "description": "The merge or pull request, as the code host names it.",
+      "$ref": "#/$defs/name"
+    },
+    "branch": {
+      "description": "The branch of the change or of the working directory.",
+      "$ref": "#/$defs/name"
+    },
+    "sha": {
+      "description": "The head commit.",
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "requirements": {
+      "description": "IDs of the requirements the event is linked to.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/name" },
+      "uniqueItems": true
+    },
+    "clauses": {
+      "description": "IDs of the clauses of those requirements.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/name" },
+      "uniqueItems": true
+    },
+    "tests": {
+      "description": "Names of the tests that cover them.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/name" },
+      "uniqueItems": true
+    },
+    "level": {
+      "description": "The level of autonomy in force.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "class": {
+      "description": "The code class.",
+      "$ref": "#/$defs/name"
+    },
+    "data": {
+      "description": "What belongs to this type of event only.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "prev": {
+      "description": "SHA-256, in hex, of the bytes of the line before as they stand in the file, without its line break. Null on the first line.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "if": {
+    "type": "object",
+    "required": ["type"],
+    "properties": { "type": { "const": "ledger.created" } }
+  },
+  "then": {
+    "type": "object",
+    "required": ["data"],
+    "properties": {
+      "data": {
+        "type": "object",
+        "required": ["mode"],
+        "properties": {
+          "mode": {
+            "description": "trial: the ledger serves observation and does not count as evidence.",
+            "enum": ["trial"]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
