@@ -2,6 +2,8 @@
 
 ## Principles
 
+- **The core records what happens, the packs say what is demanded.** What records is the core, what fetches data from another system is an adapter, what a standard or a law demands is a rule pack ([target.md](target.md)).
+- **Agents are measured one by one, people only as a team.** Traceability needs an identity, figures do not.
 - **Agents do the work, code steers the flow.** Orchestration is deterministic code. State is owned by the program, never by a model.
 - **Agents are short-lived.** Every assignment is a new session that starts cold. A review needs independence, a test author starts from the requirement and not from the code, and memory kept in a clone gathers faults.
 - **No hidden agent memory.** State per task lives in the task, the change and its comments. Lasting learning is written into the repository (instructions, role files).
@@ -78,9 +80,10 @@ An own schema; a CloudEvents envelope is an option. First draft of the fields:
 | `task`, `change`, `sha` | The task, the merge or pull request, and its head commit |
 | `requirements`, `clauses`, `tests` | The trace links ([traceability.md](traceability.md)) |
 | `level`, `class` | The level in force and the code class |
-| `prev` | SHA-256 of the line before |
 
 Types, to begin with: task assigned, change opened or updated, tests written, checks passed or failed, review approved or changes requested, finding fixed, dismissed or left open, change merged, level changed, rule broken, escalated to a person.
+
+An event does not know its place in a ledger. A line of the ledger holds the event, the hash of the event in its fixed form and `prev`, the SHA-256 of the line before. The same event can then wait in an inbox, and later be kept in more than one ledger.
 
 An event says what happened, not who shall do the next step. The dispatcher applies the rules.
 
@@ -109,7 +112,9 @@ In two places ([commissioning.md](commissioning.md)). A `.howl/` folder in the r
 ## The ledger
 
 - Append-only, one line per event.
-- Each line holds the hash of the line before. `howl verify` names the first line that does not match.
+- Each line holds the hash of the line before and the hash of its event.
+- The chain holds evidence. Activity, such as an agent's tool calls, is kept in a file of its own without a chain and is removed after a time.
+- A person is named by a pseudonym. The link to the person is kept beside the ledger and can be removed. `howl verify` names the first line that does not match.
 - A chain shows a changed or removed line, not lines cut off the end, and a file that one party both writes and keeps proves little. Signing the lines, or keeping the last hash somewhere else, is needed before it counts as evidence.
 - Only one writer at a time.
 - Configurable retention and export ([traceability.md](traceability.md)).

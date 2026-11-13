@@ -16,6 +16,10 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **Wording:** "supports certification" or "audit-ready", never "ISO certified". (2026-11-12)
 - **Languages:** the engine, the CLI, the dashboard and the VS Code extension are built in TypeScript. Whatever a development team itself programs (checks, adapters to in-house tools, scripts in `.howl/`) is Python, and a shell script shall work as well: embedded developers do not know TypeScript. (2026-11-13)
 - **Observation mode first:** `howl` is tried beside a team whose agents already work, recording only, for what it shows of the agents' work ([observation.md](observation.md)). (2026-11-13)
+- **The core records what happens, the packs say what is demanded.** The core knows no standard. (2026-11-13)
+- **An event does not know its place in a ledger:** `prev` and the hash of the event belong to the line. (2026-11-13)
+- **Agents are measured one by one, people only as a team.** Only an agent's session is recorded; a person is named by a pseudonym kept beside the ledger. (2026-11-13)
+- **Evidence and activity are kept apart:** the chain holds the handovers, tool calls go to a file of their own and expire. (2026-11-13)
 
 ## Proposed, not yet answered
 
@@ -41,11 +45,12 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **A separate test author** as a role of its own, or tests written by the one who builds.
 - **The name of the configuration:** a `.howl/` folder in the repository is the suggestion, with `howl.yml` in it.
 - **Signing or anchoring** of the ledger.
+- **From the target picture** ([target.md](target.md)): which rule pack comes first; OSCAL and CEL, or simpler forms; how much of the handling of vulnerabilities belongs to the core; where the agents' manifests live; a log in a git reference of the repository; a Merkle tree in place of the chain.
 
 ## The order of the work
 
 0. Before code: check the clause numbers of the control mapping and show it to two or three safety managers or an assessor; ask every team the five questions.
-1. The event schema, the hash chain, `howl verify` and the local file adapter, which is also the test environment. Then `howl hook` with the inbox ([observation.md](observation.md), steps 1 and 2).
+1. The event schema, the hash chain, `howl verify` and the local file adapter, which is also the test environment. Then the split of event and line, and `howl hook` with the inbox ([observation.md](observation.md), steps 1 and 2).
 2. An adapter that reads merge and pull requests. This is level 0.
 3. Level 1: a runner for a reviewer, the rules around it, the share of dismissed findings.
 4. The evidence export and the control mapping for one safety standard.

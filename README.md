@@ -65,6 +65,7 @@ A chain shows a line that was changed, removed or moved. It does not show lines 
 - [docs/architecture.md](docs/architecture.md): principles, core concepts, ports and adapters, the event fields, the ledger's demands.
 - [docs/observation.md](docs/observation.md): the first thing to build: `howl` beside a working team, recording only.
 - [docs/commissioning.md](docs/commissioning.md): where it runs, who owns what, the `.howl/` folder, how agents are provisioned, the steps from a trial to an organisation.
+- [docs/target.md](docs/target.md): where the platform may go: rule packs, vulnerabilities, storage, a log that follows the repository, people. Not planned.
 - [docs/decisions.md](docs/decisions.md): what is decided, what is open, and the order of the work.
 
 ## A rule for this repository

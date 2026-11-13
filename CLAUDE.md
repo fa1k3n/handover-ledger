@@ -27,6 +27,9 @@ Handover Ledger: an audit-ready ledger of handovers in teams of people and AI ag
 ## The ledger
 
 - Append-only, one JSON line per event, each line holding the SHA-256 of the line before.
+- An event does not know its place: `prev` and the hash of the event belong to the line, not to the event.
+- The chain holds evidence. Activity (tool calls) goes to a file of its own without a chain and expires.
+- Only an agent's session is recorded. A person is named by a pseudonym kept beside the ledger, and no figure is given per person.
 - Kept outside the repository, never under the working directory.
 - One writer at a time. Hooks and scripts never write to the chain; they leave events in an inbox.
 - An event the schema does not accept is refused and nothing is written.
