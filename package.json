@@ -10,17 +10,27 @@
   "scripts": {
     "howl": "node src/cli/howl.ts",
     "test": "node --test \"test/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/dashboard",
     "build": "tsc -p tsconfig.build.json",
     "gen": "node scripts/gen-types.ts",
-    "check": "npm run typecheck && node scripts/gen-types.ts --check && npm test"
+    "check": "npm run typecheck && node scripts/gen-types.ts --check && npm test",
+    "build:dashboard": "vite build --config src/dashboard/vite.config.ts && node scripts/dashboard-size.ts",
+    "dev:dashboard": "vite --config src/dashboard/vite.config.ts"
   },
   "dependencies": {
     "ajv": "8.20.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.19.2",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "4.7.0",
     "json-schema-to-typescript": "16.0.0",
-    "typescript": "7.0.2"
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vite": "6.4.5"
   }
 }

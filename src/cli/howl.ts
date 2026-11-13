@@ -12,6 +12,7 @@ const USAGE = `usage:
   howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--json] [--no-follow]
   howl show <task or change> [--json]
   howl status [--follow] [--json]
+  howl serve [--port <n>]
 
   verify    check every line of the ledger and the chain between the lines
   hook      called by the hooks of Claude Code: leaves an event in the inbox.
@@ -31,8 +32,11 @@ const USAGE = `usage:
   status    one line per agent: working, waiting, idle or ended, what it
             works on, its model, its last tool and how long ago. --follow
             redraws it every second
+  serve     the dashboard on http://127.0.0.1:4317: the team right now and the
+            event stream. Read-only, on this machine only. Build the page
+            first with npm run build:dashboard
 
-watch, show, status and verify also take --project <name> or --ledger <path>. They
+watch, show, status, serve and verify also take --project <name> or --ledger <path>. They
 only read: they take no lock and run while the writer appends.
 
 The project is read from the nearest .howl/howl.yml, unless --project names it.
@@ -76,6 +80,8 @@ async function main(argv: string[]): Promise<number> {
         return await showCommand(rest);
       case "status":
         return await statusCommand(rest);
+      case "serve":
+        return await serveCommand(rest);
       case "-h":
       case "--help":
       case "help":
@@ -314,6 +320,40 @@ async function showCommand(args: string[]): Promise<number> {
   return 0;
 }
 
+async function serveCommand(args: string[]): Promise<number> {
+  const { values } = parse(args, { ledger: { type: "string" }, project: { type: "string" }, port: { type: "string" } });
+  const ledger = await ledgerToRead(values);
+  const port = values.port === undefined ? 4317 : Number(values.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError("--port must be a port number");
+  const { existsSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const root = fileURLToPath(new URL("../../dist/dashboard", import.meta.url));
+  if (!existsSync(`${root}/index.html`)) {
+    const { LedgerError } = await import("../ledger/errors.ts");
+    throw new LedgerError(`no built dashboard in ${root}: run npm run build:dashboard first`);
+  }
+  const { startServer } = await import("../serve/server.ts");
+  const server = await startServer({ ledger, port, root, taskFromBranch: await branchPattern() });
+  console.log(`howl serve: ${server.url} (read-only, ${ledger})`);
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
+  });
+  await server.close();
+  return 0;
+}
+
+/** The project's task_from_branch, when there is a valid one. */
+async function branchPattern(): Promise<RegExp | undefined> {
+  const { findProject } = await import("../howl/project.ts");
+  const found = findProject(process.cwd());
+  try {
+    return found?.taskFromBranch === undefined ? undefined : new RegExp(found.taskFromBranch);
+  } catch {
+    return undefined;
+  }
+}
+
 async function statusCommand(args: string[]): Promise<number> {
   const { values } = parse(args, {
     ledger: { type: "string" },
@@ -324,16 +364,9 @@ async function statusCommand(args: string[]): Promise<number> {
   const ledger = await ledgerToRead(values);
   const { statSync } = await import("node:fs");
   statSync(ledger);
-  const { findProject } = await import("../howl/project.ts");
   const { readAll } = await import("../read/reader.ts");
   const { agentStates, renderStatus } = await import("../read/state.ts");
-  const found = findProject(process.cwd());
-  let taskFromBranch: RegExp | undefined;
-  try {
-    taskFromBranch = found?.taskFromBranch === undefined ? undefined : new RegExp(found.taskFromBranch);
-  } catch {
-    taskFromBranch = undefined;
-  }
+  const taskFromBranch = await branchPattern();
   const rows = () => agentStates(readAll(ledger).map((r) => r.event), Date.now(), { taskFromBranch });
   if (values.json) {
     console.log(JSON.stringify(rows(), null, 2));

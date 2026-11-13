@@ -1,0 +1,71 @@
+// The pure parts of the dashboard page: the tests of issue #12.
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { decodedFields, filterPairs, localTime, utcTime } from "../src/dashboard/format.ts";
+
+test("#12: the filter text is split into field=value pairs; empty gives none", () => {
+  assert.deepEqual(filterPairs("  actor=agent-1   type=review.* "), ["actor=agent-1", "type=review.*"]);
+  assert.deepEqual(filterPairs(""), []);
+});
+
+test("#12: times are shown in the time zone given, and in UTC on the decoded event", () => {
+  const t = "2026-11-13T09:40:18.890Z";
+  assert.equal(localTime(t, "Europe/Stockholm"), "10:40:18");
+  assert.equal(localTime(t, "UTC"), "09:40:18");
+  assert.equal(utcTime(t), "2026-11-13 09:40:18 UTC");
+});
+
+test("#12: a ledger line is decoded with its number, hashes, actor and what it concerns", () => {
+  const fields = decodedFields(
+    {
+      n: 7,
+      from: "ledger",
+      hash: "a".repeat(64),
+      prev: "b".repeat(64),
+      raw: "{}",
+      event: {
+        v: 0,
+        id: "x",
+        time: "2026-11-13T09:40:18Z",
+        type: "agent.waiting",
+        source: { adapter: "claude-code-hook", kind: "claimed" },
+        project: "p",
+        actor: { kind: "agent", id: "agent-1" },
+        task: "12",
+        branch: "task-12-x",
+      },
+    },
+    "UTC",
+  );
+  const get = (k: string) => fields.find((f) => f.k === k)?.v;
+  assert.equal(get("Line"), "7");
+  assert.equal(get("Line hash"), "a".repeat(64));
+  assert.equal(get("Previous hash"), "b".repeat(64));
+  assert.equal(get("Actor"), "agent-1 (agent)");
+  assert.equal(get("Task"), "12");
+  assert.equal(get("Time"), "09:40:18 local · 2026-11-13 09:40:18 UTC");
+  assert.equal(get("Change"), undefined, "a field the event does not have is left out");
+});
+
+test("#12: a tool call is decoded as activity, with no line or hash", () => {
+  const fields = decodedFields(
+    {
+      from: "activity",
+      raw: "{}",
+      event: {
+        v: 0,
+        id: "y",
+        time: "2026-11-13T09:40:18Z",
+        type: "tool.used",
+        source: { adapter: "claude-code-hook", kind: "claimed" },
+        project: "p",
+        actor: { kind: "agent", id: "agent-1" },
+        data: { tool: "Bash", target: "make", outcome: "succeeded" },
+      },
+    },
+    "UTC",
+  );
+  assert.equal(fields.find((f) => f.k === "Line"), undefined);
+  assert.equal(fields.find((f) => f.k === "File")?.v, "activity.jsonl");
+  assert.equal(fields.find((f) => f.k === "Tool")?.v, "Bash make succeeded");
+});

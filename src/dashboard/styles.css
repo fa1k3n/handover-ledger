@@ -1,0 +1,37 @@
+/* The dashboard's look: Tailwind with the colours of the design as theme tokens. */
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --color-ink: #0f1b2d;
+  --color-page: #f4f5f7;
+  --color-line: #e2e5ea;
+  --color-faint: #eef0f3;
+  --color-mute: #4b5563;
+  --color-pale: #cbd5e1;
+  --color-accent: #c2410c;
+  --color-accent-dark: #fb923c;
+  --color-accent-pale: #fff1e8;
+  --color-ok: #15803d;
+  --color-ok-ink: #14532d;
+  --color-ok-pale: #e7f4ec;
+  --color-warn-pale: #fff4e5;
+  --color-warn-ink: #7c2d12;
+  --color-error-pale: #fce8e8;
+  --color-error-ink: #991b1b;
+  --color-picked: #d9e2ef;
+}
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}

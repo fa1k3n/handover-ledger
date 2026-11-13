@@ -9,9 +9,21 @@
     "rewriteRelativeImportExtensions": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "rootDir": ".",
     "outDir": "dist"
   },
-  "include": ["src", "test", "scripts", "schema"]
+  "include": [
+    "src",
+    "test",
+    "scripts",
+    "schema"
+  ],
+  "exclude": [
+    "src/dashboard/*.tsx",
+    "src/dashboard/vite.config.ts",
+    "src/dashboard/api.ts"
+  ]
 }

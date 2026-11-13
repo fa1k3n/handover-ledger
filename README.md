@@ -37,6 +37,14 @@ npm test            # every test
 npm run check       # type check, generated types up to date, every test
 ```
 
+The dashboard is a page built with React and Tailwind; howl serves it on this machine only and reads the ledger without writing:
+
+```sh
+npm run build:dashboard                         # into dist/dashboard, at most 300 kB gzipped
+npm run howl -- serve --project example         # http://127.0.0.1:4317
+npm run dev:dashboard                           # while working on the page, beside a running howl serve
+```
+
 A line of the ledger is `{"prev", "hash", "event"}`. The event does not know its place: `prev` and `hash` belong to the line ([schema/line.v0.schema.json](schema/line.v0.schema.json)). `hash` is the SHA-256 of the event in its fixed form, the JSON Canonicalization Scheme (RFC 8785), and the event stands in the line in that form.
 
 `howl verify` checks every line: it is JSON, it follows the line schema, its event follows [schema/event.v0.schema.json](schema/event.v0.schema.json), `hash` is the hash of the event, and `prev` is the SHA-256 of the line before.
