@@ -85,6 +85,12 @@ echo agent-1 > .howl/actor
 echo .howl/actor >> .gitignore
 ```
 
+Whoever starts a session may also name its work: `HOWL_CHANGE` and `HOWL_TASK` in its environment go onto every event of the session. This matters for a reviewer that works in a folder of its own on the default branch, where the branch says nothing:
+
+```sh
+HOWL_ACTOR=agent-2 HOWL_CHANGE=30 HOWL_TASK=12 claude …
+```
+
 **3. Add the hooks** to `.claude/settings.json` of the repository:
 
 ```json

@@ -65,9 +65,18 @@ export function runHook(stdin: string, env: Record<string, string | undefined>, 
     model: text(hook.model),
     effort: effort(hook.effort),
     ...checkout(dir),
+    // Whoever starts the session may name its work: a review in a folder of its own is on the default branch.
+    change: named(env.HOWL_CHANGE),
+    task: named(env.HOWL_TASK),
     data: what.data,
   };
   leave(inboxPath(project.project, env), event);
+}
+
+/** A value from the environment, trimmed; undefined when empty. */
+function named(value: string | undefined): string | undefined {
+  const v = value?.trim();
+  return v ? v : undefined;
 }
 
 function describe(hook: Input, root: string): { type: LedgerEvent["type"]; data?: Record<string, unknown> } | null {

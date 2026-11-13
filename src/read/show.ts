@@ -113,7 +113,9 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   const branches = new Set<string>();
   const shas = new Set<string>();
   for (const e of all) {
-    if (e.change !== undefined && changes.has(e.change)) {
+    // The branch and the commits of a change are what the code host shows. A session that names the
+    // change itself may sit on another branch (a review in a folder of its own on the default branch).
+    if (e.change !== undefined && changes.has(e.change) && e.source.kind === "observed") {
       if (e.branch) branches.add(e.branch);
       if (e.sha) shas.add(e.sha);
     }
