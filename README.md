@@ -167,6 +167,8 @@ task_from_branch: '^task-(\d+)'   # takes a task's number from a branch name: th
 agents: [agent-1, agent-2]        # the accounts at the host that are agents
 ```
 
+**Keeping the head elsewhere.** A hash chain shows a changed line, but not a ledger cut back or rewritten whole with a new chain. `howl anchor` writes a checkpoint (the number of lines and the hash of the last) as a commit on `refs/howl/checkpoints` of the repository and pushes it to `origin`, touching no branch; `--to file:<path>` or `--to -` keeps it elsewhere, and `--sign <ssh key>` signs it. `howl observe --anchor-every 60` anchors after rounds that wrote lines, at most once an hour. `howl verify --checkpoint git` (or a file) then checks that the ledger still holds the line the checkpoint names, and with `--signers <allowed signers>` its signature.
+
 **Starting at a date.** On a repository with a long history the first round reads all of it. `howl observe --since 2026-11-01` (or `--since now`) starts the first round at that date instead, and records an `observe.started` event saying so, so a reader knows nothing before it was looked at. It is refused once `observe.json` exists: the cursor says where to go on.
 
 **Access: read only.** `howl observe` never writes to the host. For GitHub it needs a token that can read the repository's issues, pull requests, commits and checks; a fine-grained token with read access to *Issues*, *Pull requests*, *Contents*, *Commit statuses* and *Checks* is enough. It takes `HOWL_GITHUB_TOKEN`, else `GITHUB_TOKEN`, else the token of `gh auth token`. While it runs, a call that is asked again sends the answer's ETag, so a quiet round costs next to nothing; when the limit is reached it waits until the limit is lifted.

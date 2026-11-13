@@ -4,13 +4,14 @@ import { readFileSync } from "node:fs";
 import { parseArgs, type ParseArgsConfig } from "node:util";
 
 const USAGE = `usage:
-  howl verify [--project <name>] [--ledger <path>] [--issuer <fingerprint>]
+  howl verify [--project <name>] [--ledger <path>] [--issuer <fingerprint>] [--checkpoint <file | git>] [--signers <file>]
+  howl anchor [--project <name>] [--ledger <path>] [--to <git | file:path | ->] [--sign <ssh key>]
   howl key issue --actor <agent> [--task <id>] [--change <id>] [--role <name>] [--hours <n>]
   howl key revoke <key id>
   howl hook
   howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
   howl ingest [--project <name>] [--watch] [--interval <seconds>]
-  howl observe [--once] [--interval <seconds>] [--since <date | now>]
+  howl observe [--once] [--interval <seconds>] [--since <date | now>] [--anchor-every <minutes>]
   howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--utc] [--json] [--no-follow]
   howl show <task or change> [--utc] [--json]
   howl status [--follow] [--json]
@@ -18,6 +19,9 @@ const USAGE = `usage:
 
   verify    check every line of the ledger and the chain between the lines,
             then every signed claim against the key issued for it
+  anchor    keep the ledger's head outside this machine: a checkpoint (lines and
+            head) as a commit on refs/howl/checkpoints, pushed to origin (the
+            default), or in a file, or printed. --sign signs it with an SSH key
   key       issue a key for one assignment of an agent (8 hours by default),
             or revoke one. The private key goes to the session as HOWL_KEY;
             the hook then signs every event of the session
@@ -82,6 +86,8 @@ async function main(argv: string[]): Promise<number> {
         return await verifyCommand(rest);
       case "key":
         return await keyCommand(rest);
+      case "anchor":
+        return await anchorCommand(rest);
       case "emit":
         return await emitCommand(rest);
       case "ingest":
@@ -134,7 +140,13 @@ function parse<T extends NonNullable<ParseArgsConfig["options"]>>(args: string[]
 }
 
 async function verifyCommand(args: string[]): Promise<number> {
-  const { values } = parse(args, { project: { type: "string" }, ledger: { type: "string" }, issuer: { type: "string" } });
+  const { values } = parse(args, {
+    project: { type: "string" },
+    ledger: { type: "string" },
+    issuer: { type: "string" },
+    checkpoint: { type: "string" },
+    signers: { type: "string" },
+  });
   const { ledgerPath } = await import("../ledger/place.ts");
   const { verify } = await import("../ledger/verify.ts");
   let path = values.ledger;
@@ -163,7 +175,67 @@ async function verifyCommand(args: string[]): Promise<number> {
   const sigs = checkSignatures(lines, values.issuer);
   console.log(`signatures: ${sigs.signed} signed, ${sigs.unsigned} unsigned claimed${sigs.issuer ? `, issuer ${sigs.issuer}` : ""}`);
   for (const f of sigs.faults) console.log(`line ${f.line}: ${f.reason}`);
-  return sigs.faults.length > 0 ? 1 : 0;
+  let failed = sigs.faults.length > 0;
+  // #18: the head held against a checkpoint kept elsewhere.
+  if (values.checkpoint !== undefined) {
+    const anchor = await import("../anchor/anchor.ts");
+    const kept = values.checkpoint === "git" ? anchor.checkpointFromGit(process.cwd()) : readCheckpointFile(values.checkpoint);
+    if (values.signers !== undefined) {
+      if (kept.sig === undefined || !anchor.signatureHolds(kept.text, kept.sig, values.signers)) {
+        console.log("checkpoint: its signature does not hold for the allowed signers");
+        failed = true;
+      }
+    }
+    const c = JSON.parse(kept.text) as import("../anchor/anchor.ts").Checkpoint;
+    const result = anchor.checkLedger(path, c);
+    console.log(result.message);
+    if (!result.ok) failed = true;
+  }
+  return failed ? 1 : 0;
+}
+
+/** A checkpoint kept in a file, with its signature beside it (`<file>.sig`) when there is one. */
+function readCheckpointFile(file: string): { text: string; sig?: string } {
+  const text = readFileSync(file, "utf8");
+  let sig: string | undefined;
+  try {
+    sig = readFileSync(`${file}.sig`, "utf8");
+  } catch {
+    sig = undefined;
+  }
+  return { text, sig };
+}
+
+/** howl's own version, for a checkpoint. */
+function version(): string {
+  return (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version;
+}
+
+async function anchorCommand(args: string[]): Promise<number> {
+  const { values } = parse(args, { project: { type: "string" }, ledger: { type: "string" }, to: { type: "string" }, sign: { type: "string" } });
+  const ledger = await ledgerToRead(values);
+  const anchor = await import("../anchor/anchor.ts");
+  const c = anchor.checkpointOf(ledger, version());
+  const text = anchor.checkpointText(c);
+  const sig = values.sign === undefined ? undefined : anchor.signText(text, values.sign);
+  const to = values.to ?? "git";
+  if (to === "-") {
+    process.stdout.write(text);
+    if (sig !== undefined) process.stderr.write(sig);
+    return 0;
+  }
+  if (to.startsWith("file:")) {
+    const { writeFileSync } = await import("node:fs");
+    const file = to.slice("file:".length);
+    writeFileSync(file, text);
+    if (sig !== undefined) writeFileSync(`${file}.sig`, sig);
+    console.log(`checkpoint: ${c.lines} lines, head ${c.head} → ${file}`);
+    return 0;
+  }
+  if (to !== "git") throw new UsageError(`--to ${to}: give git, file:<path> or -`);
+  const r = anchor.anchorToGit(process.cwd(), c, text, sig);
+  console.log(`checkpoint: ${c.lines} lines, head ${c.head} → ${anchor.REF} ${r.commit.slice(0, 12)}${r.pushed ? ", pushed to origin" : ", not pushed: no origin"}`);
+  return 0;
 }
 
 async function keyCommand(args: string[]): Promise<number> {
@@ -269,7 +341,14 @@ async function ingestCommand(args: string[]): Promise<number> {
 
 async function observeCommand(args: string[]): Promise<number> {
   const signal = stopSignal();
-  const { values } = parse(args, { once: { type: "boolean" }, interval: { type: "string" }, since: { type: "string" } });
+  const { values } = parse(args, {
+    once: { type: "boolean" },
+    interval: { type: "string" },
+    since: { type: "string" },
+    "anchor-every": { type: "string" },
+  });
+  const anchorEvery = values["anchor-every"] === undefined ? null : Number(values["anchor-every"]);
+  if (anchorEvery !== null && !(anchorEvery > 0)) throw new UsageError("--anchor-every must be a number of minutes above 0");
   const { findProject } = await import("../howl/project.ts");
   const { activityPath, cursorPath, inboxPath, ledgerPath, peoplePath } = await import("../ledger/place.ts");
   const { openLedger } = await import("../ledger/ledger.ts");
@@ -328,6 +407,24 @@ async function observeCommand(args: string[]): Promise<number> {
       console.log(`${round.appended} from ${host.name}; inbox: ${summary(pass)}${round.complete ? "" : "; some calls failed, read again next round"}`);
     }
     if (pass.rejected > 0) console.error(`howl: ${pass.rejected} rejected, see ${inboxPath(project)}/rejected`);
+    // #18: a checkpoint after a round that wrote lines, at most once per --anchor-every minutes.
+    if (anchorEvery !== null && round.appended + pass.ledger > 0) {
+      const { existsSync, readFileSync: read, writeFileSync } = await import("node:fs");
+      const { join, dirname } = await import("node:path");
+      const marker = join(dirname(ledgerPath(project)), "anchor.json");
+      const last = existsSync(marker) ? Date.parse((JSON.parse(read(marker, "utf8")) as { at: string }).at) : 0;
+      if (Date.now() - last >= anchorEvery * 60_000) {
+        try {
+          const anchor = await import("../anchor/anchor.ts");
+          const c = anchor.checkpointOf(ledgerPath(project), version());
+          anchor.anchorToGit(found.root, c, anchor.checkpointText(c));
+          writeFileSync(marker, `${JSON.stringify({ at: new Date().toISOString(), lines: c.lines, head: c.head })}\n`);
+          console.log(`checkpoint: ${c.lines} lines, head ${c.head.slice(0, 12)}`);
+        } catch (e) {
+          console.error(`howl: no checkpoint this round: ${(e as Error).message}`);
+        }
+      }
+    }
   };
   return await repeat(values.once ? null : interval, once, () => writer.close(), signal);
 }

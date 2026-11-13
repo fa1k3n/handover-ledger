@@ -23,6 +23,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **A first dashboard now,** because the first user asked for it: the team right now and the event stream, then the overview, and only what the ledger already holds (#10 to #13). The rest of the design waits for its data. (2026-11-13)
 - **The dashboard is React with Tailwind,** in TypeScript, built with Vite, in the same package. (2026-11-13)
 - **CEL filters later:** the first filters are `field=value` pairs; a CEL expression filter replaces them when more is needed. (2026-11-13)
+- **Anchoring first, signing optional.** The ledger's head is kept outside the machine that writes it as checkpoints on `refs/howl/checkpoints` of the observed repository, pushed to its remote; a checkpoint may be signed with an SSH key. What a session claims is signed with a key per assignment. A Merkle tree and a transparency log come later. (2026-11-13)
 
 ## Proposed, not yet answered
 
@@ -54,7 +55,6 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **The number of review rounds** before a person is asked: two or three.
 - **A separate test author** as a role of its own, or tests written by the one who builds.
 - **The name of the configuration:** a `.howl/` folder in the repository is the suggestion, with `howl.yml` in it.
-- **Signing or anchoring** of the ledger.
 - **From the target picture** ([target.md](target.md)): which rule pack comes first; OSCAL and CEL, or simpler forms; how much of the handling of vulnerabilities belongs to the core; where the agents' manifests live; a log in a git reference of the repository; a Merkle tree in place of the chain.
 
 ## The order of the work
