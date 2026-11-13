@@ -215,6 +215,12 @@ export class Observer {
       found.push(this.event(`change:${n}:head:${head}`, "change.updated", change.head.at, undefined, of(head), seen));
     }
 
+    // #25: a change to .howl/ is high risk: one event per head that touches it, with the paths.
+    const config = (change.files ?? []).filter((f) => f === ".howl" || f.startsWith(".howl/"));
+    if (config.length > 0) {
+      found.push(this.event(`config:${n}:${head}`, "config.changed", change.head.at, undefined, { ...of(head), data: { paths: config } }, seen));
+    }
+
     for (const r of change.reviews) {
       found.push(this.event(`review:${r.id}`, `review.${r.state}`, r.at, r.by, of(r.sha ?? head), seen));
     }

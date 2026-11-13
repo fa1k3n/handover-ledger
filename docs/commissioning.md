@@ -80,6 +80,19 @@ The rights grow with the level:
 | 2 Small jobs | To write branches, the tracker, agent identities |
 | 3 Agent team | To merge, for the program only |
 
+## A change to `.howl/` is high risk
+
+`howl observe` records a `config.changed` event for every head of a change that touches `.howl/`, with the paths, and the dashboard's overview lists them. Recording shows the change; the code host is where it is stopped until a person has looked. On GitHub:
+
+```
+# .github/CODEOWNERS
+/.howl/ @the-owner
+```
+
+and a rule for the default branch that requires a review from code owners (a ruleset with "Require review from Code Owners", or branch protection). On GitLab, a protected path with an approval rule for `.howl/` does the same.
+
+The keys that sign the agents' claims are held to the ledger's one issuer: `howl verify` fails every key from another issuer, so a new issuer is never taken quietly.
+
 ## Commissioning is itself recorded
 
 The first entries of the ledger are the commissioning: the instance created, the version of the rules, each enrolment, each agent provisioned. The installation can then be audited like any other change, and a commissioning report made from those entries is a natural consulting delivery.

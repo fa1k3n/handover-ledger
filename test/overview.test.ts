@@ -109,3 +109,13 @@ test("#26: a review through a person's account with no matched agent is counted 
   assert.equal(figures.unattributed.count, 2);
   assert.deepEqual(figures.unattributed.changes, ["7", "8"]);
 });
+
+test("#25: the overview lists the changes to .howl/ of the period", () => {
+  const cfg = (change: string, minute: number, paths: string[]): LedgerEvent => ({ ...observed("change.opened", minute, "agent-a", { change }), id: `cfg-${change}-${minute}`, type: "config.changed", data: { paths } });
+  const figures = keyFigures([cfg("7", 1, [".howl/howl.yml"]), cfg("9", 2, [".howl/rules.yml"])], T0 + DAY);
+  assert.deepEqual(
+    figures.configChanges.map((c) => [c.change, c.paths]),
+    [["9", [".howl/rules.yml"]], ["7", [".howl/howl.yml"]]],
+  );
+  assert.equal(keyFigures([cfg("7", 1, [".howl/howl.yml"])], T0 + 40 * DAY).configChanges.length, 0);
+});

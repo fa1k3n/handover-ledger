@@ -375,3 +375,30 @@ test("#20: comments as reviews without a commit are recorded once each, and howl
   const shown = show(events as never, { kind: "change", id: "20" }, null)!;
   assert.equal(shown.reviews.flatMap((r) => r.reviews).length, 2);
 });
+
+test("#25: a change that touches .howl/ gives one config.changed per head with its paths; one that does not gives none", () => {
+  const s = setup();
+  const change = (head: string, files: string[], minute: number) =>
+    s.host.change({
+      number: 25,
+      branch: "task-4-config",
+      openedAt: at(0),
+      openedBy: agent,
+      head: { sha: head, at: at(minute) },
+      tasks: [4],
+      files,
+      reviews: [],
+      updatedAt: at(minute),
+    });
+  change(SHA.a, [".howl/howl.yml", "src/a.ts"], 0);
+  s.host.change({ number: 26, branch: "task-5-x", openedAt: at(1), openedBy: agent, head: { sha: SHA.b, at: at(1) }, tasks: [5], files: ["src/b.ts"], reviews: [], updatedAt: at(1) });
+  round(s);
+  round(s);
+  change(SHA.c, [".howl/howl.yml", ".howl/rules.yml"], 10);
+  round(s);
+  const config = lines(s.ws.ledger).map((l) => l.event as Record<string, any>).filter((e) => e.type === "config.changed");
+  assert.equal(config.length, 2, "one per head, none for change 26, none twice");
+  assert.deepEqual(config[0]!.data.paths, [".howl/howl.yml"]);
+  assert.deepEqual(config[1]!.data.paths, [".howl/howl.yml", ".howl/rules.yml"]);
+  assert.ok(config.every((e) => e.change === "25"));
+});

@@ -94,6 +94,8 @@ test("a task: who opened it, every assignment with its own id, who closed it", a
 test("a change: its branch, its head with the time of the commit, the tasks it closes, and its reviews", async () => {
   const sha = "a".repeat(40);
   const { host } = github({
+    // #25: and the files; before `pulls/7`, which the fake matches as a prefix.
+    [`${R}/pulls/7/files`]: { body: [{ filename: ".howl/howl.yml" }, { filename: "src/a.ts" }] },
     [`${R}/pulls/7/reviews`]: {
       body: [
         { id: 1, user: { login: "bob", type: "User" }, state: "CHANGES_REQUESTED", submitted_at: "2026-01-01T00:10:00Z", commit_id: sha },
@@ -128,6 +130,7 @@ test("a change: its branch, its head with the time of the commit, the tasks it c
     openedBy: { login: "agent-bot", bot: false },
     head: { sha, at: "2026-01-01T00:05:00Z" },
     tasks: [5, 6, 8],
+    files: [".howl/howl.yml", "src/a.ts"],
     reviews: [
       { id: "1", by: { login: "bob", bot: false }, state: "changes_requested", at: "2026-01-01T00:10:00Z", sha },
       { id: "4", by: { login: "review[bot]", bot: true }, state: "commented", at: "2026-01-01T00:12:00Z", sha },
@@ -217,6 +220,7 @@ test("#20: a change's comments are reviews too, commented, with their own ids an
   const sha = "b".repeat(40);
   const { host } = github({
     [`${R}/pulls/9/reviews`]: { body: [] },
+    [`${R}/pulls/9/files`]: { body: [] },
     [`${R}/issues/9/comments`]: {
       body: [
         { id: 501, user: { login: "carol", type: "User" }, created_at: "2026-01-01T01:10:00Z", body: "[review] round 1" },

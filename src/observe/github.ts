@@ -68,6 +68,8 @@ export class GitHub implements CodeHost {
     const reviews = await this.all(this.url(`pulls/${number}/reviews`, { per_page: "100" }));
     // #20: many review by commenting on the pull request; a comment is a review that only comments.
     const comments = await this.all(this.url(`issues/${number}/comments`, { per_page: "100" }));
+    // #25: the paths it touches, so a change to .howl/ can be seen.
+    const files = await this.all(this.url(`pulls/${number}/files`, { per_page: "100" }));
     const head = await this.one(this.url(`commits/${pull.head.sha}`));
     // A pull request does not say who closed it; its issue does.
     const closedBy = pull.closed_at ? (await this.one(this.url(`issues/${number}`))).closed_by : null;
@@ -78,6 +80,7 @@ export class GitHub implements CodeHost {
       openedBy: account(pull.user),
       head: { sha: pull.head.sha, at: head.commit?.committer?.date ?? pull.updated_at },
       tasks: closingTasks(pull.body, this.repository),
+      files: files.map((f) => f.filename).filter((f): f is string => typeof f === "string"),
       reviews: reviews.flatMap((r): Review[] => {
         const state = REVIEW_STATES[r.state];
         if (!state || !r.submitted_at) return [];

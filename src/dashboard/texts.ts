@@ -57,6 +57,8 @@ export const texts = {
     unattributed: "No agent matched",
     unattributedNote: (days: number) => `changes and reviews through a person's account, last ${days} days`,
     unattributedList: "Through a person's account with no agent matched:",
+    configHeading: "Changes to .howl/, high risk",
+    configNote: (days: number) => `the configuration of howl itself, last ${days} days`,
     heading: "Latest handovers",
     note: "Derived from the ledger: opened by one, reviewed by another, sent back, merged",
     toStream: "Open the event stream",

@@ -47,6 +47,8 @@ export interface Change {
   head: { sha: string; at: string };
   /** The tasks the host links the change to. */
   tasks: number[];
+  /** The paths the change touches, as the host lists them (#25). */
+  files?: string[];
   reviews: Review[];
   closedAt?: string;
   closedBy?: Account;

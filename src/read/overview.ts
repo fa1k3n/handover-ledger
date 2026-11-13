@@ -77,6 +77,8 @@ export interface KeyFigures {
   /** Review events per change merged within the period, mean. */
   reviewRoundsMean: number | null;
   periodDays: number;
+  /** #25: the changes to .howl/ in the period, the newest first. */
+  configChanges: { change: string; time: string; paths: string[] }[];
   /** #26: changes and reviews through a person's account that no agent was matched to, in the period: where the chain may be broken. */
   unattributed: { count: number; changes: string[] };
 }
@@ -118,7 +120,12 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
       (e.actor?.kind === "person" || (e.actor === undefined && e.type === "change.updated")) &&
       !acting.has(e.id),
   );
+  const configChanges = sorted
+    .filter((e) => e.type === "config.changed" && e.change !== undefined && now - Date.parse(e.time) <= PERIOD_MS)
+    .map((e) => ({ change: e.change!, time: e.time, paths: ((e.data as { paths?: string[] } | undefined)?.paths ?? []).filter((p) => typeof p === "string") }))
+    .reverse();
   return {
+    configChanges,
     unattributed: { count: missing.length, changes: [...new Set(missing.map((e) => e.change!))].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b)) },
     open: [...state.values()].filter((s) => s === "open").length,
     merged: rounds.length,

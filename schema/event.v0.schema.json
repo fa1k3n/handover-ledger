@@ -57,7 +57,8 @@
         "review.commented",
         "key.issued",
         "key.revoked",
-        "observe.started"
+        "observe.started",
+        "config.changed"
       ]
     },
     "source": {

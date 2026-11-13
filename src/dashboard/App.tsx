@@ -226,6 +226,25 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
           ))}
         </p>
       )}
+      {f && f.configChanges.length > 0 && (
+        <section aria-labelledby="cfg-h" className="flex flex-col gap-2 rounded-xl border border-line bg-warn-pale px-6 py-4">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <h2 id="cfg-h" className="m-0 text-base font-semibold text-warn-ink">
+              {texts.overview.configHeading}
+            </h2>
+            <span className="text-[13px] text-mute">{texts.overview.configNote(f.periodDays)}</span>
+          </div>
+          {f.configChanges.map((c) => (
+            <div key={`${c.change}-${c.time}`} className="flex flex-wrap gap-x-3 font-mono text-[13px]">
+              <span className="text-mute">{whenShort(c.time, Date.now())}</span>
+              <a href={hashFor("change", project, `change:${c.change}`)} className="text-ink">
+                {texts.overview.change(c.change)}
+              </a>
+              <span>{c.paths.join(", ")}</span>
+            </div>
+          ))}
+        </section>
+      )}
       <section aria-labelledby="ho-h" className="flex flex-col gap-3.5 rounded-xl border border-line bg-white px-6 py-[22px]">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
           <h2 id="ho-h" className="m-0 text-lg font-semibold">

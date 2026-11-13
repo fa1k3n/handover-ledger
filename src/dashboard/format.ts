@@ -51,6 +51,7 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
     e.session !== undefined ? { k: "Session", v: e.session } : null,
     e.model !== undefined ? { k: "Model", v: [e.model, e.effort].filter(Boolean).join(" · ") } : null,
     e.role !== undefined ? { k: "Role", v: e.role } : null,
+    e.type === "config.changed" ? { k: "Paths", v: ((d.paths as string[] | undefined) ?? []).join(", ") } : null,
     item.from === "ledger" && e.source.kind === "claimed" && !e.type.startsWith("key.")
       ? {
           k: "Signature",
