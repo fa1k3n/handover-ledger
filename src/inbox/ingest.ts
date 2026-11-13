@@ -4,8 +4,8 @@
 // aside with the reason, and the pass goes on.
 //
 // If the process stops between writing an event and removing its file, the
-// next pass writes the event again. Passing over an id that is already in the
-// ledger comes with the reader of the code host (#3).
+// next pass finds the id in the ledger and only removes the file. Activity has
+// no such check: a tool call can then be in the activity file twice.
 import {
   appendFileSync,
   existsSync,
@@ -33,6 +33,8 @@ export interface Pass {
   ledger: number;
   activity: number;
   rejected: number;
+  /** Events whose id was in the ledger already: their files are removed. */
+  duplicates: number;
   /** Activity lines removed for their age. */
   expired: number;
 }
@@ -41,7 +43,7 @@ const DAY = 86_400_000;
 
 /** One pass over the inbox, with the writer of the ledger held by the caller. */
 export function ingestPass(places: Places, writer: LedgerWriter, activityDays: number, now = Date.now()): Pass {
-  const pass: Pass = { ledger: 0, activity: 0, rejected: 0, expired: 0 };
+  const pass: Pass = { ledger: 0, activity: 0, rejected: 0, duplicates: 0, expired: 0 };
   let names: string[] = [];
   try {
     names = readdirSync(places.inbox).filter(isReady).sort();
@@ -60,7 +62,9 @@ export function ingestPass(places: Places, writer: LedgerWriter, activityDays: n
     }
     try {
       const event = parse(text, places.project);
-      if (ACTIVITY_TYPES.has(event.type)) {
+      if (writer.has(event.id)) {
+        pass.duplicates++;
+      } else if (ACTIVITY_TYPES.has(event.type)) {
         appendFileSync(places.activity, Buffer.concat([fixedForm(event), Buffer.from("\n")]), { mode: 0o600 });
         pass.activity++;
       } else {

@@ -1,9 +1,11 @@
 // The project of a working directory, from the nearest .howl/howl.yml above it,
 // and the agent a session runs for.
 //
-// howl.yml is read with a small reader of its own, not a YAML library: only the
-// top-level `key: value` lines are read, and everything indented is passed over.
-// That is all this step needs, and it keeps the hook quick and free of dependencies.
+// howl.yml is read with a small reader of its own, not a YAML library: only
+// top-level keys are read, with a plain value or a list of plain values
+// (`[a, b]`, or `- a` lines under the key). Everything else indented is passed
+// over. That is all this step needs, and it keeps the hook quick and free of
+// dependencies. A `#` after white space starts a comment, also inside quotes.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isProjectName } from "../ledger/place.ts";
@@ -14,6 +16,16 @@ export interface Project {
   project: string;
   /** How many days activity is kept. */
   activityDays: number;
+  /** The code host: `github`, or `local` for a folder of JSON files. */
+  host?: string;
+  /** The repository at the code host, as `owner/name`. */
+  repository?: string;
+  /** A regular expression that takes a task's number from a branch name: its first group, else the whole match. */
+  taskFromBranch?: string;
+  /** For the local host: its folder, relative to the root. */
+  local?: string;
+  /** The accounts at the code host that are agents. */
+  agents: string[];
 }
 
 export const DEFAULT_ACTIVITY_DAYS = 30;
@@ -34,29 +46,83 @@ export function findProject(dir: string): Project | null {
 
 function read(root: string, text: string): Project | null {
   const settings = topLevel(text);
-  const project = settings.get("project");
+  const value = (key: string) => {
+    const v = settings.get(key);
+    return typeof v === "string" ? v : undefined;
+  };
+  const project = value("project");
   if (project === undefined || !isProjectName(project)) return null;
   let activityDays = DEFAULT_ACTIVITY_DAYS;
   const days = settings.get("activity_days");
   if (days !== undefined) {
-    if (!/^[1-9][0-9]*$/.test(days)) return null;
+    if (typeof days !== "string" || !/^[1-9][0-9]*$/.test(days)) return null;
     activityDays = Number(days);
   }
-  return { root, project, activityDays };
+  const agents = settings.get("agents");
+  const found: Project = {
+    root,
+    project,
+    activityDays,
+    agents: agents === undefined ? [] : typeof agents === "string" ? [agents] : agents,
+  };
+  for (const [key, field] of [
+    ["host", "host"],
+    ["repository", "repository"],
+    ["task_from_branch", "taskFromBranch"],
+    ["local", "local"],
+  ] as const) {
+    const v = value(key);
+    if (v !== undefined) found[field] = v;
+  }
+  return found;
 }
 
-/** The top-level `key: value` lines of a YAML file, with comments and quotes taken away. */
-function topLevel(text: string): Map<string, string> {
-  const settings = new Map<string, string>();
-  for (const line of text.split(/\r?\n/)) {
+/** The top-level keys of a YAML file, each with a plain value or a list of plain values. */
+function topLevel(text: string): Map<string, string | string[]> {
+  const settings = new Map<string, string | string[]>();
+  let list: string[] | null = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/(^|\s)#.*$/, "");
+    const item = /^\s+-\s+(.*)$/.exec(line);
+    if (item && list) {
+      const v = plain(item[1]!);
+      if (v !== "") list.push(v);
+      continue;
+    }
     const match = /^([A-Za-z_][A-Za-z0-9_]*):(.*)$/.exec(line);
-    if (!match) continue;
-    let value = match[2]!.replace(/(^|\s)#.*$/, "").trim();
-    const quoted = /^"(.*)"$/.exec(value) ?? /^'(.*)'$/.exec(value);
-    if (quoted) value = quoted[1]!;
-    if (value !== "" && !settings.has(match[1]!)) settings.set(match[1]!, value);
+    if (!match) {
+      if (line.trim() !== "" && !/^\s/.test(line)) list = null;
+      continue;
+    }
+    list = null;
+    const key = match[1]!;
+    if (settings.has(key)) continue;
+    const value = match[2]!.trim();
+    if (value === "") {
+      list = [];
+      settings.set(key, list);
+    } else if (value.startsWith("[") && value.endsWith("]")) {
+      settings.set(
+        key,
+        value
+          .slice(1, -1)
+          .split(",")
+          .map(plain)
+          .filter((v) => v !== ""),
+      );
+    } else {
+      settings.set(key, plain(value));
+    }
   }
+  // A key with nothing after it and no list below it has no value.
+  for (const [key, value] of settings) if (Array.isArray(value) && value.length === 0) settings.delete(key);
   return settings;
+}
+
+function plain(value: string): string {
+  const v = value.trim();
+  const quoted = /^"(.*)"$/.exec(v) ?? /^'(.*)'$/.exec(v);
+  return quoted ? quoted[1]! : v;
 }
 
 /**

@@ -42,6 +42,16 @@ export function activityPath(project: string, env: Env = process.env, home: stri
   return join(projectDir(project, env, home), "activity.jsonl");
 }
 
+/** The pseudonyms of the people of a project: `<project folder>/people.json`. Never in the ledger. */
+export function peoplePath(project: string, env: Env = process.env, home: string = homedir()): string {
+  return join(projectDir(project, env, home), "people.json");
+}
+
+/** Where the last round of `howl observe` ended: `<project folder>/observe.json`. */
+export function cursorPath(project: string, env: Env = process.env, home: string = homedir()): string {
+  return join(projectDir(project, env, home), "observe.json");
+}
+
 function howlHome(env: Env, home: string): string {
   if (env.HOWL_HOME) {
     if (!isAbsolute(env.HOWL_HOME)) {

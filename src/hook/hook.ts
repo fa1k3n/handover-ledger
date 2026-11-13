@@ -10,13 +10,13 @@
 //
 // Only an agent's session is recorded. A tool call keeps the tool, the target,
 // the outcome and a hash of the input: never the input, the answer or a message.
-import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, isAbsolute, relative, sep } from "node:path";
 import { leave } from "../inbox/inbox.ts";
 import { fixedForm } from "../ledger/fixed.ts";
 import { inboxPath } from "../ledger/place.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { git, originUrl, repoName } from "../howl/git.ts";
 import { findActor, findProject } from "../howl/project.ts";
 
 type Input = Record<string, unknown>;
@@ -140,31 +140,20 @@ function program(command: string | undefined): string | undefined {
 
 /** The repository's name, branch and head commit, when the folder is a git checkout. */
 function checkout(dir: string): Pick<LedgerEvent, "repo" | "branch" | "sha"> {
-  const git = (...args: string[]) => {
-    const result = spawnSync("git", args, { cwd: dir, encoding: "utf8", timeout: 1000, stdio: ["ignore", "pipe", "ignore"] });
-    return result.status === 0 ? result.stdout.trim() : null;
-  };
+  const run = (...args: string[]) => git(dir, ...args);
   // One call for the root, the head commit and the branch; a repository with
   // no commit yet has no head, and then only the root is asked for.
-  const all = git("rev-parse", "--show-toplevel", "HEAD", "--abbrev-ref", "HEAD")?.split("\n");
-  const top = all?.[0] ?? git("rev-parse", "--show-toplevel");
+  const all = run("rev-parse", "--show-toplevel", "HEAD", "--abbrev-ref", "HEAD")?.split("\n");
+  const top = all?.[0] ?? run("rev-parse", "--show-toplevel");
   if (!top) return {};
   const found: Pick<LedgerEvent, "repo" | "branch" | "sha"> = {
-    repo: repoName(git("config", "--get", "remote.origin.url")) ?? basename(top),
+    repo: repoName(originUrl(dir)) ?? basename(top),
   };
   if (all && all.length === 3) {
     if (/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(all[1]!)) found.sha = all[1];
     if (all[2] !== "HEAD") found.branch = all[2];
   }
   return found;
-}
-
-/** `owner/name` from the URL of a remote, or null. Never a path on the machine. */
-function repoName(url: string | null): string | null {
-  if (!url) return null;
-  const match = /[:/]([^/:]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url);
-  if (!match || url.startsWith("/") || url.startsWith("file:")) return null;
-  return `${match[1]}/${match[2]}`;
 }
 
 function effort(value: unknown): string | undefined {

@@ -42,7 +42,11 @@ export interface LedgerEvent {
     | "tool.used"
     | "agent.waiting"
     | "session.stopped"
-    | "session.ended";
+    | "session.ended"
+    | "task.opened"
+    | "task.closed"
+    | "change.closed"
+    | "review.commented";
   /**
    * Where the event comes from.
    */

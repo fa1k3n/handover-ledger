@@ -26,8 +26,13 @@ export { LedgerError };
 export type { LedgerEvent };
 
 export interface LedgerWriter {
-  /** Adds one event to the end of the ledger. Returns the hash of the new line. */
+  /**
+   * Adds one event to the end of the ledger. Returns the hash of the new line.
+   * An event whose id is already in the ledger is refused: an id is written once.
+   */
   append(event: LedgerEvent): string;
+  /** Whether an event with this id is in the ledger. */
+  has(id: string): boolean;
   /** Lets go of the lock. The writer writes no more. */
   close(): void;
 }
@@ -46,6 +51,7 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
   const release = lock(path);
   let fd: number | undefined;
   let head: string;
+  const ids = new Set<string>();
   try {
     let created = true;
     try {
@@ -67,6 +73,7 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
       });
     } else {
       head = hashLine(lastLine(fd, path));
+      for (const id of eventIds(path)) ids.add(id);
     }
   } catch (e) {
     if (fd !== undefined) closeSync(fd);
@@ -84,8 +91,13 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
           `not an event of this ledger: project is ${JSON.stringify(event.project)}, the ledger is ${JSON.stringify(options.project)}`,
         );
       }
+      if (ids.has(event.id)) throw new LedgerError(`${event.id}: an event with this id is in the ledger already`);
       head = write(file, fstatSync(file).size, head, event);
+      ids.add(event.id);
       return head;
+    },
+    has(id) {
+      return ids.has(id);
     },
     close() {
       if (!open) return;
@@ -120,6 +132,25 @@ function toLine(prev: string | null, event: LedgerEvent): Buffer {
     fixed,
     Buffer.from("}\n"),
   ]);
+}
+
+/** The ids of the events in a ledger file. A line that cannot be read is passed over: `howl verify` names it. */
+export function* eventIds(path: string): Generator<string> {
+  for (const event of events(path)) if (typeof event.id === "string") yield event.id;
+}
+
+/** The events of a ledger file, line by line. A line that cannot be read is passed over: `howl verify` names it. */
+export function* events(path: string): Generator<Partial<LedgerEvent>> {
+  const text = readFileSync(path, "utf8");
+  for (const line of text.split("\n")) {
+    if (line === "") continue;
+    try {
+      const event = (JSON.parse(line) as { event?: unknown }).event;
+      if (typeof event === "object" && event !== null) yield event as Partial<LedgerEvent>;
+    } catch {
+      // Not a line of the ledger.
+    }
+  }
 }
 
 /** The bytes of the last line, read from the end of the file without reading the lines before it. */

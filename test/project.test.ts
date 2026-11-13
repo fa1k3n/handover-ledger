@@ -13,6 +13,33 @@ function repo(yml: string): string {
   return root;
 }
 
+test("the settings of the code host are read: host, repository, task_from_branch, local, and agents as a list", () => {
+  const flow = repo(`project: example
+host: github
+repository: team/product
+task_from_branch: '^task-(\\d+)'
+agents: [agent-bot, "other-agent"]
+`);
+  assert.deepEqual(findProject(flow), {
+    root: flow,
+    project: "example",
+    activityDays: 30,
+    host: "github",
+    repository: "team/product",
+    taskFromBranch: "^task-(\\d+)",
+    agents: ["agent-bot", "other-agent"],
+  });
+  const block = repo(`project: example
+agents:
+  - agent-bot
+  - 'other-agent'   # a comment
+local: ../host
+`);
+  const found = findProject(block);
+  assert.deepEqual(found?.agents, ["agent-bot", "other-agent"]);
+  assert.equal(found?.local, "../host");
+});
+
 test("the project and activity_days are read; nested settings are passed over", () => {
   const root = repo(`# a comment
 project: "example"   # the name
@@ -22,7 +49,7 @@ classes:
     paths: [tools/**]
     project: not-this-one
 `);
-  assert.deepEqual(findProject(root), { root, project: "example", activityDays: 7 });
+  assert.deepEqual(findProject(root), { root, project: "example", activityDays: 7, agents: [] });
 });
 
 test("activity_days is 30 when it is not given", () => {

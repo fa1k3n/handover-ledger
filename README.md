@@ -112,6 +112,43 @@ if make check; then result=checks.passed; else result=checks.failed; fi
 node /path/to/handover-ledger/src/cli/howl.ts emit "$result" --change "$CHANGE" --data '{"check":"make check"}'
 ```
 
+## Recording the code host
+
+`howl observe` is the one process a team keeps running. Each round brings the inbox in, as `howl ingest` does, then reads what has changed at the code host since the last round and records it as observed events:
+
+| Seen at the host | Event |
+|---|---|
+| A task opened, given to someone, closed | `task.opened`, `task.assigned`, `task.closed` |
+| A change opened, a new head commit, closed without merge | `change.opened`, `change.updated`, `change.closed` |
+| The checks of a head commit finished | `checks.passed`, `checks.failed` |
+| A review handed in | `review.approved`, `review.changes_requested`, `review.commented` |
+| A change merged | `change.merged` |
+
+```sh
+cd the/observed/repository
+node /path/to/handover-ledger/src/cli/howl.ts observe              # a round every minute, until stopped
+node /path/to/handover-ledger/src/cli/howl.ts observe --once       # one round
+```
+
+**Settings**, all optional, in `.howl/howl.yml`:
+
+```yaml
+host: github                      # else read from the remote origin
+repository: owner/name            # else read from the remote origin
+task_from_branch: '^task-(\d+)'   # takes a task's number from a branch name: the first group
+agents: [agent-1, agent-2]        # the accounts at the host that are agents
+```
+
+**Access: read only.** `howl observe` never writes to the host. For GitHub it needs a token that can read the repository's issues, pull requests, commits and checks; a fine-grained token with read access to *Issues*, *Pull requests*, *Contents*, *Commit statuses* and *Checks* is enough. It takes `HOWL_GITHUB_TOKEN`, else `GITHUB_TOKEN`, else the token of `gh auth token`. While it runs, a call that is asked again sends the answer's ETag, so a quiet round costs next to nothing; when the limit is reached it waits until the limit is lifted.
+
+**People are not named.** An account in `agents`, or an app account, is an agent and is named by its account. Any other account is a person, named by a pseudonym that is made up the first time the account is seen and kept in `people.json` beside the ledger, never in it. Removing a row there cuts the link between the ledger and that person.
+
+**Nothing twice.** An observed event's id is made from the host, the repository and the thing, so the same thing read again is passed over. Where the last round ended is kept in `observe.json` beside the ledger; without it the host is read from the start and still nothing is written twice. A call that fails is named on standard error, the rest of the round is written, and the next round reads again what was missed.
+
+The first round reads the whole history of the repository: on a repository with hundreds of issues and pull requests it takes minutes.
+
+**Known limit:** when the repository belongs to a person's account and not to an organisation, `repo` and every id hold that account's name. It names the repository, not who did what.
+
 ## Documents
 
 - [docs/vision.md](docs/vision.md): the problem, who it is for, the offer, the market, the risks.
