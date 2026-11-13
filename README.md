@@ -149,6 +149,62 @@ The first round reads the whole history of the repository: on a repository with 
 
 **Known limit:** when the repository belongs to a person's account and not to an organisation, `repo` and every id hold that account's name. It names the repository, not who did what.
 
+## Reading the ledger
+
+`howl watch` and `howl show` only read. They take no lock and run while the writer appends. They read the ledger and the activity file together, in the order of time; a half-written last line is left until it is whole. Both find the ledger from `.howl/howl.yml`, or take `--project <name>` or `--ledger <path>`.
+
+**`howl watch`** prints the events, then follows them. One line per event: the time, `claimed` or `observed`, the actor, the type, what it concerns, and the short of its data:
+
+```
+$ howl watch --filter type=review.* --filter change=30
+2026-01-01T08:20:00Z observed person-0a0a0a0a  review.changes_requested task 12  change 30  aaaaaaa
+2026-01-01T08:55:00Z observed person-0a0a0a0a  review.approved          task 12  change 30  ccccccc
+```
+
+`--filter field=value` can be given more than once, and all must match; a value may end in `*`. The fields are those of the event, with `actor`, `kind` (claimed or observed) and `adapter` besides. `--since <time>` passes over what came before; `--json` prints the lines as they stand in the files; `--no-follow` stops after what is there. A wait for a person, failed checks and a review that asks for changes stand out in colour; not when the output is not a terminal, or when `NO_COLOR` is set.
+
+**`howl show <task or change>`** gives the timeline of one assignment: `12`, `task:12` or `change:30`. It gathers what names the task, its changes, the hook events on their branches and commits, and the rest of those sessions; never what names another task.
+
+```
+$ howl show 12
+Task 12: merged
+
+Hand-over
+  2026-01-01T07:50:00Z  observed  task opened by person-0a0a0a0a
+  2026-01-01T08:00:00Z  observed  given to agent-1
+
+Sessions
+  session s1  claimed  agent-1  2026-01-01T08:02:00Z to 2026-01-01T08:10:00Z, 8m
+    tool calls: Bash 2, Edit 1, Read 1
+    files: src/a.ts
+    2026-01-01T08:05:00Z  waited for a person (permission_prompt): 1m
+    2026-01-01T08:09:00Z  waited for instructions (idle_prompt): 1m
+  session s2  claimed  agent-1  2026-01-01T08:22:00Z to 2026-01-01T08:30:00Z, 8m
+    tool calls: Edit 1
+    files: src/b.ts
+
+Change 30  branch task-12-x
+  2026-01-01T08:10:00Z  observed  opened by agent-1
+  2026-01-01T08:10:00Z  observed  head aaaaaaa, checks passed at 2026-01-01T08:12:00Z
+  2026-01-01T08:30:00Z  observed  new head bbbbbbb, checks failed at 2026-01-01T08:33:00Z
+  2026-01-01T08:40:00Z  observed  new head ccccccc, checks passed at 2026-01-01T08:45:00Z
+
+Reviews
+  round 1: person-0a0a0a0a changes requested; followed by a new head
+  round 2: person-0a0a0a0a approved; followed by the merge
+
+End
+  2026-01-01T09:00:00Z  observed  merged by person-0b0b0b0b
+
+Summary
+  hand-over to the end: 1h 0m
+  work 15m, waiting for a person 6m, waiting for instructions 11m, waiting for checks 10m, waiting for review 18m
+  review rounds: 2
+  taking part: person-0a0a0a0a, agent-1, person-0b0b0b0b
+```
+
+The summary divides the time from the hand-over to the merge so that every second is in one part, by the state after the last event before it: an agent working is *work*; an agent that stands still until a person answers, and an approved change not yet merged, is *waiting for a person*; a change whose head waits for its checks or for a review is *waiting for checks* or *waiting for review*; an agent that is done and waits for its next instruction is *waiting for instructions*. A person is shown by the pseudonym of `howl observe`, and no figure is given per person. `--json` gives the parts and the summary as one JSON document.
+
 ## Documents
 
 - [docs/vision.md](docs/vision.md): the problem, who it is for, the offer, the market, the risks.

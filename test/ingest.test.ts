@@ -169,6 +169,7 @@ test("howl ingest --watch brings in what arrives while it runs, and lets go of t
     env: { PATH: process.env.PATH ?? "", ...ws.env },
     stdio: "ignore",
   });
+  const closed = new Promise((resolve) => child.on("close", resolve));
   try {
     await until(() => existsSync(ws.ledger));
     leave(ws, "0001.json", event({ id: "late", type: "session.started" }));
@@ -177,7 +178,7 @@ test("howl ingest --watch brings in what arrives while it runs, and lets go of t
     assert.ok(existsSync(`${ws.ledger}.lock`));
   } finally {
     child.kill("SIGTERM");
-    await new Promise((resolve) => child.on("close", resolve));
+    await closed;
   }
   assert.ok(!existsSync(`${ws.ledger}.lock`));
 });

@@ -9,6 +9,8 @@ const USAGE = `usage:
   howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
   howl ingest [--project <name>] [--watch] [--interval <seconds>]
   howl observe [--once] [--interval <seconds>]
+  howl watch [--since <time>] [--filter <field>=<value> ...] [--json] [--no-follow]
+  howl show <task or change> [--json]
 
   verify    check every line of the ledger and the chain between the lines
   hook      called by the hooks of Claude Code: leaves an event in the inbox.
@@ -19,6 +21,14 @@ const USAGE = `usage:
             and records what happened at the code host since the last round.
             Read access is enough. GitHub: a token from $HOWL_GITHUB_TOKEN,
             else $GITHUB_TOKEN, else \`gh auth token\`
+  watch     print the events of the ledger and the activity file, then follow
+            them. A field and a value filter: type=review.*, actor=agent-1,
+            kind=claimed, change=12. Colour unless NO_COLOR is set
+  show      the timeline of one assignment, from the hand-over to the merge:
+            12, task:12 or change:30
+
+watch, show and verify also take --project <name> or --ledger <path>. They
+only read: they take no lock and run while the writer appends.
 
 The project is read from the nearest .howl/howl.yml, unless --project names it.
 Its files are in $HOWL_HOME, else $XDG_STATE_HOME/howl, else ~/.local/state/howl,
@@ -55,6 +65,10 @@ async function main(argv: string[]): Promise<number> {
         return await ingestCommand(rest);
       case "observe":
         return await observeCommand(rest);
+      case "watch":
+        return await watchCommand(rest);
+      case "show":
+        return await showCommand(rest);
       case "-h":
       case "--help":
       case "help":
@@ -217,6 +231,78 @@ async function observeCommand(args: string[]): Promise<number> {
     if (pass.rejected > 0) console.error(`howl: ${pass.rejected} rejected, see ${inboxPath(project)}/rejected`);
   };
   return await repeat(values.once ? null : interval, once, () => writer.close());
+}
+
+/** The ledger to read: --ledger, else that of --project, else that of the nearest .howl/howl.yml. */
+async function ledgerToRead(values: { ledger?: string; project?: string }): Promise<string> {
+  if (values.ledger !== undefined) return values.ledger;
+  const { ledgerPath } = await import("../ledger/place.ts");
+  if (values.project !== undefined) return ledgerPath(values.project);
+  const { findProject } = await import("../howl/project.ts");
+  const found = findProject(process.cwd());
+  if (!found) throw new UsageError("give --ledger or --project, or run it below a .howl/howl.yml");
+  return ledgerPath(found.project);
+}
+
+async function watchCommand(args: string[]): Promise<number> {
+  const { values } = parse(args, {
+    ledger: { type: "string" },
+    project: { type: "string" },
+    since: { type: "string" },
+    filter: { type: "string", multiple: true },
+    json: { type: "boolean" },
+    "no-follow": { type: "boolean" },
+    interval: { type: "string" },
+  });
+  const ledger = await ledgerToRead(values);
+  const { statSync } = await import("node:fs");
+  statSync(ledger);
+  const interval = values.interval === undefined ? 0.5 : Number(values.interval);
+  if (!(interval > 0)) throw new UsageError("--interval must be a number of seconds above 0");
+  const { watch } = await import("../read/watch.ts");
+  const { LedgerError } = await import("../ledger/errors.ts");
+  const force = process.env.FORCE_COLOR !== undefined && process.env.FORCE_COLOR !== "" && process.env.FORCE_COLOR !== "0";
+  const colour = (process.stdout.isTTY || force) && !process.env.NO_COLOR;
+  try {
+    await watch(
+      ledger,
+      {
+        since: values.since,
+        filters: values.filter ?? [],
+        json: values.json ?? false,
+        follow: !values["no-follow"],
+        interval,
+        colour,
+      },
+      (line) => process.stdout.write(`${line}\n`),
+    );
+  } catch (e) {
+    if (e instanceof LedgerError) throw new UsageError(e.message);
+    throw e;
+  }
+  return 0;
+}
+
+async function showCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parse(args, { ledger: { type: "string" }, project: { type: "string" }, json: { type: "boolean" } }, 1);
+  const [what] = positionals;
+  if (what === undefined) throw new UsageError("show needs a task or a change: 12, task:12 or change:30");
+  const ledger = await ledgerToRead(values);
+  const { readAll } = await import("../read/reader.ts");
+  const { parseAsked, render, show } = await import("../read/show.ts");
+  const reads = readAll(ledger);
+  const activity = reads.filter((r) => r.from === "activity");
+  const shown = show(
+    reads.map((r) => r.event),
+    parseAsked(what),
+    activity.length > 0 ? activity[0]!.event.time : null,
+  );
+  if (shown === null) {
+    console.error(`howl: nothing in the ledger names ${what}`);
+    return 1;
+  }
+  console.log(values.json ? JSON.stringify(shown, null, 2) : render(shown));
+  return 0;
 }
 
 /** The code host of a project: from howl.yml, else from the remote origin. */
