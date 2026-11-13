@@ -115,6 +115,7 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
                   {headText(h, i === 0)}
                 </div>
               ))}
+              {c.comments > 0 && <div className={`${row} text-mute`}>{t.comments(c.comments)}</div>}
             </section>
           ))}
 

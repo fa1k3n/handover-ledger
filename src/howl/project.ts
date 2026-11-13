@@ -22,6 +22,8 @@ export interface Project {
   repository?: string;
   /** A regular expression that takes a task's number from a branch name: its first group, else the whole match. */
   taskFromBranch?: string;
+  /** #28: a regular expression a comment's first line must match to count as a review. */
+  reviewCommentPattern?: string;
   /** For the local host: its folder, relative to the root. */
   local?: string;
   /** The accounts at the code host that are agents. */
@@ -69,6 +71,7 @@ function read(root: string, text: string): Project | null {
     ["host", "host"],
     ["repository", "repository"],
     ["task_from_branch", "taskFromBranch"],
+    ["review_comment_pattern", "reviewCommentPattern"],
     ["local", "local"],
   ] as const) {
     const v = value(key);

@@ -703,19 +703,27 @@ async function codeHost(found: import("../howl/project.ts").Project) {
   const { originRepository, GitHub } = await import("../observe/github.ts");
   const { resolve } = await import("node:path");
 
+  let reviewCommentPattern: RegExp | undefined;
+  if (found.reviewCommentPattern !== undefined) {
+    try {
+      reviewCommentPattern = new RegExp(found.reviewCommentPattern);
+    } catch (e) {
+      throw new LedgerError(`review_comment_pattern in .howl/howl.yml is not a regular expression: ${(e as Error).message}`);
+    }
+  }
   const origin = found.host === undefined || found.repository === undefined ? originRepository(originUrl(found.root)) : null;
   const host = found.host ?? origin?.host;
   if (host === "local") {
     if (found.local === undefined) throw new LedgerError("host: local needs local: <folder> in .howl/howl.yml");
     const { LocalHost } = await import("../observe/local.ts");
-    return new LocalHost(resolve(found.root, found.local), found.repository ?? "local");
+    return new LocalHost(resolve(found.root, found.local), found.repository ?? "local", reviewCommentPattern);
   }
   if (host === "github") {
     const repository = found.repository ?? origin?.repository;
     if (repository === undefined || !/^[^/\s]+\/[^/\s]+$/.test(repository)) {
       throw new LedgerError("no repository: set repository: <owner>/<name> in .howl/howl.yml");
     }
-    return new GitHub({ repository, token: await githubToken() });
+    return new GitHub({ repository, token: await githubToken(), reviewCommentPattern });
   }
   if (host === undefined) throw new LedgerError("no code host: set host: in .howl/howl.yml, or a remote origin at GitHub");
   throw new LedgerError(`no adapter for host: ${host}; there are github and local`);

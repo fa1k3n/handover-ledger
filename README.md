@@ -152,6 +152,7 @@ node /path/to/handover-ledger/src/cli/howl.ts emit "$result" --change "$CHANGE" 
 | A change opened, a new head commit, closed without merge | `change.opened`, `change.updated`, `change.closed` |
 | The checks of a head commit finished | `checks.passed`, `checks.failed` |
 | A review handed in | `review.approved`, `review.changes_requested`, `review.commented` |
+| A comment on a change | `review.commented` when its first line matches `review_comment_pattern`, else `change.commented` |
 | A change merged | `change.merged` |
 
 ```sh
@@ -167,7 +168,10 @@ host: github                      # else read from the remote origin
 repository: owner/name            # else read from the remote origin
 task_from_branch: '^task-(\d+)'   # takes a task's number from a branch name: the first group
 agents: [agent-1, agent-2]        # the accounts at the host that are agents
+review_comment_pattern: '^\[review\]'   # a comment whose first line matches counts as a review; quote it
 ```
+
+**A review is a review.** Formal reviews of the host are always `review.*`. A plain comment on a change counts as a review only when its first line matches `review_comment_pattern`; any other comment, and every comment when there is no pattern, is `change.commented`. The adapter tests the text as it reads the comment and keeps only the outcome, never the text. Review rounds, handovers and the overview's figures count reviews only; `howl show` and the change view give the comments apart, as a count per change. The ledger is append-only: comments recorded before this step are `review.commented` and are still counted as reviews.
 
 **Keeping the head elsewhere.** A hash chain shows a changed line, but not a ledger cut back or rewritten whole with a new chain. `howl anchor` writes a checkpoint (the number of lines and the hash of the last) as a commit on `refs/howl/checkpoints` of the repository and pushes it to `origin`, touching no branch; `--to file:<path>` or `--to -` keeps it elsewhere, and `--sign <ssh key>` signs it. `howl observe --anchor-every 60` anchors after rounds that wrote lines, at most once an hour. `howl verify --checkpoint git` (or a file) then checks that the ledger still holds the line the checkpoint names, and with `--signers <allowed signers>` its signature.
 

@@ -38,6 +38,25 @@ export interface Review {
   sha?: string;
 }
 
+/**
+ * A comment on a change that is not a formal review (#28). Whether it counts as
+ * a review is told by the adapter from its text, which is never kept.
+ */
+export interface Comment {
+  /** The host's own id of the comment. */
+  id: string;
+  by: Account;
+  at: string;
+  /** Whether its first line matches the project's `review_comment_pattern`. */
+  review: boolean;
+}
+
+/** Whether a comment counts as a review: its first line matches the pattern. With no pattern, none does. */
+export function isReviewComment(body: unknown, pattern: RegExp | undefined): boolean {
+  if (pattern === undefined || typeof body !== "string") return false;
+  return pattern.test(body.split(/\r?\n/, 1)[0]!);
+}
+
 export interface Change {
   number: number;
   branch: string;
@@ -49,7 +68,10 @@ export interface Change {
   tasks: number[];
   /** The paths the change touches, as the host lists them (#25). */
   files?: string[];
+  /** Formal reviews of the host. */
   reviews: Review[];
+  /** Comments on the change, apart from the reviews. */
+  comments?: Comment[];
   closedAt?: string;
   closedBy?: Account;
   mergedAt?: string;

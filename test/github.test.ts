@@ -136,6 +136,7 @@ test("a change: its branch, its head with the time of the commit, the tasks it c
       { id: "4", by: { login: "review[bot]", bot: true }, state: "commented", at: "2026-01-01T00:12:00Z", sha },
       { id: "5", by: { login: "bob", bot: false }, state: "approved", at: "2026-01-01T00:20:00Z", sha },
     ],
+    comments: [],
     mergedAt: "2026-01-01T00:30:00Z",
     mergedBy: { login: "carol", bot: false },
     closedAt: "2026-01-01T00:30:00Z",
@@ -216,7 +217,7 @@ test("the repository is read from the remote origin when it is at GitHub", () =>
   assert.equal(originRepository(null), null);
 });
 
-test("#20: a change's comments are reviews too, commented, with their own ids and no text", async () => {
+test("#20, #28: a change's comments are read apart from its reviews, with their own ids and no text; with no pattern none is a review", async () => {
   const sha = "b".repeat(40);
   const { host } = github({
     [`${R}/pulls/9/reviews`]: { body: [] },
@@ -240,9 +241,10 @@ test("#20: a change's comments are reviews too, commented, with their own ids an
     [`${R}/commits/${sha}`]: { body: { sha, commit: { committer: { date: "2026-01-01T01:05:00Z" } } } },
   });
   const change = await host.change(9);
-  assert.deepEqual(change.reviews, [
-    { id: "c501", by: { login: "carol", bot: false }, state: "commented", at: "2026-01-01T01:10:00Z" },
-    { id: "c502", by: { login: "helper[bot]", bot: true }, state: "commented", at: "2026-01-01T01:20:00Z" },
+  assert.deepEqual(change.reviews, []);
+  assert.deepEqual(change.comments, [
+    { id: "501", by: { login: "carol", bot: false }, at: "2026-01-01T01:10:00Z", review: false },
+    { id: "502", by: { login: "helper[bot]", bot: true }, at: "2026-01-01T01:20:00Z", review: false },
   ]);
   assert.ok(!JSON.stringify(change).includes("round 1"), "no comment text is kept");
 });

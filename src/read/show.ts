@@ -55,6 +55,8 @@ export interface ChangePart {
   /** `by`: the agent behind a person's account, when one matches (#14). */
   opened?: { time: string; actor?: Actor; by?: string };
   heads: Head[];
+  /** #28: the comments on the change that are not reviews. */
+  comments: number;
 }
 
 export interface Round {
@@ -215,6 +217,7 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
         branch: own.find((e) => e.branch)?.branch,
         opened: opened ? defined({ time: opened.time, actor: opened.actor, by: acting.get(opened.id)?.agent }) : undefined,
         heads,
+        comments: own.filter((e) => e.type === "change.commented").length,
       }),
     );
   }
@@ -390,6 +393,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
       const checks = h.checks ? `, checks ${h.checks} at ${t(h.checksTime!)}` : "";
       out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${h.by ? ` by ${h.by} (matched)` : ""}${checks}`);
     }
+    if (c.comments > 0) out.push(`  comments: ${c.comments}, not counted as reviews`);
   }
 
   out.push("", "Reviews");

@@ -5,7 +5,7 @@
 // that has not changed comes back as 304, which GitHub does not count against
 // the limit. The ETags are kept in memory, for as long as `howl observe` runs.
 // Details are asked only for what has changed.
-import type { Account, Change, ChecksState, CodeHost, Ref, Review, Task } from "./port.ts";
+import { isReviewComment, type Account, type Change, type ChecksState, type CodeHost, type Comment, type Ref, type Review, type Task } from "./port.ts";
 
 const API = "https://api.github.com";
 
@@ -15,6 +15,8 @@ export interface GitHubOptions {
   fetch?: typeof globalThis.fetch;
   sleep?: (ms: number) => Promise<void>;
   warn?: (message: string) => void;
+  /** #28: a comment whose first line matches is a review; with none, no comment is. */
+  reviewCommentPattern?: RegExp;
 }
 
 type Json = Record<string, any>;
@@ -26,6 +28,7 @@ export class GitHub implements CodeHost {
   private readonly fetch: typeof globalThis.fetch;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly warn: (message: string) => void;
+  private readonly reviewCommentPattern: RegExp | undefined;
   private readonly cache = new Map<string, { etag: string; body: unknown; next: string | null }>();
 
   constructor(options: GitHubOptions) {
@@ -34,6 +37,7 @@ export class GitHub implements CodeHost {
     this.fetch = options.fetch ?? globalThis.fetch;
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.warn = options.warn ?? ((m) => console.error(`howl: ${m}`));
+    this.reviewCommentPattern = options.reviewCommentPattern;
   }
 
   async listUpdated(since: string | null): Promise<Ref[]> {
@@ -66,7 +70,7 @@ export class GitHub implements CodeHost {
   async change(number: number): Promise<Change> {
     const pull = await this.one(this.url(`pulls/${number}`));
     const reviews = await this.all(this.url(`pulls/${number}/reviews`, { per_page: "100" }));
-    // #20: many review by commenting on the pull request; a comment is a review that only comments.
+    // #20, #28: many review by commenting on the pull request; the pattern tells such a comment from the rest.
     const comments = await this.all(this.url(`issues/${number}/comments`, { per_page: "100" }));
     // #25: the paths it touches, so a change to .howl/ can be seen.
     const files = await this.all(this.url(`pulls/${number}/files`, { per_page: "100" }));
@@ -85,12 +89,11 @@ export class GitHub implements CodeHost {
         const state = REVIEW_STATES[r.state];
         if (!state || !r.submitted_at) return [];
         return [defined({ id: String(r.id), by: account(r.user), state, at: r.submitted_at, sha: r.commit_id ?? undefined })];
-      }).concat(
-        (Array.isArray(comments) ? comments : [])
-          .filter((c) => c && c.id !== undefined && c.user && c.created_at)
-          // Its own id space: a comment's id is not a review's. No text is kept.
-          .map((c): Review => ({ id: `c${c.id}`, by: account(c.user), state: "commented", at: c.created_at })),
-      ),
+      }),
+      comments: (Array.isArray(comments) ? comments : [])
+        .filter((c) => c && c.id !== undefined && c.user && c.created_at)
+        // The text is tested here and never kept: only whether it counts as a review.
+        .map((c): Comment => ({ id: String(c.id), by: account(c.user), at: c.created_at, review: isReviewComment(c.body, this.reviewCommentPattern) })),
       closedAt: pull.closed_at ?? undefined,
       closedBy: closedBy ? account(closedBy) : undefined,
       mergedAt: pull.merged_at ?? undefined,

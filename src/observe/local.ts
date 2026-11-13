@@ -2,21 +2,26 @@
 // the test environment, and a way to try `howl observe` with no host at all.
 //
 //   tasks/<number>.json     a Task
-//   changes/<number>.json   a Change
+//   changes/<number>.json   a Change; a comment may have a `body` in place of `review`, tested as GitHub's is
 //   checks/<sha>.json       a ChecksState; no file is no checks
 //   fail.json               calls that fail: "list", "task <n>", "change <n>", "checks <sha>"
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Change, ChecksState, CodeHost, Ref, Task } from "./port.ts";
+import { isReviewComment, type Change, type ChecksState, type CodeHost, type Comment, type Ref, type Task } from "./port.ts";
+
+/** A comment as a file holds it: with `review`, or with a `body` the adapter tests and drops. */
+type FileComment = Omit<Comment, "review"> & { review?: boolean; body?: string };
 
 export class LocalHost implements CodeHost {
   readonly name = "local";
   readonly repository: string;
   private readonly dir: string;
+  private readonly reviewCommentPattern: RegExp | undefined;
 
-  constructor(dir: string, repository: string) {
+  constructor(dir: string, repository: string, reviewCommentPattern?: RegExp) {
     this.dir = dir;
     this.repository = repository;
+    this.reviewCommentPattern = reviewCommentPattern;
   }
 
   async listUpdated(since: string | null): Promise<Ref[]> {
@@ -37,7 +42,13 @@ export class LocalHost implements CodeHost {
 
   async change(number: number): Promise<Change> {
     this.maybeFail(`change ${number}`);
-    return this.read<Change>(join("changes", `${number}.json`));
+    const change = this.read<Omit<Change, "comments"> & { comments?: FileComment[] }>(join("changes", `${number}.json`));
+    if (change.comments === undefined) return change as Change;
+    const comments = change.comments.map(({ body, review, ...c }): Comment => ({
+      ...c,
+      review: body === undefined ? review === true : isReviewComment(body, this.reviewCommentPattern),
+    }));
+    return { ...change, comments };
   }
 
   async checks(sha: string): Promise<ChecksState> {

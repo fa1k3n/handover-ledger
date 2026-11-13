@@ -86,6 +86,7 @@ export const texts = {
     opened: (who: string) => `opened by ${who}`,
     reviews: "Reviews",
     noReviews: "No review in the ledger.",
+    comments: (n: number) => `${n} comment${n === 1 ? "" : "s"}, not counted as reviews`,
     round: (n: number) => `Round ${n}:`,
   },
   error: (message: string) => `Cannot reach howl serve: ${message}`,

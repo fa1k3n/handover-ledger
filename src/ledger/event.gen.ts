@@ -46,6 +46,7 @@ export interface LedgerEvent {
     | "task.opened"
     | "task.closed"
     | "change.closed"
+    | "change.commented"
     | "review.commented"
     | "key.issued"
     | "key.revoked"

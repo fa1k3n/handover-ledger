@@ -224,6 +224,11 @@ export class Observer {
     for (const r of change.reviews) {
       found.push(this.event(`review:${r.id}`, `review.${r.state}`, r.at, r.by, of(r.sha ?? head), seen));
     }
+    // #28: a comment is a review only when the project's pattern says so. The key is the one comments had as
+    // reviews before (#20), so a comment already in the ledger is not written again under another type.
+    for (const c of change.comments ?? []) {
+      found.push(this.event(`review:c${c.id}`, c.review ? "review.commented" : "change.commented", c.at, c.by, of(head), seen));
+    }
     if (change.mergedAt) {
       found.push(this.event(`change:${n}:merged`, "change.merged", change.mergedAt, change.mergedBy, of(head), seen));
     } else if (change.closedAt) {
