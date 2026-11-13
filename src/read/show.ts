@@ -11,6 +11,7 @@
 // of the lines.
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
+import { roundText } from "./rounds.ts";
 import { shortTime, zoneLine } from "./watch.ts";
 
 type Actor = NonNullable<LedgerEvent["actor"]>;
@@ -393,7 +394,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   out.push("", "Reviews");
   if (shown.reviews.length === 0) out.push("  none");
   for (const [i, r] of shown.reviews.entries()) {
-    const reviews = r.reviews.map((x) => `${by(x.by, x.actor)} ${x.outcome.replace("_", " ")}`).join(", ");
+    const reviews = roundText(r.reviews);
     const next = r.followedBy === null ? "" : `; followed by ${FOLLOWED[r.followedBy] ?? r.followedBy}`;
     out.push(`  round ${i + 1}: ${reviews}${next}`);
   }

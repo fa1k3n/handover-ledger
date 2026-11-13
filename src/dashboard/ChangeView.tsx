@@ -1,6 +1,7 @@
 // The change view of the dashboard: one change or task, its whole timeline, as `howl show` gives it in the terminal (#22).
 import { useEffect, useState } from "react";
 import { duration } from "../read/overview.ts";
+import { roundText } from "../read/rounds.ts";
 import type { Shown } from "../read/show.ts";
 import * as api from "./api.ts";
 import { hashFor, headText, sessionText, whenShort } from "./format.ts";
@@ -125,7 +126,7 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
             {shown.reviews.map((r, i) => (
               <div key={i} className={row}>
                 <span className="font-sans font-medium">{t.round(i + 1)}</span>
-                {r.reviews.map((x) => `${x.by ?? x.actor?.id ?? "–"} ${x.outcome.replace("_", " ")}`).join(", ")}
+                {roundText(r.reviews)}
               </div>
             ))}
           </section>
