@@ -66,6 +66,8 @@ export class GitHub implements CodeHost {
   async change(number: number): Promise<Change> {
     const pull = await this.one(this.url(`pulls/${number}`));
     const reviews = await this.all(this.url(`pulls/${number}/reviews`, { per_page: "100" }));
+    // #20: many review by commenting on the pull request; a comment is a review that only comments.
+    const comments = await this.all(this.url(`issues/${number}/comments`, { per_page: "100" }));
     const head = await this.one(this.url(`commits/${pull.head.sha}`));
     // A pull request does not say who closed it; its issue does.
     const closedBy = pull.closed_at ? (await this.one(this.url(`issues/${number}`))).closed_by : null;
@@ -80,7 +82,12 @@ export class GitHub implements CodeHost {
         const state = REVIEW_STATES[r.state];
         if (!state || !r.submitted_at) return [];
         return [defined({ id: String(r.id), by: account(r.user), state, at: r.submitted_at, sha: r.commit_id ?? undefined })];
-      }),
+      }).concat(
+        (Array.isArray(comments) ? comments : [])
+          .filter((c) => c && c.id !== undefined && c.user && c.created_at)
+          // Its own id space: a comment's id is not a review's. No text is kept.
+          .map((c): Review => ({ id: `c${c.id}`, by: account(c.user), state: "commented", at: c.created_at })),
+      ),
       closedAt: pull.closed_at ?? undefined,
       closedBy: closedBy ? account(closedBy) : undefined,
       mergedAt: pull.merged_at ?? undefined,

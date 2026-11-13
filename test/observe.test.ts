@@ -349,3 +349,29 @@ test("howl observe outside a repository with .howl/howl.yml is refused", () => {
   const s = setup();
   assert.equal(howl(["observe", "--once"], { cwd: folder(), env: s.ws.env }).status, 2);
 });
+
+test("#20: comments as reviews without a commit are recorded once each, and howl show lists them", async () => {
+  const { show } = await import("../src/read/show.ts");
+  const s = setup();
+  s.host.change({
+    number: 20,
+    branch: "task-3-x",
+    openedAt: at(0),
+    openedBy: agent,
+    head: { sha: SHA.a, at: at(0) },
+    tasks: [3],
+    reviews: [
+      { id: "c1", by: person("carol"), state: "commented", at: at(10) },
+      { id: "c2", by: person("carol"), state: "commented", at: at(30) },
+    ],
+    updatedAt: at(30),
+  });
+  round(s);
+  round(s);
+  const events = lines(s.ws.ledger).map((l) => l.event);
+  const reviews = events.filter((e) => e.type === "review.commented");
+  assert.equal(reviews.length, 2, "read twice, recorded once");
+  assert.ok(reviews.every((e) => e.change === "20" && e.actor !== undefined));
+  const shown = show(events as never, { kind: "change", id: "20" }, null)!;
+  assert.equal(shown.reviews.flatMap((r) => r.reviews).length, 2);
+});

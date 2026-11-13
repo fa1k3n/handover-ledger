@@ -116,6 +116,8 @@ test("a change: its branch, its head with the time of the commit, the tasks it c
         updated_at: "2026-01-01T00:30:00Z",
       },
     },
+    // #20: the adapter also reads the comments; this change has none. Before `issues/7`, which the fake matches as a prefix.
+    [`${R}/issues/7/comments`]: { body: [] },
     [`${R}/issues/7`]: { body: { closed_by: { login: "carol", type: "User" } } },
     [`${R}/commits/${sha}`]: { body: { sha, commit: { committer: { date: "2026-01-01T00:05:00Z" } } } },
   });
@@ -209,4 +211,34 @@ test("the repository is read from the remote origin when it is at GitHub", () =>
   assert.deepEqual(originRepository("ssh://git@github.com/team/product.git"), { host: "github", repository: "team/product" });
   assert.equal(originRepository("git@gitlab.example:team/product.git"), null);
   assert.equal(originRepository(null), null);
+});
+
+test("#20: a change's comments are reviews too, commented, with their own ids and no text", async () => {
+  const sha = "b".repeat(40);
+  const { host } = github({
+    [`${R}/pulls/9/reviews`]: { body: [] },
+    [`${R}/issues/9/comments`]: {
+      body: [
+        { id: 501, user: { login: "carol", type: "User" }, created_at: "2026-01-01T01:10:00Z", body: "[review] round 1" },
+        { id: 502, user: { login: "helper[bot]", type: "Bot" }, created_at: "2026-01-01T01:20:00Z", body: "thanks, fixed" },
+      ],
+    },
+    [`${R}/pulls/9`]: {
+      body: {
+        number: 9,
+        user: { login: "carol", type: "User" },
+        created_at: "2026-01-01T01:00:00Z",
+        head: { ref: "task-9-x", sha },
+        body: "",
+        updated_at: "2026-01-01T01:20:00Z",
+      },
+    },
+    [`${R}/commits/${sha}`]: { body: { sha, commit: { committer: { date: "2026-01-01T01:05:00Z" } } } },
+  });
+  const change = await host.change(9);
+  assert.deepEqual(change.reviews, [
+    { id: "c501", by: { login: "carol", bot: false }, state: "commented", at: "2026-01-01T01:10:00Z" },
+    { id: "c502", by: { login: "helper[bot]", bot: true }, state: "commented", at: "2026-01-01T01:20:00Z" },
+  ]);
+  assert.ok(!JSON.stringify(change).includes("round 1"), "no comment text is kept");
 });
