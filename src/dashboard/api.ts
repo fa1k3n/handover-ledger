@@ -28,6 +28,8 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export interface Projects {
+  /** One ledger only (--ledger): no menu. */
+  single: boolean;
   default: string | null;
   projects: { name: string; lines: number }[];
 }

@@ -138,7 +138,7 @@ function Header({ view, project, projects }: { view: View; project: string | nul
           </a>
         </nav>
         <div className="flex-1" />
-        {projects && projects.projects.length > 1 ? (
+        {projects && !projects.single ? (
           <label className="flex items-center gap-2 text-[13px] text-pale">
             {texts.project}
             <select

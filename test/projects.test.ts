@@ -41,6 +41,7 @@ test("#15: /api/projects lists the folders with a ledger, and not a folder witho
     );
     assert.equal(body.projects[0]!.lines, 2);
     assert.equal(body.default, "a");
+    assert.equal((body as { single?: boolean }).single, false, "the page shows the menu, even for one project");
   });
 });
 
@@ -65,11 +66,12 @@ test("#15: ?project=../x, a folder without a ledger and an unknown name give 400
 test("#15: with --ledger, /api/projects gives only that one", async () => {
   const dir = home();
   await serve({ ledger: join(dir, "b", "ledger.jsonl") }, async (url) => {
-    const body = (await get(`${url}/api/projects`)) as { projects: { name: string }[] };
+    const body = (await get(`${url}/api/projects`)) as { projects: { name: string }[]; single: boolean };
     assert.deepEqual(
       body.projects.map((p) => p.name),
       ["b"],
     );
+    assert.equal(body.single, true, "one ledger: the page hides the menu");
     assert.equal((await fetch(`${url}/api/agents?project=a`)).status, 400);
   });
 });

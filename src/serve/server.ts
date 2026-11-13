@@ -145,7 +145,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   if (url.pathname === "/api/projects") {
     const projects = projectsOf(options);
-    json(res, 200, { default: defaultOf(projects, options)?.name ?? null, projects: projects.map((p) => ({ name: p.name, lines: lineCount(p.ledger) })) });
+    json(res, 200, { single: options.ledger !== undefined, default: defaultOf(projects, options)?.name ?? null, projects: projects.map((p) => ({ name: p.name, lines: lineCount(p.ledger) })) });
     return;
   }
   if (!url.pathname.startsWith("/api/")) {
