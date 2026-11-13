@@ -523,10 +523,13 @@ async function repeat(interval: number | null, once: () => void | Promise<void>,
     }
     return 0;
   }
+  // #7: the wait's timer is cleared when stopped, so the process ends at once instead of after the interval.
   let stopped = false;
   let wake: (() => void) | undefined;
+  let timer: NodeJS.Timeout | undefined;
   const stop = () => {
     stopped = true;
+    clearTimeout(timer);
     wake?.();
   };
   process.once("SIGINT", stop);
@@ -537,10 +540,13 @@ async function repeat(interval: number | null, once: () => void | Promise<void>,
       if (stopped) break;
       await new Promise<void>((resolve) => {
         wake = resolve;
-        setTimeout(resolve, interval * 1000);
+        timer = setTimeout(resolve, interval * 1000);
       });
     }
   } finally {
+    clearTimeout(timer);
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
     close();
   }
   return 0;

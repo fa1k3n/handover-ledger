@@ -169,10 +169,13 @@ export async function watch(ledger: string, options: WatchOptions, write: (line:
   take(byTime(tails.flatMap((t) => t.read())));
   if (!options.follow) return;
 
+  // #7: the timer is cleared when stopped, so the process ends at once.
   let stopped = false;
   let wake: (() => void) | undefined;
+  let timer: NodeJS.Timeout | undefined;
   const stop = () => {
     stopped = true;
+    clearTimeout(timer);
     wake?.();
   };
   process.once("SIGINT", stop);
@@ -180,8 +183,10 @@ export async function watch(ledger: string, options: WatchOptions, write: (line:
   while (!stopped) {
     await new Promise<void>((resolve) => {
       wake = resolve;
-      setTimeout(resolve, options.interval * 1000);
+      timer = setTimeout(resolve, options.interval * 1000);
     });
     if (!stopped) take(tails.flatMap((t) => t.read()));
   }
+  process.off("SIGINT", stop);
+  process.off("SIGTERM", stop);
 }
