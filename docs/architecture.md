@@ -41,9 +41,25 @@ The core knows only its own concepts: task, team member (agent or person), assig
 | Dashboard | Views over the ledger | No |
 | VS Code extension | The team and the chain per change, in the editor | No |
 
-The dashboard and the extension read only the ledger, so they work whatever the tracker. One repository, TypeScript throughout: the extension needs it.
+The dashboard and the extension read only the ledger, so they work whatever the tracker. One repository. The engine, the CLI, the dashboard and the extension are TypeScript; what a team programs itself is Python (below).
 
 The first version only **records**: a ledger over a flow that exists (level 0). Steering comes after.
+
+## What a team programs itself
+
+Embedded developers know Python, not TypeScript. So everything a development team writes or changes itself is Python:
+
+- mandatory checks before a review (a wrapper around a static analyser, a coverage limit),
+- adapters to in-house tools (an export from a requirements tool, an internal tracker),
+- scripts in `.howl/`.
+
+Rules are configuration first, and code only where configuration is not enough.
+
+The boundary is a protocol between processes, not an API inside the engine: the engine starts the script, sends JSON on standard input and reads JSON on standard output. Python then needs no place inside the TypeScript code, and any other language works as well.
+
+- The event schema is written as JSON Schema. The TypeScript types and a Python package are generated from it.
+- The Python package has no dependencies, runs on old Python versions and can be copied in as files: development networks are often closed and their Python environments locked.
+- `howl` is delivered so that a developer's machine and a CI runner need no Node.
 
 ## The event
 

@@ -14,6 +14,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **Named agents:** identity is lasting, memory is not; role, model and effort belong to the assignment. (2026-11-12)
 - **Safe defaults:** agents never merge, high risk needs a person. (2026-11-12)
 - **Wording:** "supports certification" or "audit-ready", never "ISO certified". (2026-11-12)
+- **Languages:** the engine, the CLI, the dashboard and the VS Code extension are built in TypeScript. Whatever a development team itself programs (checks, adapters to in-house tools, scripts in `.howl/`) is Python: embedded developers do not know TypeScript. (2026-11-13)
 
 ## Proposed, not yet answered
 
@@ -24,7 +25,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - No reviewer of our own at level 1: govern and record any reviewer.
 - Events are observed by adapters and not sent by the agents themselves.
 - Requirements stay in the team's tool; the platform only links.
-- TypeScript throughout.
+- The boundary to what a team programs is a protocol between processes (JSON in, JSON out), not an API inside the engine; the event schema is JSON Schema, from which both the TypeScript types and a Python package are generated; the Python package has no dependencies and runs on old Python versions; `howl` is delivered so that a developer's machine needs no Node. (2026-11-13)
 - Commissioning ([commissioning.md](commissioning.md)): one instance per R&D organisation with the project as the boundary for rules and evidence; the repository declares in `.howl/` and the instance decides; discovery only proposes an enrolment; ownership lies on paths, never on a binding of team to repository; a repository belongs to one project; an agent is an identity, a runner and a computed entitlement with a short-lived key per assignment. (2026-11-13)
 
 ## Open
