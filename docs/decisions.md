@@ -25,6 +25,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - Events are observed by adapters and not sent by the agents themselves.
 - Requirements stay in the team's tool; the platform only links.
 - TypeScript throughout.
+- Commissioning ([commissioning.md](commissioning.md)): one instance per R&D organisation with the project as the boundary for rules and evidence; the repository declares in `.howl/` and the instance decides; discovery only proposes an enrolment; ownership lies on paths, never on a binding of team to repository; a repository belongs to one project; an agent is an identity, a runner and a computed entitlement with a short-lived key per assignment. (2026-11-13)
 
 ## Open
 
@@ -36,7 +37,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **Which standard is mapped first.** The draft in [standards.md](standards.md) starts with ISO 26262 and ISO/SAE 21434.
 - **The number of review rounds** before a person is asked: two or three.
 - **A separate test author** as a role of its own, or tests written by the one who builds.
-- **The name of the configuration file.**
+- **The name of the configuration:** a `.howl/` folder in the repository is the suggestion, with `howl.yml` in it.
 - **Signing or anchoring** of the ledger.
 
 ## The order of the work

@@ -88,7 +88,7 @@ An event says what happened, not who shall do the next step. The dispatcher appl
 
 ## Configuration
 
-One file per project (working name `.agentteam.yml`): the team, the table of model and effort per size and risk, the code classes and their levels, the adapters, the project rules.
+In two places ([commissioning.md](commissioning.md)). A `.howl/` folder in the repository declares what is true about its code: the code classes with their paths, owners and the levels asked for, the mandatory checks, the role prompts. The instance holds what decides: the enrolled repositories, the rules of each project, the teams and agents, the table of model and effort per size and risk, the adapters, the approved levels.
 
 ## The ledger
 
