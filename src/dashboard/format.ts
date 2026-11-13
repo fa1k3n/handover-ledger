@@ -1,5 +1,7 @@
 // The dashboard's pure parts: the filter text, times in local time and UTC, and
 // the fields of a decoded event. No DOM, so node:test can run them.
+import { duration } from "../read/overview.ts";
+import type { Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
 
 /** The filter text as field=value pairs, split on white space. */
@@ -96,14 +98,38 @@ export function tabTitle(needsInput: number): string {
   return needsInput > 0 ? `(${needsInput}) Handover Ledger` : "Handover Ledger";
 }
 
-export type View = "overview" | "stream";
+export type View = "overview" | "stream" | "change";
 
-/** The view and the project in the address: `#stream?project=name`. */
-export function parseHash(hash: string): { view: View; project: string | null } {
+/** The view, the project and what the change view shows, in the address: `#change?project=name&what=change:30`. */
+export function parseHash(hash: string): { view: View; project: string | null; what?: string } {
   const [path = "", query = ""] = hash.replace(/^#/, "").split("?");
-  return { view: path === "stream" ? "stream" : "overview", project: new URLSearchParams(query).get("project") };
+  const q = new URLSearchParams(query);
+  const view: View = path === "stream" || path === "change" ? path : "overview";
+  const what = q.get("what");
+  return what === null ? { view, project: q.get("project") } : { view, project: q.get("project"), what };
 }
 
-export function hashFor(view: View, project: string | null): string {
-  return project === null ? `#${view}` : `#${view}?${new URLSearchParams({ project })}`;
+export function hashFor(view: View, project: string | null, what: string | null = null): string {
+  const q = new URLSearchParams();
+  if (project !== null) q.set("project", project);
+  if (what !== null) q.set("what", what);
+  const query = q.toString();
+  return query ? `#${view}?${query}` : `#${view}`;
+}
+
+/** A head of a change for the change view: `new head 399a7cb by agent-1 (matched) · checks failed`. */
+export function headText(h: Head, first: boolean): string {
+  return [`${first ? "head" : "new head"} ${h.sha.slice(0, 7)}${h.by ? ` by ${h.by} (matched)` : ""}`, h.checks ? `checks ${h.checks}` : null]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** A session for the change view: `agent-1 · fix · 33 min · Bash 54, Read 1`. */
+export function sessionText(s: Session): string {
+  const span = s.end === null ? "still open" : duration(Date.parse(s.end) - Date.parse(s.start));
+  const tools = Object.entries(s.tools)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tool, n]) => `${tool} ${n}`)
+    .join(", ");
+  return [s.actor?.id ?? "someone", s.role, span, tools || null].filter(Boolean).join(" · ");
 }

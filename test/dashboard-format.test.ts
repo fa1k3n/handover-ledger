@@ -118,3 +118,10 @@ test("#17: the decoded event shows the role and the role prompt", () => {
   assert.equal(fields.find((f) => f.k === "Role")?.v, "review");
   assert.equal(fields.find((f) => f.k === "Role prompt")?.v, `roles/review.md · ${"c".repeat(12)}`);
 });
+
+test("#22: the change view keeps what it shows in the address", async () => {
+  const { hashFor, parseHash } = await import("../src/dashboard/format.ts");
+  assert.equal(hashFor("change", "example", "change:30"), "#change?project=example&what=change%3A30");
+  assert.deepEqual(parseHash("#change?project=example&what=change%3A30"), { view: "change", project: "example", what: "change:30" });
+  assert.deepEqual(parseHash("#change"), { view: "change", project: null });
+});

@@ -265,7 +265,9 @@ function endOf(events: LedgerEvent[]): End {
  */
 function summarise(events: LedgerEvent[], end: End): Summary {
   const handover = events.find((e) => e.type === "task.assigned");
-  const from = (handover ?? events[0]!).time;
+  // #22: without a hand-over, from the first sign of work, not from when the task was opened (it may wait for days).
+  const work = events.find((e) => e.type.startsWith("session.") || e.type.startsWith("change.") || e.type === "tool.used");
+  const from = (handover ?? work ?? events[0]!).time;
   const to = end.state === "open" ? events.at(-1)!.time : end.time;
   const parts = { work: 0, person: 0, instructions: 0, checks: 0, review: 0 };
   const checked = new Set(events.filter((e) => e.type.startsWith("checks.") && e.sha).map((e) => e.sha!));

@@ -138,7 +138,8 @@ test("with no session of an agent, the time a change waits for its checks and it
   observed("4", "change.merged", 40, of);
   writer.close();
   const { summary } = json(path, "20");
-  assert.deepEqual(summary.parts, { work: 600, person: 0, instructions: 0, checks: 900, review: 900 });
+  // #22: the summary starts at the first change; the ten minutes after the task was opened are not counted.
+  assert.deepEqual(summary.parts, { work: 0, person: 0, instructions: 0, checks: 900, review: 900 });
 });
 
 test("no output names a person's account, and no figure is given per person", () => {

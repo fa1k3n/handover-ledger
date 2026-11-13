@@ -10,6 +10,7 @@ import { verify, type Verdict } from "../ledger/verify.ts";
 import { activityBeside, byTime, Tail, type Read } from "../read/reader.ts";
 import { actingAgents } from "../read/acting.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
+import { parseAsked, show } from "../read/show.ts";
 import { agentStates } from "../read/state.ts";
 import { parseFilters, wantsActivity } from "../read/watch.ts";
 
@@ -172,6 +173,26 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
       const now = Date.now();
       const items = ledgerItems(ledger);
       json(res, 200, { now, figures: keyFigures(items.map((i) => i.event), now), handovers: handovers(items).slice(0, 50) });
+      return;
+    }
+    case "/api/show": {
+      const what = url.searchParams.get("what")?.trim() ?? "";
+      if (!what) throw new LedgerError("give what: 12, task:12 or change:30");
+      const asked = parseAsked(what);
+      const reads = byTime([...new Tail(ledger, "ledger").read(), ...new Tail(activityBeside(ledger), "activity").read()]).filter(
+        (r) => r.event.type !== "ledger.created",
+      );
+      const activity = reads.filter((r) => r.from === "activity");
+      const shown = show(
+        reads.map((r) => r.event),
+        asked,
+        activity.length > 0 ? activity[0]!.event.time : null,
+      );
+      if (shown === null) {
+        json(res, 404, { error: `nothing in the ledger names ${what}` });
+        return;
+      }
+      json(res, 200, shown);
       return;
     }
     case "/api/ledger": {

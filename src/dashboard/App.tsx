@@ -5,6 +5,7 @@ import type { AgentRow, AgentState } from "../read/state.ts";
 import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
+import { ChangeView } from "./ChangeView.tsx";
 import { concerns, decodedFields, detail, filterPairs, hashFor, parseHash, standsOut, tabTitle, whenShort, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
@@ -77,8 +78,8 @@ export function App() {
       <main key={project ?? ""} className="mx-auto flex max-w-[1360px] flex-col gap-5 px-4 py-6 sm:px-8">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <div className="flex flex-col gap-1">
-            <h1 className="m-0 text-[26px] font-semibold tracking-tight">{view === "overview" ? texts.overview.title : texts.title}</h1>
-            <span className="text-[13px] text-mute">{view === "overview" ? texts.overview.subtitle : texts.subtitle}</span>
+            <h1 className="m-0 text-[26px] font-semibold tracking-tight">{view === "overview" ? texts.overview.title : view === "change" ? texts.change.title : texts.title}</h1>
+            <span className="text-[13px] text-mute">{view === "overview" ? texts.overview.subtitle : view === "change" ? texts.change.subtitle : texts.subtitle}</span>
           </div>
           <div className="flex-1" />
           {needing.length > 0 && (
@@ -96,6 +97,8 @@ export function App() {
         )}
         {project === null ? null : view === "overview" ? (
           <Overview onError={fail} project={project} />
+        ) : view === "change" ? (
+          <ChangeView what={route.what ?? null} project={project} onError={fail} />
         ) : (
           <>
             <Team agents={agents} notify={notify} onNotify={setNotify} />
@@ -135,6 +138,9 @@ function Header({ view, project, projects }: { view: View; project: string | nul
           </a>
           <a href={hashFor("stream", project)} aria-current={view === "stream" ? "page" : undefined} className={tab(view === "stream")}>
             {texts.nav.stream}
+          </a>
+          <a href={hashFor("change", project)} aria-current={view === "change" ? "page" : undefined} className={tab(view === "change")}>
+            {texts.nav.change}
           </a>
         </nav>
         <div className="flex-1" />
@@ -240,7 +246,9 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
                   <tr key={`${h.time}-${h.change}-${h.step}-${h.from}`} className="border-t border-line">
                     <td className="py-3 pr-3 font-mono text-[13px] whitespace-nowrap">{whenShort(h.time, Date.now())}</td>
                     <td className="p-3">
-                      <div className="font-medium">{texts.overview.change(h.change)}</div>
+                      <a href={hashFor("change", project, `change:${h.change}`)} className="font-medium text-ink">
+                        {texts.overview.change(h.change)}
+                      </a>
                       {h.task !== undefined && <div className="text-[13px] text-mute">{texts.overview.task(h.task)}</div>}
                     </td>
                     <td className="p-3 whitespace-nowrap">
@@ -390,7 +398,7 @@ function keyOf(item: Item): string {
   return item.event.id;
 }
 
-function Stream({ onError }: { onError: (e: unknown) => void; project: string }) {
+function Stream({ onError, project }: { onError: (e: unknown) => void; project: string }) {
   const [paused, setPaused] = useState(false);
   const [tools, setTools] = useState(false);
   const [draft, setDraft] = useState("");
@@ -520,7 +528,19 @@ function Stream({ onError }: { onError: (e: unknown) => void; project: string })
                         )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{item.event.type}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{concerns(item)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {item.event.change !== undefined ? (
+                          <a href={hashFor("change", project, `change:${item.event.change}`)} className="text-ink">
+                            {concerns(item)}
+                          </a>
+                        ) : item.event.task !== undefined ? (
+                          <a href={hashFor("change", project, `task:${item.event.task}`)} className="text-ink">
+                            {concerns(item)}
+                          </a>
+                        ) : (
+                          concerns(item)
+                        )}
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap text-mute">{item.event.source.kind}</td>
                       <td className="px-3 py-2 font-sans">{detail(item)}</td>
                     </tr>

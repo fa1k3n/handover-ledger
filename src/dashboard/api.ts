@@ -35,6 +35,16 @@ export interface Projects {
 }
 
 export const projects = () => get<Projects>("/api/projects");
+
+/** One change or task's timeline; null when nothing names it. */
+export async function show(what: string): Promise<import("../read/show.ts").Shown | null> {
+  try {
+    return await get(`/api/show?${new URLSearchParams({ what })}`);
+  } catch (e) {
+    if ((e as Error).message.startsWith("nothing in the ledger")) return null;
+    throw e;
+  }
+}
 export const agents = () => get<Agents>("/api/agents");
 export const ledger = () => get<LedgerState>("/api/ledger");
 export const overview = () => get<{ now: number; figures: KeyFigures; handovers: Handover[] }>("/api/overview");
