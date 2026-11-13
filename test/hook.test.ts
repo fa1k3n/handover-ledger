@@ -101,7 +101,7 @@ test("a wait keeps the kind of notification, never its message", () => {
   const ws = workspace();
   hook(ws, input(ws, "Notification", { message: "Claude needs your permission to use Bash", notification_type: "permission_prompt" }));
   const [e] = inboxEvents(ws.inbox);
-  assert.deepEqual(e?.data, { notification_type: "permission_prompt" });
+  assert.deepEqual(e?.data, { notification_type: "permission_prompt", waits_for: "person" });
 });
 
 test("the model and the effort are read where the hook gives them, and left out where it does not", () => {

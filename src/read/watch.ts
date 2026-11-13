@@ -2,6 +2,7 @@
 import { LedgerError } from "../ledger/errors.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { activityBeside, byTime, Tail, type Read } from "./reader.ts";
+import { waitsForPerson } from "./wait.ts";
 
 export interface WatchOptions {
   since?: string;
@@ -57,7 +58,7 @@ const RESET = "\u001b[0m";
 function standOut(event: LedgerEvent): string | null {
   if (event.type === "checks.failed") return RED;
   if (event.type === "review.changes_requested") return YELLOW;
-  if (event.type === "agent.waiting" && event.data?.notification_type !== "idle_prompt") return YELLOW;
+  if (waitsForPerson(event)) return YELLOW;
   return null;
 }
 

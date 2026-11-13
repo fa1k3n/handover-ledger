@@ -11,6 +11,7 @@
 // of the lines.
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
+import { waitsFor } from "./wait.ts";
 import { roundText } from "./rounds.ts";
 import { shortTime, zoneLine } from "./watch.ts";
 
@@ -175,7 +176,7 @@ function sessionParts(events: LedgerEvent[], activityFrom: string | null): Sessi
           const type = typeof e.data?.notification_type === "string" ? e.data.notification_type : undefined;
           return defined({
             time: e.time,
-            kind: type === "idle_prompt" ? "instructions" : "person",
+            kind: waitsFor(e),
             notification_type: type,
             seconds: next ? seconds(e.time, next.time) : null,
           });
@@ -302,7 +303,7 @@ function summarise(events: LedgerEvent[], end: End): Summary {
         agent = "working";
         break;
       case "agent.waiting":
-        agent = e.data?.notification_type === "idle_prompt" ? "idle" : "blocked";
+        agent = waitsFor(e) === "instructions" ? "idle" : "blocked";
         break;
       case "session.stopped":
       case "session.ended":

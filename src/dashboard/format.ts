@@ -3,6 +3,7 @@
 import { duration } from "../read/overview.ts";
 import type { Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
+import { waitsForPerson } from "../read/wait.ts";
 
 /** The filter text as field=value pairs, split on white space. */
 export function filterPairs(text: string): string[] {
@@ -103,7 +104,7 @@ export function standsOut(item: Item): "warn" | "error" | null {
   const e = item.event;
   if (e.type === "checks.failed") return "error";
   if (e.type === "review.changes_requested") return "warn";
-  if (e.type === "agent.waiting" && (e.data as Record<string, unknown> | undefined)?.notification_type !== "idle_prompt") return "warn";
+  if (waitsForPerson(e)) return "warn";
   return null;
 }
 

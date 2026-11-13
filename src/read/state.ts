@@ -2,6 +2,7 @@
 // activity file: what it is doing, on what, and since when. Pure: events in,
 // rows out, the clock passed in. People are never a row.
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { waitsFor } from "./wait.ts";
 
 export type AgentState = "needs-input" | "working" | "waiting" | "idle" | "ended";
 
@@ -113,10 +114,7 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
  */
 function stateOf(last: LedgerEvent | undefined, now: number): AgentState {
   if (last === undefined) return "idle";
-  if (last.type === "agent.waiting") {
-    const kind = (last.data as Record<string, unknown> | undefined)?.notification_type;
-    return kind === "idle_prompt" ? "waiting" : "needs-input";
-  }
+  if (last.type === "agent.waiting") return waitsFor(last) === "instructions" ? "waiting" : "needs-input";
   if (last.type === "session.stopped") return "waiting";
   if (last.type === "session.ended") return "ended";
   return now - Date.parse(last.time) <= WORKING_WITHIN_MS ? "working" : "idle";

@@ -29,14 +29,18 @@ export const KEYD_TIMEOUT_MS = 500;
 /** After keyd failed to answer, how long the hook does not ask it again. */
 export const KEYD_PAUSE_MS = 60_000;
 
-/** The notifications that mean the agent waits for a person. */
-const WAITS = new Set([
-  "permission_prompt",
-  "idle_prompt",
-  "elicitation_dialog",
-  "elicitation_url_dialog",
-  "agent_needs_input",
-]);
+/**
+ * The notifications that mean the agent waits, and what for in howl's words
+ * (#29): a person, who must answer before it goes on, or instructions, when it
+ * is done and waits for more. The readers know only howl's words.
+ */
+const WAITS: Record<string, "person" | "instructions"> = {
+  permission_prompt: "person",
+  idle_prompt: "instructions",
+  elicitation_dialog: "person",
+  elicitation_url_dialog: "person",
+  agent_needs_input: "person",
+};
 
 /**
  * Leaves one event in the inbox for a hook's input, or nothing. Throws on what
@@ -154,8 +158,8 @@ function describe(hook: Input, root: string): { type: LedgerEvent["type"]; data?
       return { type: "tool.used", data: toolCall(hook, root, "failed") };
     case "Notification": {
       const kind = text(hook.notification_type);
-      if (kind === undefined || !WAITS.has(kind)) return null;
-      return { type: "agent.waiting", data: { notification_type: kind } };
+      if (kind === undefined || !Object.hasOwn(WAITS, kind)) return null;
+      return { type: "agent.waiting", data: { notification_type: kind, waits_for: WAITS[kind] } };
     }
     case "Stop":
       return { type: "session.stopped" };
