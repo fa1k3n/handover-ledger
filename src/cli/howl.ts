@@ -11,6 +11,7 @@ const USAGE = `usage:
   howl observe [--once] [--interval <seconds>]
   howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--json] [--no-follow]
   howl show <task or change> [--json]
+  howl status [--follow] [--json]
 
   verify    check every line of the ledger and the chain between the lines
   hook      called by the hooks of Claude Code: leaves an event in the inbox.
@@ -27,8 +28,11 @@ const USAGE = `usage:
             kind=claimed, change=12. Colour unless NO_COLOR is set
   show      the timeline of one assignment, from the hand-over to the merge:
             12, task:12 or change:30
+  status    one line per agent: working, waiting, idle or ended, what it
+            works on, its model, its last tool and how long ago. --follow
+            redraws it every second
 
-watch, show and verify also take --project <name> or --ledger <path>. They
+watch, show, status and verify also take --project <name> or --ledger <path>. They
 only read: they take no lock and run while the writer appends.
 
 The project is read from the nearest .howl/howl.yml, unless --project names it.
@@ -70,6 +74,8 @@ async function main(argv: string[]): Promise<number> {
         return await watchCommand(rest);
       case "show":
         return await showCommand(rest);
+      case "status":
+        return await statusCommand(rest);
       case "-h":
       case "--help":
       case "help":
@@ -306,6 +312,41 @@ async function showCommand(args: string[]): Promise<number> {
   }
   console.log(values.json ? JSON.stringify(shown, null, 2) : render(shown));
   return 0;
+}
+
+async function statusCommand(args: string[]): Promise<number> {
+  const { values } = parse(args, {
+    ledger: { type: "string" },
+    project: { type: "string" },
+    json: { type: "boolean" },
+    follow: { type: "boolean" },
+  });
+  const ledger = await ledgerToRead(values);
+  const { statSync } = await import("node:fs");
+  statSync(ledger);
+  const { findProject } = await import("../howl/project.ts");
+  const { readAll } = await import("../read/reader.ts");
+  const { agentStates, renderStatus } = await import("../read/state.ts");
+  const found = findProject(process.cwd());
+  let taskFromBranch: RegExp | undefined;
+  try {
+    taskFromBranch = found?.taskFromBranch === undefined ? undefined : new RegExp(found.taskFromBranch);
+  } catch {
+    taskFromBranch = undefined;
+  }
+  const rows = () => agentStates(readAll(ledger).map((r) => r.event), Date.now(), { taskFromBranch });
+  if (values.json) {
+    console.log(JSON.stringify(rows(), null, 2));
+    return 0;
+  }
+  if (!values.follow) {
+    console.log(renderStatus(rows(), Date.now()));
+    return 0;
+  }
+  const clear = process.stdout.isTTY ? "\u001b[H\u001b[2J" : "";
+  return await repeat(1, () => {
+    process.stdout.write(`${clear}${renderStatus(rows(), Date.now())}\n`);
+  }, () => {});
 }
 
 /** The code host of a project: from howl.yml, else from the remote origin. */
