@@ -11,7 +11,8 @@
 // Only an agent's session is recorded. A tool call keeps the tool, the target,
 // the outcome and a hash of the input: never the input, the answer or a message.
 import { createHash, randomUUID } from "node:crypto";
-import { basename, isAbsolute, relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { leave } from "../inbox/inbox.ts";
 import { fixedForm } from "../ledger/fixed.ts";
 import { inboxPath } from "../ledger/place.ts";
@@ -68,9 +69,25 @@ export function runHook(stdin: string, env: Record<string, string | undefined>, 
     // Whoever starts the session may name its work: a review in a folder of its own is on the default branch.
     change: named(env.HOWL_CHANGE),
     task: named(env.HOWL_TASK),
+    role: named(env.HOWL_ROLE),
+    prompt: rolePrompt(env.HOWL_ROLE_PROMPT, project.root),
     data: what.data,
   };
   leave(inboxPath(project.project, env), event);
+}
+
+/** The role prompt by its file within the repository and the SHA-256 of its content; none when it cannot be read there. */
+function rolePrompt(path: string | undefined, root: string): LedgerEvent["prompt"] {
+  const p = named(path);
+  if (p === undefined) return undefined;
+  const full = resolve(root, p);
+  const within = relative(root, full);
+  if (within === "" || within.startsWith("..") || isAbsolute(within)) return undefined;
+  try {
+    return { file: within.split(sep).join("/"), sha256: createHash("sha256").update(readFileSync(full)).digest("hex") };
+  } catch {
+    return undefined;
+  }
 }
 
 /** A value from the environment, trimmed; undefined when empty. */

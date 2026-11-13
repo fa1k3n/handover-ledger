@@ -48,6 +48,8 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
     e.sha !== undefined ? { k: "Commit", v: e.sha } : null,
     e.session !== undefined ? { k: "Session", v: e.session } : null,
     e.model !== undefined ? { k: "Model", v: [e.model, e.effort].filter(Boolean).join(" · ") } : null,
+    e.role !== undefined ? { k: "Role", v: e.role } : null,
+    e.prompt !== undefined ? { k: "Role prompt", v: `${e.prompt.file} · ${e.prompt.sha256.slice(0, 12)}` } : null,
     e.type === "tool.used" ? { k: "Tool", v: [d.tool, d.target, d.outcome].filter((x) => typeof x === "string").join(" ") } : null,
   ];
   return fields.filter((f): f is Field => f !== null);

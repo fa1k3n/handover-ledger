@@ -91,6 +91,10 @@ export interface LedgerEvent {
    */
   effort?: string;
   /**
+   * For an agent: its role in this session, a name the team chooses (review, build, test, fix ...).
+   */
+  role?: string;
+  /**
    * For an agent: the role prompt.
    */
   prompt?: {

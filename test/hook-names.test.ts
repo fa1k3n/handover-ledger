@@ -67,3 +67,43 @@ test("#9: howl show <change> takes in a review session that names the change, an
   assert.ok(sessions.has("rev"), "the review session is in the timeline");
   assert.ok(!sessions.has("other"), "another session on main is not");
 });
+
+// #17: the role of a session and its role prompt.
+function runIn(ws: Workspace, env: Record<string, string>) {
+  return run(ws, env);
+}
+
+test("#17: with HOWL_ROLE every event of the session has its role; without it, none", () => {
+  assert.equal(runIn(workspace(), { HOWL_ROLE: "review" }).role, "review");
+  assert.equal(runIn(workspace(), {}).role, undefined);
+  assert.equal(runIn(workspace(), { HOWL_ROLE: "  " }).role, undefined);
+});
+
+test("#17: HOWL_ROLE_PROMPT gives the prompt's file and the SHA-256 of its content", async () => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const { createHash } = await import("node:crypto");
+  const { join } = await import("node:path");
+  const ws = workspace();
+  mkdirSync(join(ws.root, "roles"));
+  writeFileSync(join(ws.root, "roles", "review.md"), "Review the change.\n");
+  const e = runIn(ws, { HOWL_ROLE: "review", HOWL_ROLE_PROMPT: "roles/review.md" });
+  assert.deepEqual(e.prompt, { file: "roles/review.md", sha256: createHash("sha256").update("Review the change.\n").digest("hex") });
+});
+
+test("#17: a missing prompt file, or one outside the repository, gives no prompt and the event is still written", () => {
+  const missing = runIn(workspace(), { HOWL_ROLE: "review", HOWL_ROLE_PROMPT: "roles/none.md" });
+  assert.equal(missing.prompt, undefined);
+  assert.equal(missing.role, "review");
+  const outside = runIn(workspace(), { HOWL_ROLE_PROMPT: "../../etc/hostname" });
+  assert.equal(outside.prompt, undefined);
+  assert.equal(outside.type, "tool.used");
+});
+
+test("#17: howl show names the role of each session", async () => {
+  const { show, render } = await import("../src/read/show.ts");
+  const { ledgerEvents } = await import("./story.ts");
+  const events = ledgerEvents().map((e) => (e.session === "s2" ? { ...e, role: "fix" } : e));
+  const text = render(show(events, { kind: "task", id: "12" }, null)!, { utc: true });
+  assert.match(text, /session s2 .*role fix/);
+  assert.ok(!/session s1 .*role /.test(text), "a session without a role names none");
+});

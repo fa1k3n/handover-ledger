@@ -147,3 +147,23 @@ test("#16: howl status prints NEEDS INPUT first and counts it", () => {
   assert.match(lines[0]!, /^agent-1\s+NEEDS INPUT/);
   assert.match(lines.at(-1)!, /1 needs? input/);
 });
+
+test("#17: the role is that of the current session, not an earlier one", () => {
+  const rows = agentStates(
+    [
+      agentEvent("agent-1", "session.started", 600, { session: "old", role: "build" }),
+      agentEvent("agent-1", "session.ended", 500, { session: "old", role: "build" }),
+      agentEvent("agent-1", "session.started", 100, { session: "new", role: "review" }),
+      tool("agent-1", 30, "Bash", "gh", { session: "new", role: "review" }),
+    ],
+    NOW,
+  );
+  assert.equal(rows[0]!.role, "review");
+  const none = agentStates([agentEvent("agent-1", "session.started", 600, { session: "old", role: "build" }), tool("agent-1", 30, "Bash", "gh", { session: "new" })], NOW);
+  assert.equal(none[0]!.role, undefined, "a session that names no role has none");
+});
+
+test("#17: howl status shows the role after the state", () => {
+  const rows = agentStates([tool("agent-1", 30, "Bash", "gh", { role: "review" })], NOW);
+  assert.match(renderStatus(rows, NOW).split("\n")[0]!, /^agent-1\s+working\s+review\s/);
+});

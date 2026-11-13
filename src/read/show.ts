@@ -27,6 +27,8 @@ export interface Wait {
 export interface Session {
   session: string;
   actor?: Actor;
+  /** The role the session named (#17). */
+  role?: string;
   start: string;
   end: string | null;
   tools: Record<string, number>;
@@ -183,7 +185,7 @@ function sessionParts(events: LedgerEvent[], activityFrom: string | null): Sessi
           : activityFrom === null || Date.parse(activityFrom) > Date.parse(last)
             ? "no longer kept"
             : "none";
-      return defined({ session, actor: own.find((e) => e.actor)?.actor, start, end: ended?.time ?? null, tools, files: [...files].sort(), waits, activity });
+      return defined({ session, actor: own.find((e) => e.actor)?.actor, role: own.findLast((e) => e.role !== undefined)?.role, start, end: ended?.time ?? null, tools, files: [...files].sort(), waits, activity });
     })
     .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
 }
@@ -356,7 +358,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   if (shown.sessions.length === 0) out.push("  none in the ledger");
   for (const s of shown.sessions) {
     const span = s.end ? `${t(s.start)} to ${t(s.end)}, ${duration(seconds(s.start, s.end))}` : `${t(s.start)}, not ended`;
-    out.push(`  session ${s.session}  claimed  ${who(s.actor)}  ${span}`);
+    out.push(`  session ${s.session}  claimed  ${who(s.actor)}${s.role ? `  role ${s.role}` : ""}  ${span}`);
     if (s.activity === "kept") {
       const tools = Object.entries(s.tools)
         .sort(([a], [b]) => a.localeCompare(b))

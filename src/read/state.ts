@@ -17,6 +17,8 @@ export interface AgentRow {
   session?: string;
   model?: string;
   effort?: string;
+  /** The role the current session named (#17). */
+  role?: string;
   /** The last tool call: the tool and its target. */
   tool?: string;
   target?: string;
@@ -70,6 +72,8 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     const latest = <K extends keyof LedgerEvent>(key: K) => [...current].reverse().find((e) => e[key] !== undefined)?.[key];
     const model = latest("model");
     const effort = latest("effort");
+    const role = latest("role");
+    if (role !== undefined) row.role = role as string;
     if (model !== undefined) row.model = model as string;
     if (effort !== undefined) row.effort = effort as string;
     const lastTool = [...current].reverse().find((e) => e.type === "tool.used");
@@ -143,6 +147,7 @@ export function renderStatus(rows: AgentRow[], now: number): string {
   const table = rows.map((r) => [
     r.agent,
     r.state === "needs-input" ? "NEEDS INPUT" : r.state,
+    r.role ?? "-",
     worksOn(r) || (r.branch ?? "-"),
     [r.model, r.effort].filter(Boolean).join(" ") || "-",
     [r.tool, r.target].filter(Boolean).join(" ") || "-",

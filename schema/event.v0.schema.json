@@ -120,6 +120,10 @@
       "description": "For an agent: the effort of the session.",
       "$ref": "#/$defs/name"
     },
+    "role": {
+      "description": "For an agent: its role in this session, a name the team chooses (review, build, test, fix ...).",
+      "$ref": "#/$defs/name"
+    },
     "prompt": {
       "description": "For an agent: the role prompt.",
       "type": "object",

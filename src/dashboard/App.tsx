@@ -335,6 +335,7 @@ function Team({ agents, notify, onNotify }: { agents: api.Agents | null; notify:
               <tr className="text-left text-xs tracking-wider text-mute uppercase">
                 <th scope="col" className={`${th} pl-0`}>{texts.team.cols.agent}</th>
                 <th scope="col" className={th}>{texts.team.cols.state}</th>
+                <th scope="col" className={th}>{texts.team.cols.role}</th>
                 <th scope="col" className={th}>{texts.team.cols.worksOn}</th>
                 <th scope="col" className={th}>{texts.team.cols.model}</th>
                 <th scope="col" className={th}>{texts.team.cols.tool}</th>
@@ -371,6 +372,7 @@ function AgentLine({ row, now }: { row: AgentRow; now: number }) {
           {texts.team.states[row.state]}
         </span>
       </td>
+      <td className="p-3 font-mono text-[13px]">{row.role ?? "–"}</td>
       <td className="p-3">
         <div className="font-medium">{worksOn(row) || row.branch || "–"}</div>
         {worksOn(row) && row.branch && <div className="text-[13px] text-mute">{row.branch}</div>}

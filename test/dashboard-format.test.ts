@@ -92,3 +92,29 @@ test("#15: the view and the project are kept in the address", async () => {
   assert.equal(hashFor("stream", "a b"), "#stream?project=a+b");
   assert.deepEqual(parseHash(hashFor("stream", "a b")), { view: "stream", project: "a b" });
 });
+
+test("#17: the decoded event shows the role and the role prompt", () => {
+  const fields = decodedFields(
+    {
+      n: 3,
+      from: "ledger",
+      hash: "a".repeat(64),
+      prev: "b".repeat(64),
+      raw: "{}",
+      event: {
+        v: 0,
+        id: "r",
+        time: "2026-11-13T09:40:18Z",
+        type: "session.started",
+        source: { adapter: "claude-code-hook", kind: "claimed" },
+        project: "p",
+        actor: { kind: "agent", id: "agent-1" },
+        role: "review",
+        prompt: { file: "roles/review.md", sha256: "c".repeat(64) },
+      },
+    },
+    "UTC",
+  );
+  assert.equal(fields.find((f) => f.k === "Role")?.v, "review");
+  assert.equal(fields.find((f) => f.k === "Role prompt")?.v, `roles/review.md · ${"c".repeat(12)}`);
+});

@@ -20,7 +20,7 @@ export const texts = {
     notifyBlocked: "Notifications blocked by the browser",
     notification: (agent: string) => `${agent} needs input`,
     empty: "No agent in the ledger yet.",
-    cols: { agent: "Agent", state: "State", worksOn: "Works on", model: "Model · effort", tool: "Last tool", since: "Since" },
+    cols: { agent: "Agent", state: "State", role: "Role", worksOn: "Works on", model: "Model · effort", tool: "Last tool", since: "Since" },
     states: { "needs-input": "Needs input", working: "Working", waiting: "Waiting", idle: "Idle", ended: "Ended" },
   },
   stream: {
@@ -31,7 +31,7 @@ export const texts = {
     resume: "Resume",
     showTools: "Show tool calls",
     filterLabel: "Filter: field=value, several separated by spaces",
-    filterHint: "Fields: type, actor, task, change, branch, session, kind. A * matches any ending. Expressions (CEL) come later.",
+    filterHint: "Fields: type, actor, role, task, change, branch, session, kind. A * matches any ending. Expressions (CEL) come later.",
     apply: "Apply",
     clear: "Clear",
     cols: { line: "Line", time: "Time", actor: "Actor", type: "Type", concerns: "Concerns", source: "Source", detail: "Detail" },
