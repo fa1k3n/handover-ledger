@@ -139,7 +139,7 @@ node /path/to/handover-ledger/src/cli/howl.ts ingest --watch      # or without -
 node /path/to/handover-ledger/src/cli/howl.ts verify --project example
 ```
 
-A session's start, its end and every wait for a person go into the chain. Tool calls are activity: they go to `activity.jsonl`, one event per line with no chain, and are removed after `activity_days`. A tool call keeps the tool, the path within the repository or the name of the program, and the outcome; never the input, the answer or a message, and no hash of the input, which a short input could be guessed from. Lines written before 2026-11-14 hold a hash and the time the call took; they stay until they expire. A file in the inbox that is not a valid event is moved to `inbox/rejected/` with the reason beside it.
+A session's start, its end and every wait for a person go into the chain. Tool calls are activity: they go to `activity.jsonl`, one event per line with no chain, and are removed after `activity_days`. A tool call keeps the tool, the path within the repository or the name of the program, and the outcome; never the input, the answer or a message, and no hash of the input, which a short input could be guessed from. Lines written by a howl from before this change hold a hash and the time the call took; they stay until they expire. A file in the inbox that is not a valid event is moved to `inbox/rejected/` with the reason beside it.
 
 **From a script.** `howl emit` leaves an event in the inbox, with the agent from `HOWL_ACTOR` or `.howl/actor` when there is one. It ends with 1 and says why when the type or the JSON is wrong:
 

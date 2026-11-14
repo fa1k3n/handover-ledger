@@ -64,7 +64,10 @@ function sources(dir: string): string {
   return readdirSync(dir)
     .filter((name) => /\.tsx?$/.test(name))
     .map((name) => readFileSync(join(dir, name), "utf8"))
-    .join("\n");
+    .join("\n")
+    // Without the comments: a key that is only spoken of is not read.
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
 test("no data key of a hook's event is unread: each is named by a reader under src/read or src/dashboard", () => {
