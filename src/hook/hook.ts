@@ -14,7 +14,7 @@
 // input either (#50): a short input can be guessed from a plain hash.
 // @code_class recording
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { deliver } from "../inbox/deliver.ts";
 import { markDown, recentlyDown } from "../inbox/down.ts";
@@ -60,33 +60,9 @@ export async function runHook(stdin: string, env: Record<string, string | undefi
   const hook = input as Input;
 
   const dir = typeof hook.cwd === "string" && isAbsolute(hook.cwd) ? hook.cwd : cwd;
-  const project = findProject(dir);
-  if (!project) return;
-  const actor = findActor(project.root, env);
-  if (!actor) return;
-
-  const what = describe(hook, project.root);
-  if (!what) return;
-
-  const event: LedgerEvent = {
-    v: 0,
-    id: randomUUID(),
-    time: new Date().toISOString(),
-    type: what.type,
-    source: { adapter: "claude-code-hook", kind: "claimed" },
-    project: project.project,
-    actor: { kind: "agent", id: actor },
-    session: text(hook.session_id),
-    model: text(hook.model),
-    effort: effort(hook.effort),
-    ...checkout(dir),
-    // Whoever starts the session may name its work: a review in a folder of its own is on the default branch.
-    change: named(env.HOWL_CHANGE),
-    task: named(env.HOWL_TASK),
-    role: named(env.HOWL_ROLE),
-    prompt: rolePrompt(env.HOWL_ROLE_PROMPT, project.root),
-    data: what.data,
-  };
+  const built = eventOfHook(hook, env, dir, "claude-code-hook");
+  if (!built) return;
+  const { project, event } = built;
   // #23: signed with the key of the assignment, when the session has one. A key that cannot be read never stops the hook.
   let out = event;
   const keyFile = named(env.HOWL_KEY);
@@ -112,6 +88,50 @@ export async function runHook(stdin: string, env: Record<string, string | undefi
   await deliver(project.project, out, env);
 }
 
+/**
+ * The event for a hook's JSON (#67: built here for `howl hook`, and by the
+ * server for a hook sent to it as it stands). `env` holds what the session
+ * names (`HOWL_ACTOR`, `HOWL_TASK`, `HOWL_CHANGE`, `HOWL_ROLE`,
+ * `HOWL_ROLE_PROMPT`), `dir` the folder the hook ran in. Null when nothing is
+ * recorded: no `.howl/howl.yml` above the folder, no agent, or a hook howl
+ * does not record. Nothing of a tool's input or answer is in the event.
+ */
+export function eventOfHook(
+  hook: Record<string, unknown>,
+  env: Record<string, string | undefined>,
+  dir: string,
+  adapter: string,
+): { project: NonNullable<ReturnType<typeof findProject>>; event: LedgerEvent } | null {
+  const project = findProject(dir);
+  if (!project) return null;
+  const actor = findActor(project.root, env);
+  if (!actor) return null;
+
+  const what = describe(hook, project.root);
+  if (!what) return null;
+
+  const event: LedgerEvent = {
+    v: 0,
+    id: randomUUID(),
+    time: new Date().toISOString(),
+    type: what.type,
+    source: { adapter, kind: "claimed" },
+    project: project.project,
+    actor: { kind: "agent", id: actor },
+    session: text(hook.session_id),
+    model: text(hook.model),
+    effort: effort(hook.effort),
+    ...checkout(dir),
+    // Whoever starts the session may name its work: a review in a folder of its own is on the default branch.
+    change: named(env.HOWL_CHANGE),
+    task: named(env.HOWL_TASK),
+    role: named(env.HOWL_ROLE),
+    prompt: rolePrompt(env.HOWL_ROLE_PROMPT, project.root),
+    data: what.data,
+  };
+  return { project, event };
+}
+
 /** The role prompt by its file within the repository and the SHA-256 of its content; none when it cannot be read there. */
 function rolePrompt(path: string | undefined, root: string): LedgerEvent["prompt"] {
   const p = named(path);
@@ -120,11 +140,17 @@ function rolePrompt(path: string | undefined, root: string): LedgerEvent["prompt
   const within = relative(root, full);
   if (within === "" || within.startsWith("..") || isAbsolute(within)) return undefined;
   try {
+    // A plain file of a prompt's size only: a pipe in its place would hold the reader up (#67: the server reads it too).
+    const stat = statSync(full);
+    if (!stat.isFile() || stat.size > MAX_PROMPT) return undefined;
     return { file: within.split(sep).join("/"), sha256: createHash("sha256").update(readFileSync(full)).digest("hex") };
   } catch {
     return undefined;
   }
 }
+
+/** The largest role prompt that is hashed. */
+const MAX_PROMPT = 1024 * 1024;
 
 /** A value from the environment, trimmed; undefined when empty. */
 function named(value: string | undefined): string | undefined {
