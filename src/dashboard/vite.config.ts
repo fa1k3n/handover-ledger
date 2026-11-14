@@ -1,4 +1,5 @@
 // Builds the dashboard into dist/dashboard. In development, /api goes to a running `howl serve`.
+// @code_class reading
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";

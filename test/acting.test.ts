@@ -1,4 +1,5 @@
 // Who acted behind a person's account at the code host: the tests of issue #14.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LedgerEvent } from "../src/ledger/schema.ts";

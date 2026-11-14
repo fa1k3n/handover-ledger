@@ -1,4 +1,5 @@
 // The ledger's head kept outside the machine that writes it: the tests of issue #18.
+// @code_class tests
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";

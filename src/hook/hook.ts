@@ -10,6 +10,7 @@
 //
 // Only an agent's session is recorded. A tool call keeps the tool, the target,
 // the outcome and a hash of the input: never the input, the answer or a message.
+// @code_class recording
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";

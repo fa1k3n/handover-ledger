@@ -1,4 +1,5 @@
 // The ledger file and its writer: the tests of issues #1 and #5.
+// @code_class tests
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";

@@ -1,4 +1,5 @@
 // `howl show`: the tests of issue #4.
+// @code_class tests
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";

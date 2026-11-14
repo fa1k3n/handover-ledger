@@ -9,6 +9,7 @@
 // for a person is shown with its length and without who, and nothing is summed
 // per person. Everything is ordered and computed by `time`, never by the order
 // of the lines.
+// @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
 import { waitsFor } from "./wait.ts";

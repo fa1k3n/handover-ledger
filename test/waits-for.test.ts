@@ -1,4 +1,5 @@
 // The readers speak howl's words for a wait, not one agent tool's. The tests of issue #29.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { standsOut } from "../src/dashboard/format.ts";

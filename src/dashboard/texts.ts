@@ -1,4 +1,5 @@
 // Every text of the dashboard, in English, in one place: a translation replaces this module.
+// @code_class reading
 export const texts = {
   brand: "Handover",
   brandSub: "Ledger",

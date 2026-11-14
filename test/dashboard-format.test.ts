@@ -1,4 +1,5 @@
 // The pure parts of the dashboard page: the tests of issue #12.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decodedFields, filterPairs, localTime, tabTitle, utcTime, whenShort } from "../src/dashboard/format.ts";

@@ -1,4 +1,5 @@
 // `howl verify`, run as a process of its own: the tests of issues #1 and #5.
+// @code_class tests
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";

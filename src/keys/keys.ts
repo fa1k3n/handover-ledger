@@ -7,6 +7,7 @@
 // Signing binds every claim to an issued assignment, makes a later change show
 // and bounds misuse to the key's window; keeping keys out of the user's reach is
 // a step of its own.
+// @code_class evidence
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomUUID, sign, verify, type KeyObject } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

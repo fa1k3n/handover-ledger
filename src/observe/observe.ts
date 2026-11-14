@@ -9,6 +9,7 @@
 //
 // The cursor moves on only after a round in which every call went through.
 // Otherwise the next round reads the same span again.
+// @code_class recording
 import { existsSync } from "node:fs";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

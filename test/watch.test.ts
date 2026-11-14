@@ -1,4 +1,5 @@
 // `howl watch`: the tests of issue #4.
+// @code_class tests
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";

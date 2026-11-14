@@ -1,4 +1,5 @@
 // The state of each agent, folded from the events: the tests of issue #11.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LedgerEvent } from "../src/ledger/schema.ts";

@@ -1,4 +1,5 @@
 // `howl serve`: the read-only endpoints of the dashboard. The tests of issue #12.
+// @code_class tests
 import assert from "node:assert/strict";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

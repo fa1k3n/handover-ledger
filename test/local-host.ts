@@ -1,5 +1,6 @@
 // A code host in a folder of JSON files, for the tests of `howl observe`.
 // The same shapes as the port: what the local adapter reads.
+// @code_class tests
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Change, ChecksState, Task } from "../src/observe/port.ts";

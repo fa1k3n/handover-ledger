@@ -1,4 +1,5 @@
 // The fixed form of an event: the JSON Canonicalization Scheme, RFC 8785.
+// @code_class tests
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";

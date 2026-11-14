@@ -1,6 +1,7 @@
 // The state of each agent now, folded from the events of the ledger and the
 // activity file: what it is doing, on what, and since when. Pure: events in,
 // rows out, the clock passed in. People are never a row.
+// @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { waitsFor } from "./wait.ts";
 

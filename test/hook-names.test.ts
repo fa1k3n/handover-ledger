@@ -1,4 +1,5 @@
 // A session names the change and the task it works on: the tests of issue #9.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { git, howl, inboxEvents, workspace, type Workspace } from "./helpers.ts";

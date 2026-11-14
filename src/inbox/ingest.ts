@@ -6,6 +6,7 @@
 // If the process stops between writing an event and removing its file, the
 // next pass finds the id in the ledger and only removes the file. Activity has
 // no such check: a tool call can then be in the activity file twice.
+// @code_class recording
 import {
   appendFileSync,
   existsSync,

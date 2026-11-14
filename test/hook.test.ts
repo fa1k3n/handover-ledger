@@ -1,4 +1,5 @@
 // `howl hook`: the tests of issue #2.
+// @code_class tests
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";

@@ -1,4 +1,5 @@
 // The hook never holds up a session when keyd hangs or is gone. The tests of issue #30.
+// @code_class tests
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";

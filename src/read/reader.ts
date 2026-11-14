@@ -1,6 +1,7 @@
 // Reading the ledger and the activity file together, without a lock, while a
 // writer may be appending. A last line without its line break is half written:
 // it is left for the next read.
+// @code_class reading
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { LedgerEvent } from "../ledger/schema.ts";

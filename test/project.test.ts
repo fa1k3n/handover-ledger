@@ -1,4 +1,5 @@
 // Reading .howl/howl.yml: only the top-level `key: value` lines that #2 needs.
+// @code_class tests
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

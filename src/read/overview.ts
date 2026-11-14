@@ -1,6 +1,7 @@
 // The overview of the dashboard, from the ledger alone: the handovers derived
 // from changes and reviews, and the key figures. Pure: events in, rows out.
 // No figure is given per person.
+// @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents } from "./acting.ts";
 

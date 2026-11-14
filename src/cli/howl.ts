@@ -1,5 +1,6 @@
 // The command `howl`. Each command loads only what it needs, so that `howl hook`
 // starts quickly: it runs on every tool call of a session.
+// @code_class recording
 import { readFileSync } from "node:fs";
 import { parseArgs, type ParseArgsConfig } from "node:util";
 
@@ -19,6 +20,7 @@ const USAGE = `usage:
   howl show <task or change> [--utc] [--json]
   howl status [--follow] [--json]
   howl serve [--port <n>]
+  howl classes [--check] [--json]
 
   verify    check every line of the ledger and the chain between the lines,
             then every signed claim against the key issued for it
@@ -62,6 +64,13 @@ const USAGE = `usage:
             shows that one first, --ledger serves one ledger only.
             Read-only, on this machine only. Build the page first with
             npm run build:dashboard
+
+  classes   the code class of every file git tracks, by path (classes in
+            .howl/howl.yml) and from the file's header (class_header, in the
+            files class_header_in matches); the higher one is in force.
+            --check ends with 1 and names each file with no class by path,
+            no header where one is needed, a header that names no class, or
+            a header that differs from its path's class. Only reads
 
 watch, show, status, serve and verify also take --project <name> or --ledger <path>. They
 only read: they take no lock and run while the writer appends.
@@ -117,6 +126,8 @@ async function main(argv: string[]): Promise<number> {
         return await statusCommand(rest);
       case "serve":
         return await serveCommand(rest);
+      case "classes":
+        return await classesCommand(rest);
       case "-h":
       case "--help":
       case "help":
@@ -618,6 +629,28 @@ async function showCommand(args: string[]): Promise<number> {
   }
   console.log(values.json ? JSON.stringify(shown, null, 2) : render(shown, { utc: values.utc ?? false }));
   return 0;
+}
+
+async function classesCommand(args: string[]): Promise<number> {
+  const { values } = parse(args, { check: { type: "boolean" }, json: { type: "boolean" } });
+  const { findClasses, classify } = await import("../howl/classes.ts");
+  const settings = findClasses(process.cwd());
+  if (settings === null) throw new UsageError("no classes in .howl/howl.yml");
+  const report = classify(settings);
+  const summary = Object.entries(report.counts)
+    .map(([name, n]) => `${name}: ${n}`)
+    .join(", ");
+  if (values.json) {
+    console.log(JSON.stringify(values.check ? report : { files: report.files }, null, 2));
+  } else if (values.check) {
+    for (const problem of report.problems) console.log(problem);
+    if (report.problems.length === 0) console.log(`ok: ${report.files.length} files; ${summary}`);
+  } else {
+    for (const f of report.files) {
+      console.log(`${f.file}  ${f.class ?? "-"}  (path ${f.path ?? "-"}, header ${f.header ?? "-"})`);
+    }
+  }
+  return values.check && report.problems.length > 0 ? 1 : 0;
 }
 
 async function serveCommand(args: string[]): Promise<number> {

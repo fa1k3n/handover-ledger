@@ -1,5 +1,6 @@
 // The schemas, compiled once. The JSON Schema files are the source; the types
 // in event.gen.ts and line.gen.ts are generated from them.
+// @code_class evidence
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import eventSchema from "../../schema/event.v0.schema.json" with { type: "json" };
 import lineSchema from "../../schema/line.v0.schema.json" with { type: "json" };

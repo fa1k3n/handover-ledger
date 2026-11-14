@@ -5,6 +5,7 @@
 //
 // What the check cannot show: lines cut off the end. The head it reports has
 // to be compared with one kept somewhere else.
+// @code_class evidence
 import { closeSync, openSync, readSync } from "node:fs";
 import { LedgerError } from "./errors.ts";
 import { eventHash } from "./fixed.ts";

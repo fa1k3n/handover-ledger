@@ -1,4 +1,5 @@
 // #57: what a first reader of the public repository meets: the licence, and a README whose links hold.
+// @code_class tests
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";

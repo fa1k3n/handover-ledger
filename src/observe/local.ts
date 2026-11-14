@@ -5,6 +5,7 @@
 //   changes/<number>.json   a Change; a comment may have a `body` in place of `review`, tested as GitHub's is
 //   checks/<sha>.json       a ChecksState; no file is no checks
 //   fail.json               calls that fail: "list", "task <n>", "change <n>", "checks <sha>"
+// @code_class recording
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isReviewComment, type Change, type ChecksState, type CodeHost, type Comment, type Ref, type Task } from "./port.ts";

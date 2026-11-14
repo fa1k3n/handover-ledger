@@ -6,6 +6,7 @@
 // writes them, which is what RFC 8785 prescribes. The object is serialised by
 // hand: a JavaScript object puts keys that look like numbers first, whatever
 // order they were added in.
+// @code_class evidence
 import { createHash } from "node:crypto";
 import { LedgerError } from "./errors.ts";
 import type { LedgerEvent } from "./schema.ts";

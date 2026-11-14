@@ -2,6 +2,7 @@
 // observed events from the code host in the ledger, claimed events of the
 // agent's sessions in the ledger, and its tool calls in the activity file.
 // Beside it, another task with a session and a change of its own.
+// @code_class tests
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { fixedForm } from "../src/ledger/fixed.ts";

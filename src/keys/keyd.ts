@@ -9,6 +9,7 @@
 // files and enforces the assignment, but that user can still read a session's
 // token. Run it as another user (or on another machine) for the keys to be out
 // of the sessions' reach.
+// @code_class evidence
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Server } from "node:net";

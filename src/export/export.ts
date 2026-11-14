@@ -3,6 +3,7 @@
 // every line before it), the lines selected, the timeline, the checkpoints that
 // cover the head, a manifest of hashes and a README. Never the activity file or
 // people.json.
+// @code_class evidence
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

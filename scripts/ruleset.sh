@@ -6,6 +6,7 @@
 #   scripts/ruleset.sh --check --from FILE   compare with FILE (the host's answer) instead of asking the host
 #
 # The owner runs it. A session never applies it.
+# @code_class rules
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)

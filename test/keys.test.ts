@@ -1,4 +1,5 @@
 // Signed claims with a key per assignment: the tests of issue #23.
+// @code_class tests
 import assert from "node:assert/strict";
 import { copyFileSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";

@@ -1,4 +1,5 @@
 // `howl watch` shows the handovers by default and tool calls only when asked: the tests of issue #10.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { howl, rawLines } from "./helpers.ts";

@@ -1,4 +1,5 @@
 // A process that follows or repeats ends as soon as it is stopped: the tests of issue #7.
+// @code_class tests
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";

@@ -1,4 +1,5 @@
 // The GitHub adapter, with a fetch of its own: no network.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GitHub, closingTasks, originRepository } from "../src/observe/github.ts";

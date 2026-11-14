@@ -2,6 +2,7 @@
 // changes and write reviews through a person's token, the code host names the
 // person. The agent behind it is found by matching, here in the reading layer:
 // the observed event is evidence and is never rewritten.
+// @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
 
 /** A session's events this long before an observed event count for it. */

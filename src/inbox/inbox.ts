@@ -4,6 +4,7 @@
 // renamed. The writer only takes names that end in `.json`, so it never sees a
 // file that is half written. Names sort by the time they were left; two left
 // in the same millisecond sort by chance.
+// @code_class recording
 import { randomUUID } from "node:crypto";
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";

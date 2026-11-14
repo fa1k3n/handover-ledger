@@ -6,6 +6,7 @@
 // (`[a, b]`, or `- a` lines under the key). Everything else indented is passed
 // over. That is all this step needs, and it keeps the hook quick and free of
 // dependencies. A `#` after white space starts a comment, also inside quotes.
+// @code_class recording
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isProjectName } from "../ledger/place.ts";
@@ -81,7 +82,7 @@ function read(root: string, text: string): Project | null {
 }
 
 /** The top-level keys of a YAML file, each with a plain value or a list of plain values. */
-function topLevel(text: string): Map<string, string | string[]> {
+export function topLevel(text: string): Map<string, string | string[]> {
   const settings = new Map<string, string | string[]>();
   let list: string[] | null = null;
   for (const raw of text.split(/\r?\n/)) {
@@ -122,7 +123,7 @@ function topLevel(text: string): Map<string, string | string[]> {
   return settings;
 }
 
-function plain(value: string): string {
+export function plain(value: string): string {
   const v = value.trim();
   const quoted = /^"(.*)"$/.exec(v) ?? /^'(.*)'$/.exec(v);
   return quoted ? quoted[1]! : v;

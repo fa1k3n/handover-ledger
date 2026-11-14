@@ -5,6 +5,7 @@
 // that has not changed comes back as 304, which GitHub does not count against
 // the limit. The ETags are kept in memory, for as long as `howl observe` runs.
 // Details are asked only for what has changed.
+// @code_class recording
 import { isReviewComment, type Account, type Change, type ChecksState, type CodeHost, type Comment, type Ref, type Review, type Task } from "./port.ts";
 
 const API = "https://api.github.com";

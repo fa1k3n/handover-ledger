@@ -1,4 +1,5 @@
 // What howl reads from git: never more than a few quick calls, and never a path on the machine.
+// @code_class recording
 import { spawnSync } from "node:child_process";
 
 /** Runs git in `dir`. The output without its last line break, or null when git fails or is not there. */
