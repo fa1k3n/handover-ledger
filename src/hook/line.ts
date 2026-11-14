@@ -14,15 +14,27 @@ export const HOOK_HEADERS = {
 
 /**
  * The command for the hooks of the coding agent's settings. `tokenFile` is the
- * lasting token of the project, read at every call; it may hold `$HOME`.
+ * lasting token of the project: a file that holds the header line itself, so
+ * that `curl` reads it (`-H @file`) and the token never stands on a command
+ * line, where every user of the machine could read it. It may hold `$HOME`.
+ * The brackets keep the shell's own words (no `curl`, no such file) silent too.
  */
 export function curlHookLine(options: { url: string; tokenFile: string }): string {
   const names = Object.entries(HOOK_HEADERS)
     .map(([variable, header]) => `-H "${header}: $${variable}"`)
     .join(" ");
   return (
-    `curl -s -o /dev/null -m 1 -X POST -H 'Content-Type: application/json' ` +
-    `-H "Authorization: Bearer $(cat "${options.tokenFile}" 2>/dev/null)" ${names} ` +
-    `--data-binary @- ${options.url}/api/hook || true`
+    `( curl -s -o /dev/null -m 1 -X POST -H 'Content-Type: application/json' ` +
+    `-H @"${options.tokenFile}" ${names} ` +
+    `--data-binary @- ${options.url}/api/hook ) 2>/dev/null || true`
   );
+}
+
+/** The line a token file holds, and the token in such a line; null when it holds none. */
+export function tokenLine(token: string): string {
+  return `Authorization: Bearer ${token}\n`;
+}
+
+export function tokenOfLine(text: string): string | null {
+  return /^Authorization: Bearer ([0-9a-f]{64})\s*$/.exec(text)?.[1] ?? null;
 }

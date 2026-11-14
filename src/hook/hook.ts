@@ -13,7 +13,7 @@
 // the outcome and a hash of the input: never the input, the answer or a message.
 // @code_class recording
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { deliver } from "../inbox/deliver.ts";
 import { markDown, recentlyDown } from "../inbox/down.ts";
@@ -140,11 +140,17 @@ function rolePrompt(path: string | undefined, root: string): LedgerEvent["prompt
   const within = relative(root, full);
   if (within === "" || within.startsWith("..") || isAbsolute(within)) return undefined;
   try {
+    // A plain file of a prompt's size only: a pipe in its place would hold the reader up (#67: the server reads it too).
+    const stat = statSync(full);
+    if (!stat.isFile() || stat.size > MAX_PROMPT) return undefined;
     return { file: within.split(sep).join("/"), sha256: createHash("sha256").update(readFileSync(full)).digest("hex") };
   } catch {
     return undefined;
   }
 }
+
+/** The largest role prompt that is hashed. */
+const MAX_PROMPT = 1024 * 1024;
 
 /** A value from the environment, trimmed; undefined when empty. */
 function named(value: string | undefined): string | undefined {

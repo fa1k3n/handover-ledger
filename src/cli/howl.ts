@@ -618,11 +618,13 @@ async function upCommand(args: string[]): Promise<number> {
   const token = randomBytes(32).toString("hex");
   const file = serverPath(o.project);
   // #67: a token that lasts, for a hook line that is written once: made the first time, and kept.
+  // The file holds the header line itself: `curl` reads it, and the token stands on no command line.
+  const { tokenLine, tokenOfLine } = await import("../hook/line.ts");
   const lasting = (): string => {
     const path = tokenPath(o.project);
     try {
-      const kept = read(path, "utf8").trim();
-      if (/^[0-9a-f]{64}$/.test(kept)) {
+      const kept = tokenOfLine(read(path, "utf8"));
+      if (kept !== null) {
         chmodSync(path, 0o600);
         return kept;
       }
@@ -630,8 +632,13 @@ async function upCommand(args: string[]): Promise<number> {
       // Not there, or not to be read: a new one.
     }
     const made = randomBytes(32).toString("hex");
-    rmSync(path, { force: true, recursive: true });
-    writeFileSync(path, `${made}\n`, { mode: 0o600, flag: "wx" });
+    // A file that holds no token is replaced. A folder of that name is not howl's to remove.
+    try {
+      rmSync(path, { force: true });
+      writeFileSync(path, tokenLine(made), { mode: 0o600, flag: "wx" });
+    } catch (e) {
+      throw new LedgerError(`${path}: the token cannot be written there: ${(e as Error).message}`);
+    }
     return made;
   };
   const root = fileURLToPath(new URL("../../dist/dashboard", import.meta.url));
@@ -647,7 +654,13 @@ async function upCommand(args: string[]): Promise<number> {
         project: o.project,
         tokens: [token, lasting()],
         take: (event) => {
-          leave(o.places.inbox, event);
+          try {
+            leave(o.places.inbox, event);
+          } catch (e) {
+            // The sender is told 500; the one who runs the server is told why.
+            console.error(`howl: an event that came in was not kept: ${(e as Error).message}`);
+            throw e;
+          }
           soon ??= setTimeout(takeIn, 50);
         },
       },

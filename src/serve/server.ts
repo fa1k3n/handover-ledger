@@ -160,14 +160,14 @@ function projectFor(params: URLSearchParams, options: ServeOptions): Project {
 }
 
 function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions, ledgerVerdict: (ledger: string) => Verdict): void {
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    res.writeHead(405, { allow: "GET, HEAD" }).end();
+  const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  // /api/hook is a POST only, and only on a server that writes: that one never comes here.
+  if (url.pathname === "/api/hook") {
+    res.writeHead(405, { allow: options.write === undefined ? "" : "POST" }).end();
     return;
   }
-  const url = new URL(req.url ?? "/", "http://127.0.0.1");
-  if (url.pathname === "/api/hook") {
-    // Only a POST, and only on a server that writes.
-    res.writeHead(405, { allow: "POST" }).end();
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { allow: "GET, HEAD" }).end();
     return;
   }
   if (url.pathname === "/api/projects") {
