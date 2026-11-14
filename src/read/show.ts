@@ -12,6 +12,7 @@
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
+import { claimOfHost, observed } from "./observed.ts";
 import { waitsFor } from "./wait.ts";
 import { roundText } from "./rounds.ts";
 import { shortTime, zoneLine } from "./watch.ts";
@@ -68,6 +69,14 @@ export interface Round {
 
 export type End = { state: "merged" | "closed"; time: string; actor?: Actor } | { state: "open" };
 
+/** #51: an event of a change or a review that a session or a script sent, and no adapter read. */
+export interface Claim {
+  time: string;
+  type: string;
+  change?: string;
+  actor?: Actor;
+}
+
 export interface Summary {
   from: string;
   to: string;
@@ -86,6 +95,8 @@ export interface Shown {
   handover: { time: string; actor?: Actor; kind: string }[];
   sessions: Session[];
   reviews: Round[];
+  /** Claimed, not seen at the code host: shown, and counted nowhere (#51). */
+  claimed: Claim[];
   end: End;
   summary: Summary;
 }
@@ -152,6 +163,7 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
       .map((e) => defined({ time: e.time, actor: e.actor, kind: e.source.kind })),
     sessions: sessionParts(events, activityFrom),
     reviews: rounds(events, acting),
+    claimed: events.filter(claimOfHost).map((e) => defined({ time: e.time, type: e.type, change: e.change, actor: e.actor })),
     end,
     summary: summarise(events, end),
   };
@@ -201,8 +213,10 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
   const parts: ChangePart[] = [];
   for (const change of changes) {
     const own = events.filter((e) => e.change === change);
-    const opened = own.find((e) => e.type === "change.opened");
-    const heads: Head[] = own
+    // #51: the opening, the heads and the comments are what the code host showed.
+    const seen = own.filter(observed);
+    const opened = seen.find((e) => e.type === "change.opened");
+    const heads: Head[] = seen
       .filter((e) => (e.type === "change.opened" || e.type === "change.updated") && e.sha)
       .map((e) => defined({ sha: e.sha!, time: e.time, by: e.type === "change.updated" ? acting.get(e.id)?.agent : undefined }));
     for (const head of heads) {
@@ -218,15 +232,16 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
         branch: own.find((e) => e.branch)?.branch,
         opened: opened ? defined({ time: opened.time, actor: opened.actor, by: acting.get(opened.id)?.agent }) : undefined,
         heads,
-        comments: own.filter((e) => e.type === "change.commented").length,
+        comments: seen.filter((e) => e.type === "change.commented").length,
       }),
     );
   }
   return parts.sort((a, b) => Date.parse(a.opened?.time ?? a.heads[0]?.time ?? "") - Date.parse(b.opened?.time ?? b.heads[0]?.time ?? ""));
 }
 
-/** Reviews as rounds: a review after a new head commit starts a new round. */
-function rounds(events: LedgerEvent[], acting: Map<string, Acting> = new Map()): Round[] {
+/** Reviews as rounds: a review after a new head commit starts a new round. From observed events only (#51). */
+function rounds(all: LedgerEvent[], acting: Map<string, Acting> = new Map()): Round[] {
+  const events = all.filter(observed);
   const found: Round[] = [];
   let current: Round | null = null;
   let newHead = false;
@@ -250,11 +265,12 @@ function rounds(events: LedgerEvent[], acting: Map<string, Acting> = new Map()):
   return found;
 }
 
+/** The end of the assignment as the code host showed it: a claimed merge or closing ends nothing (#51). */
 function endOf(events: LedgerEvent[]): End {
-  const merged = events.find((e) => e.type === "change.merged");
+  const merged = events.find((e) => e.type === "change.merged" && observed(e));
   if (merged) return defined({ state: "merged" as const, time: merged.time, actor: merged.actor });
   const changes = new Set(events.filter((e) => e.change).map((e) => e.change));
-  const closed = events.filter((e) => e.type === "change.closed");
+  const closed = events.filter((e) => e.type === "change.closed" && observed(e));
   // Closed only when every change of the assignment is closed without merge.
   if (closed.length > 0 && new Set(closed.map((e) => e.change)).size === changes.size) {
     const last = closed.at(-1)!;
@@ -403,6 +419,13 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
     const reviews = roundText(r.reviews);
     const next = r.followedBy === null ? "" : `; followed by ${FOLLOWED[r.followedBy] ?? r.followedBy}`;
     out.push(`  round ${i + 1}: ${reviews}${next}`);
+  }
+
+  if (shown.claimed.length > 0) {
+    out.push("", "Claimed, not seen at the code host");
+    for (const c of shown.claimed) {
+      out.push(`  ${t(c.time)}  claimed  ${c.type}${c.change !== undefined ? ` on change ${c.change}` : ""} by ${who(c.actor)}`);
+    }
   }
 
   out.push("", "End");

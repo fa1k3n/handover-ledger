@@ -89,6 +89,8 @@ export const texts = {
     noReviews: "No review in the ledger.",
     comments: (n: number) => `${n} comment${n === 1 ? "" : "s"}, not counted as reviews`,
     round: (n: number) => `Round ${n}:`,
+    claimed: "Claimed, not seen at the code host",
+    claimedNote: "Sent by a session or a script. Not counted as a review, a head, a merge or a closing.",
   },
   error: (message: string) => `Cannot reach howl serve: ${message}`,
 };

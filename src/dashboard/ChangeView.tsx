@@ -5,7 +5,7 @@ import { duration } from "../read/overview.ts";
 import { roundText } from "../read/rounds.ts";
 import type { Shown } from "../read/show.ts";
 import * as api from "./api.ts";
-import { hashFor, headText, sessionText, whenShort } from "./format.ts";
+import { claimText, hashFor, headText, sessionText, whenShort } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const t = texts.change;
@@ -132,6 +132,21 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
               </div>
             ))}
           </section>
+
+          {shown.claimed.length > 0 && (
+            <section aria-labelledby="ch-claimed" className={card}>
+              <h2 id="ch-claimed" className="m-0 text-base font-semibold">
+                {t.claimed}
+              </h2>
+              <p className="m-0 text-[13px] text-mute">{t.claimedNote}</p>
+              {shown.claimed.map((c, i) => (
+                <div key={i} className={row}>
+                  <span className="text-mute">{whenShort(c.time, now)}</span>
+                  {claimText(c)}
+                </div>
+              ))}
+            </section>
+          )}
         </>
       )}
     </>
