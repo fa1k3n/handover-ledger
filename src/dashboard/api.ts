@@ -19,7 +19,8 @@ export function setProject(name: string | null): void {
 
 async function get<T>(path: string): Promise<T> {
   const url = new URL(path, location.href);
-  if (project !== null && url.pathname !== "/api/projects") url.searchParams.set("project", project);
+  // #79: the event log is asked for with no project: it is every project the server serves.
+  if (project !== null && url.pathname !== "/api/projects" && url.pathname !== "/api/events") url.searchParams.set("project", project);
   const res = await fetch(url, { headers: { accept: "application/json" } });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };

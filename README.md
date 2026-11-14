@@ -52,6 +52,8 @@ npm run howl -- serve --project example         # http://127.0.0.1:4317, every p
 npm run dev:dashboard                           # while working on the page, beside a running howl serve
 ```
 
+The event log of the page is one list of every project the server serves, in the order of time. `project=<name>` and `repo=<name>` narrow it as any other field does, and a click on a project or a repository in a row adds that filter. A column for the project shows when more than one is served, and one for the repository when the rows come from more than one. The list is a view: each project keeps its own ledger and its own chain, so a line number and a hash are named with their project. The team, the overview and one change are shown for the project picked in the menu.
+
 A line of the ledger is `{"prev", "hash", "event"}`. The event does not know its place: `prev` and `hash` belong to the line ([schema/line.v0.schema.json](schema/line.v0.schema.json)). `hash` is the SHA-256 of the event in its fixed form, the JSON Canonicalization Scheme (RFC 8785), and the event stands in the line in that form.
 
 `howl verify` checks every line: it is JSON, it follows the line schema, its event follows [schema/event.v0.schema.json](schema/event.v0.schema.json), `hash` is the hash of the event, and `prev` is the SHA-256 of the line before.

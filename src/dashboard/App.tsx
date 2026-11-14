@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, detail, filterPairs, hashFor, parseHash, standsOut, tabTitle, whenShort, type View } from "./format.ts";
+import { concerns, decodedFields, detail, filterPairs, filterWith, hashFor, itemKey, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -103,7 +103,7 @@ export function App() {
         ) : (
           <>
             <Team agents={agents} notify={notify} onNotify={setNotify} />
-            <Stream onError={fail} project={project} />
+            <Stream onError={fail} project={project} served={projects?.projects.length ?? 1} />
           </>
         )}
       </main>
@@ -426,11 +426,12 @@ function AgentLine({ row, now }: { row: AgentRow; now: number }) {
 
 const ROW_TINT = { warn: "bg-warn-pale", error: "bg-error-pale" };
 
-function keyOf(item: Item): string {
-  return item.event.id;
-}
-
-function Stream({ onError, project }: { onError: (e: unknown) => void; project: string }) {
+/**
+ * The event log (#79): every project the server serves in one list, narrowed by
+ * the filter. `project` is the one picked in the menu: only for the link of a
+ * row that names no project of its own.
+ */
+function Stream({ onError, project, served }: { onError: (e: unknown) => void; project: string; served: number }) {
   const [paused, setPaused] = useState(false);
   const [tools, setTools] = useState(false);
   const [draft, setDraft] = useState("");
@@ -450,7 +451,15 @@ function Stream({ onError, project }: { onError: (e: unknown) => void; project: 
   }, [filters, tools, onError]);
   usePoll(load, POLL_MS, !paused);
 
-  const selected = useMemo(() => items.find((i) => keyOf(i) === picked) ?? items[0] ?? null, [items, picked]);
+  const selected = useMemo(() => items.find((i) => itemKey(i) === picked) ?? items[0] ?? null, [items, picked]);
+  const cols = useMemo(() => streamColumns(items, served), [items, served]);
+  // A click on a project or a repository in a row narrows the list to it.
+  const narrow = (field: string, value: string) => {
+    const next = filterWith(draft, field, value);
+    setDraft(next);
+    setFilters(filterPairs(next));
+  };
+  const cellButton = "cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-inherit underline decoration-pale underline-offset-2";
   const button = "min-h-11 cursor-pointer rounded-lg px-4 text-sm font-medium";
   const th = "px-3 py-2.5 font-medium";
 
@@ -461,6 +470,7 @@ function Stream({ onError, project }: { onError: (e: unknown) => void; project: 
           <h2 id="stream-h" className="m-0 text-lg font-semibold">
             {texts.stream.heading}
           </h2>
+          {served > 1 && <span className="text-[13px] text-mute">{texts.stream.all(served)}</span>}
           {paused ? (
             <span className="rounded-full bg-line px-3 py-2 text-sm font-medium text-gray-700">{texts.stream.paused}</span>
           ) : (
@@ -521,6 +531,8 @@ function Stream({ onError, project }: { onError: (e: unknown) => void; project: 
             <table className="w-full min-w-[960px] border-collapse font-mono text-[13px]">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-[#f7f8fa] text-left font-sans text-xs tracking-wider text-mute uppercase">
+                  {cols.project && <th scope="col" className={th}>{texts.stream.cols.project}</th>}
+                  {cols.repo && <th scope="col" className={th}>{texts.stream.cols.repo}</th>}
                   <th scope="col" className={th}>{texts.stream.cols.line}</th>
                   <th scope="col" className={th}>{texts.stream.cols.time}</th>
                   <th scope="col" className={th}>{texts.stream.cols.actor}</th>
@@ -532,16 +544,40 @@ function Stream({ onError, project }: { onError: (e: unknown) => void; project: 
               </thead>
               <tbody>
                 {items.map((item) => {
-                  const isPicked = selected !== null && keyOf(item) === keyOf(selected);
+                  const isPicked = selected !== null && itemKey(item) === itemKey(selected);
+                  // The change and the task of a row are those of its own project.
+                  const of = item.project ?? project;
                   const tint = standsOut(item);
                   const bg = isPicked ? "bg-picked font-medium outline-[1.5px] -outline-offset-[1.5px] outline-ink outline" : tint ? ROW_TINT[tint] : item.from === "activity" ? "bg-[#fafbfc] text-mute" : "bg-white";
                   const label = item.from === "ledger" ? String(item.n) : "·";
                   return (
-                    <tr key={keyOf(item)} className={`border-t border-line ${bg}`}>
+                    <tr key={itemKey(item)} className={`border-t border-line ${bg}`}>
+                      {cols.project && (
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {item.project !== undefined ? (
+                            <button type="button" onClick={() => narrow("project", item.project!)} aria-label={texts.stream.narrow("project", item.project)} className={cellButton}>
+                              {item.project}
+                            </button>
+                          ) : (
+                            "–"
+                          )}
+                        </td>
+                      )}
+                      {cols.repo && (
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {item.event.repo !== undefined ? (
+                            <button type="button" onClick={() => narrow("repo", item.event.repo!)} aria-label={texts.stream.narrow("repo", item.event.repo)} className={cellButton}>
+                              {item.event.repo}
+                            </button>
+                          ) : (
+                            "–"
+                          )}
+                        </td>
+                      )}
                       <td className="p-0">
                         <button
                           type="button"
-                          onClick={() => setPicked(keyOf(item))}
+                          onClick={() => setPicked(itemKey(item))}
                           aria-label={texts.stream.showEvent(item.from === "ledger" ? label : item.event.type)}
                           aria-pressed={isPicked}
                           className="min-h-10 w-full cursor-pointer border-0 bg-transparent px-3 text-left font-[inherit] text-inherit"
@@ -562,11 +598,11 @@ function Stream({ onError, project }: { onError: (e: unknown) => void; project: 
                       <td className="px-3 py-2 whitespace-nowrap">{item.event.type}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {item.event.change !== undefined ? (
-                          <a href={hashFor("change", project, `change:${item.event.change}`)} className="text-ink">
+                          <a href={hashFor("change", of, `change:${item.event.change}`)} className="text-ink">
                             {concerns(item)}
                           </a>
                         ) : item.event.task !== undefined ? (
-                          <a href={hashFor("change", project, `task:${item.event.task}`)} className="text-ink">
+                          <a href={hashFor("change", of, `task:${item.event.task}`)} className="text-ink">
                             {concerns(item)}
                           </a>
                         ) : (

@@ -53,6 +53,12 @@ export interface Served {
 
 /** An event as the page gets it: what the reader gives (a ledger line with its number and hashes), and what the server adds. */
 export interface Item extends Read {
+  /**
+   * #79: the project whose ledger or activity file the line is from, by the name
+   * the server lists it under. Not from a server of one ledger file (`--ledger`):
+   * that file need not lie in a project's folder, and its answers are as they were.
+   */
+  project?: string;
   /** The agent behind a person's account at the code host, when one matches (#14). */
   by?: string;
   /** The signature's check (#23): the key, its assignment, and whether it holds. */
@@ -179,6 +185,13 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     file(res, options.root, url.pathname);
     return;
   }
+  if (url.pathname === "/api/events") {
+    // #79: with no project named, every project the server serves; else the one named.
+    const served = url.searchParams.has("project") ? [projectFor(url.searchParams, options)] : projectsOf(options);
+    if (served.length === 0) throw new LedgerError("no project with a ledger");
+    json(res, 200, { now: Date.now(), events: events(served, url.searchParams, options.ledger === undefined) });
+    return;
+  }
   const project = projectFor(url.searchParams, options);
   const ledger = project.ledger;
   const pattern = options.ledger !== undefined || project.name === options.defaultProject ? options.taskFromBranch : undefined;
@@ -188,9 +201,6 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
       json(res, 200, { now, rows: agentStates(readAll(ledger).map((r) => r.event), now, { taskFromBranch: pattern }) });
       return;
     }
-    case "/api/events":
-      json(res, 200, { now: Date.now(), events: events(ledger, url.searchParams) });
-      return;
     case "/api/overview": {
       const now = Date.now();
       const items = ledgerLines(ledger);
@@ -224,15 +234,32 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   }
 }
 
-/** The ledger lines after `after` (all when absent), with the activity file when asked or filtered for, the newest `limit`. */
-export function events(ledger: string, params: URLSearchParams): Item[] {
+/**
+ * The event log (#79): the lines of every project given, as one list in the
+ * order of time, the newest `limit`; with the activity files when asked or
+ * filtered for. With `named`, each item names its project, as a line number and
+ * a hash are those of that project's ledger. Events of the same time come in the order of
+ * the projects given (by name), then in the order of their file.
+ *
+ * `after` is a line of one ledger: over several projects it is refused.
+ */
+function events(projects: Project[], params: URLSearchParams, named: boolean): Item[] {
   const pairs = params.getAll("filter");
   const filters = parseFilters(pairs);
   const after = Number(params.get("after") ?? 0) || 0;
+  if (after > 0 && projects.length > 1) throw new LedgerError("after is a line of one ledger: name the project");
   const limit = Math.max(1, Math.min(5000, Number(params.get("limit") ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
+  const activity = params.get("activity") === "1" || wantsActivity(pairs);
 
+  return byTime(projects.flatMap((project) => itemsOf(project, after, activity, named)))
+    .filter((item) => filters.every((f) => f(item.event)))
+    .slice(-limit);
+}
+
+/** The ledger lines of one project after `after` (all when 0), then the lines of its activity file when asked for. */
+function itemsOf(project: Project, after: number, activity: boolean, named: boolean): Item[] {
   // Numbered by their place in the file, so a line howl cannot read still counts.
-  const all = ledgerLines(ledger);
+  const all = ledgerLines(project.ledger);
   const items: Item[] = all.filter((r) => r.n! > after);
   // Matched over the whole ledger, so a session before `after` still counts.
   const acting = actingAgents(all.map((i) => i.event));
@@ -243,12 +270,9 @@ export function events(ledger: string, params: URLSearchParams): Item[] {
     const signed = signatures.get(item.event.id);
     if (signed !== undefined) item.signed = signed;
   }
-  if (params.get("activity") === "1" || wantsActivity(pairs)) {
-    items.push(...activityLines(ledger));
-  }
-  return byTime(items)
-    .filter((item) => filters.every((f) => f(item.event)))
-    .slice(-limit);
+  if (activity) items.push(...activityLines(project.ledger));
+  if (named) for (const item of items) item.project = project.name;
+  return items;
 }
 
 function file(res: ServerResponse, root: string, pathname: string): void {
