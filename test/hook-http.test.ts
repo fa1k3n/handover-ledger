@@ -127,7 +127,8 @@ async function settled(u: Up): Promise<void> {
   const mark = claim("session.stopped", { session: `settled-${Date.now()}` });
   assert.equal((await send(u.url, u.token, mark)).status, 200);
   await until(() => lines(u.ws.ledger).some((l) => l.event.id === mark.id), 3000, "the mark in the ledger");
-  assert.deepEqual(inboxFiles(u.ws.inbox), []);
+  // The writer removes a file a moment after it wrote its line: waited for, not looked at once.
+  await until(() => inboxFiles(u.ws.inbox).length === 0, 2000, "the inbox taken in");
 }
 
 /** A folder whose `.howl/howl.yml` names `project`. */
