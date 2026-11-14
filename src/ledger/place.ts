@@ -4,6 +4,7 @@
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { LedgerError } from "./errors.ts";
+import { ACTIVITY_FILE, LEDGER_FILE } from "./names.ts";
 
 /** A project name that is one plain folder name. */
 const PROJECT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -30,7 +31,7 @@ export function projectDir(project: string, env: Env = process.env, home: string
 
 /** The ledger of a project: `<project folder>/ledger.jsonl`. */
 export function ledgerPath(project: string, env: Env = process.env, home: string = homedir()): string {
-  return join(projectDir(project, env, home), "ledger.jsonl");
+  return join(projectDir(project, env, home), LEDGER_FILE);
 }
 
 /** Where hooks and scripts leave events: `<project folder>/inbox`. */
@@ -40,7 +41,7 @@ export function inboxPath(project: string, env: Env = process.env, home: string 
 
 /** Activity, with no chain: `<project folder>/activity.jsonl`. */
 export function activityPath(project: string, env: Env = process.env, home: string = homedir()): string {
-  return join(projectDir(project, env, home), "activity.jsonl");
+  return join(projectDir(project, env, home), ACTIVITY_FILE);
 }
 
 /** The pseudonyms of the people of a project: `<project folder>/people.json`. Never in the ledger. */

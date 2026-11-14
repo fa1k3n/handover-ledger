@@ -2,13 +2,14 @@
 // built page and read-only JSON over the ledger and the activity file. It takes
 // no lock and never writes.
 // @code_class reading
-import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { basename, dirname, extname, join, normalize, sep } from "node:path";
 import { LedgerError } from "../ledger/errors.ts";
+import { LEDGER_FILE } from "../ledger/names.ts";
 import { isProjectName } from "../ledger/place.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
-import { activityBeside, byTime, Tail, type Read } from "../read/reader.ts";
+import { activityFrom, activityLines, byTime, ledgerLines, lineCount, readAll, type Read } from "../read/reader.ts";
 import { checkSignatures } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
@@ -19,7 +20,7 @@ import { parseFilters, wantsActivity } from "../read/watch.ts";
 export interface ServeOptions {
   /** One ledger only. */
   ledger?: string;
-  /** Else every project in this folder that holds a ledger.jsonl. */
+  /** Else every project in this folder that holds a ledger. */
   home?: string;
   /** The project shown first; else the first by name. */
   defaultProject?: string;
@@ -43,15 +44,8 @@ export interface Served {
   close(): Promise<void>;
 }
 
-/** An event as the page gets it: ledger lines with their number and hashes. */
-export interface Item {
-  n?: number;
-  from: Read["from"];
-  hash?: string;
-  prev?: string | null;
-  event: Read["event"];
-  /** The line as it stands in its file. */
-  raw: string;
+/** An event as the page gets it: what the reader gives (a ledger line with its number and hashes), and what the server adds. */
+export interface Item extends Read {
   /** The agent behind a person's account at the code host, when one matches (#14). */
   by?: string;
   /** The signature's check (#23): the key, its assignment, and whether it holds. */
@@ -127,9 +121,9 @@ function projectsOf(options: ServeOptions): Project[] {
     return [];
   }
   return names
-    .filter((name) => isProjectName(name) && existsSync(join(options.home!, name, "ledger.jsonl")))
+    .filter((name) => isProjectName(name) && existsSync(join(options.home!, name, LEDGER_FILE)))
     .sort()
-    .map((name) => ({ name, ledger: join(options.home!, name, "ledger.jsonl") }));
+    .map((name) => ({ name, ledger: join(options.home!, name, LEDGER_FILE) }));
 }
 
 function defaultOf(projects: Project[], options: ServeOptions): Project | undefined {
@@ -166,8 +160,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   switch (url.pathname) {
     case "/api/agents": {
       const now = Date.now();
-      const reads = byTime([...new Tail(ledger, "ledger").read(), ...new Tail(activityBeside(ledger), "activity").read()]);
-      json(res, 200, { now, rows: agentStates(reads.map((r) => r.event), now, { taskFromBranch: pattern }) });
+      json(res, 200, { now, rows: agentStates(readAll(ledger).map((r) => r.event), now, { taskFromBranch: pattern }) });
       return;
     }
     case "/api/events":
@@ -175,7 +168,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
       return;
     case "/api/overview": {
       const now = Date.now();
-      const items = ledgerItems(ledger);
+      const items = ledgerLines(ledger);
       json(res, 200, { now, figures: keyFigures(items.map((i) => i.event), now), handovers: handovers(items).slice(0, 50) });
       return;
     }
@@ -183,14 +176,11 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
       const what = url.searchParams.get("what")?.trim() ?? "";
       if (!what) throw new LedgerError("give what: 12, task:12 or change:30");
       const asked = parseAsked(what);
-      const reads = byTime([...new Tail(ledger, "ledger").read(), ...new Tail(activityBeside(ledger), "activity").read()]).filter(
-        (r) => r.event.type !== "ledger.created",
-      );
-      const activity = reads.filter((r) => r.from === "activity");
+      const reads = readAll(ledger);
       const shown = show(
         reads.map((r) => r.event),
         asked,
-        activity.length > 0 ? activity[0]!.event.time : null,
+        activityFrom(reads),
       );
       if (shown === null) {
         json(res, 404, { error: `nothing in the ledger names ${what}` });
@@ -209,14 +199,6 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   }
 }
 
-/** The number of whole lines of a file. */
-function lineCount(path: string): number {
-  const bytes = readFileSync(path);
-  let n = 0;
-  for (const b of bytes) if (b === 0x0a) n++;
-  return n;
-}
-
 /** The ledger lines after `after` (all when absent), with the activity file when asked or filtered for, the newest `limit`. */
 export function events(ledger: string, params: URLSearchParams): Item[] {
   const pairs = params.getAll("filter");
@@ -224,10 +206,11 @@ export function events(ledger: string, params: URLSearchParams): Item[] {
   const after = Number(params.get("after") ?? 0) || 0;
   const limit = Math.max(1, Math.min(5000, Number(params.get("limit") ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
 
-  const items: Item[] = ledgerItems(ledger, after);
+  // Numbered by their place in the file, so a line howl cannot read still counts.
+  const all = ledgerLines(ledger);
+  const items: Item[] = all.filter((r) => r.n! > after);
   // Matched over the whole ledger, so a session before `after` still counts.
-  const acting = actingAgents((after > 0 ? ledgerItems(ledger) : items).map((i) => i.event));
-  const all = after > 0 ? ledgerItems(ledger) : items;
+  const acting = actingAgents(all.map((i) => i.event));
   const signatures = checkSignatures(all.map((i) => ({ n: i.n ?? 0, event: i.event }))).byEvent;
   for (const item of items) {
     const by = acting.get(item.event.id)?.agent;
@@ -236,33 +219,11 @@ export function events(ledger: string, params: URLSearchParams): Item[] {
     if (signed !== undefined) item.signed = signed;
   }
   if (params.get("activity") === "1" || wantsActivity(pairs)) {
-    for (const r of new Tail(activityBeside(ledger), "activity").read()) items.push({ from: "activity", event: r.event, raw: r.raw });
+    items.push(...activityLines(ledger));
   }
-  const sorted = items
-    .map((item, i) => ({ item, i, t: Date.parse(item.event.time) }))
-    .sort((a, b) => a.t - b.t || a.i - b.i)
-    .map((x) => x.item)
-    .filter((item) => filters.every((f) => f(item.event)));
-  return sorted.slice(-limit);
-}
-
-/** The lines of the ledger after line `after`, numbered by their place in the file, so a line howl cannot read still counts. */
-export function ledgerItems(ledger: string, after = 0): Item[] {
-  const items: Item[] = [];
-  const text = readFileSync(ledger, "utf8");
-  const whole = text.slice(0, text.lastIndexOf("\n") + 1).split("\n").slice(0, -1);
-  whole.forEach((raw, i) => {
-    const n = i + 1;
-    if (n <= after) return;
-    try {
-      const line = JSON.parse(raw) as { prev: string | null; hash: string; event: Read["event"] };
-      if (!line.event || line.event.type === "ledger.created") return;
-      items.push({ n, from: "ledger", hash: line.hash, prev: line.prev, event: line.event, raw });
-    } catch {
-      // Not a line howl can read: `howl verify` names it.
-    }
-  });
-  return items;
+  return byTime(items)
+    .filter((item) => filters.every((f) => f(item.event)))
+    .slice(-limit);
 }
 
 function file(res: ServerResponse, root: string, pathname: string): void {

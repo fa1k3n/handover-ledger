@@ -1,6 +1,7 @@
 // The dashboard's pure parts: the filter text, times in local time and UTC, and
 // the fields of a decoded event. No DOM, so node:test can run them.
 // @code_class reading
+import { ACTIVITY_FILE } from "../ledger/names.ts";
 import { duration } from "../read/overview.ts";
 import type { Claim, Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
@@ -38,7 +39,7 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
   const d = (e.data ?? {}) as Record<string, unknown>;
   const actor = e.actor ? `${e.actor.id} (${e.actor.kind === "person" ? "person, pseudonym" : e.actor.kind})` : undefined;
   const fields: (Field | null)[] = [
-    item.from === "ledger" ? { k: "Line", v: String(item.n) } : { k: "File", v: "activity.jsonl" },
+    item.from === "ledger" ? { k: "Line", v: String(item.n) } : { k: "File", v: ACTIVITY_FILE },
     item.hash !== undefined ? { k: "Line hash", v: item.hash } : null,
     item.from === "ledger" ? { k: "Previous hash", v: item.prev ?? "none: the first line" } : null,
     { k: "Time", v: `${localTime(e.time, timeZone)} local · ${utcTime(e.time)}` },

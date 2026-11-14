@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { LedgerError } from "../ledger/errors.ts";
 import { fixedForm } from "../ledger/fixed.ts";
 import { hashLine } from "../ledger/ledger.ts";
+import { readWhole } from "../read/reader.ts";
 
 export const REF = "refs/howl/checkpoints";
 const NAMESPACE = "howl-checkpoint";
@@ -22,25 +23,14 @@ export interface Checkpoint {
   howl: string;
 }
 
-/** The whole lines of a ledger file, as bytes. */
-function wholeLines(path: string): Buffer[] {
-  const bytes = readFileSync(path);
-  const out: Buffer[] = [];
-  let start = 0;
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] === 0x0a) {
-      out.push(bytes.subarray(start, i));
-      start = i + 1;
-    }
-  }
-  return out;
-}
-
 export function checkpointOf(ledger: string, version: string, now = new Date()): Checkpoint {
-  const lines = wholeLines(ledger);
+  // Read once: the number of lines, the head and the project are of the same moment.
+  const whole = readWhole(ledger);
+  const lines = whole.bytes;
   if (lines.length === 0) throw new LedgerError(`${ledger}: the ledger is empty`);
-  const first = JSON.parse(lines[0]!.toString("utf8")) as { event?: { project?: string } };
-  return { project: first.event?.project ?? "", lines: lines.length, head: hashLine(lines.at(-1)!), time: now.toISOString(), howl: version };
+  const first = whole.lines[0];
+  if (first?.n !== 1) throw new LedgerError(`${ledger}: line 1 cannot be read: run \`howl verify\``);
+  return { project: first.event.project ?? "", lines: lines.length, head: hashLine(lines.at(-1)!), time: now.toISOString(), howl: version };
 }
 
 /** The checkpoint in its fixed form, as it is kept and signed. */
@@ -121,7 +111,7 @@ export function checkpointFromGit(repo: string): { text: string; sig?: string } 
 
 /** Whether the ledger still holds the line the checkpoint names. */
 export function checkLedger(ledger: string, c: Checkpoint): { ok: true; message: string } | { ok: false; message: string } {
-  const lines = wholeLines(ledger);
+  const lines = readWhole(ledger).bytes;
   if (lines.length < c.lines) {
     return { ok: false, message: `checkpoint: lines lost: the ledger has ${lines.length} lines, the checkpoint of ${c.time} names ${c.lines}` };
   }

@@ -3,6 +3,7 @@
 // rows out, the clock passed in. People are never a row.
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { byTime } from "./order.ts";
 import { waitsFor } from "./wait.ts";
 
 export type AgentState = "needs-input" | "working" | "waiting" | "idle" | "ended";
@@ -41,10 +42,7 @@ export interface StateOptions {
 
 /** One row per agent, the most recent first. */
 export function agentStates(events: LedgerEvent[], now: number, options: StateOptions = {}): AgentRow[] {
-  const sorted = events
-    .map((e, i) => ({ e, i, t: Date.parse(e.time) }))
-    .sort((a, b) => a.t - b.t || a.i - b.i)
-    .map((x) => x.e);
+  const sorted = byTime(events.map((event) => ({ event }))).map((x) => x.event);
 
   // What the code host shows: the change opened on a branch, and its task.
   const onBranch = new Map<string, { change?: string; task?: string }>();
