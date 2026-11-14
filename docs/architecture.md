@@ -65,23 +65,26 @@ The boundary is a protocol between processes, not an API inside the engine: the 
 
 ## The event
 
-An own schema; a CloudEvents envelope is an option. First draft of the fields:
+An own schema; a CloudEvents envelope is an option. First draft of the fields. The last column says whether the field is in the schema today ([schema/event.v0.schema.json](../schema/event.v0.schema.json)): the schema holds only what something writes, and a field waits for the step that writes it.
 
-| Field | Holds |
-|---|---|
-| `v` | Version of the line format |
-| `time` | When it happened |
-| `type` | What happened (below) |
-| `source` | The adapter that read it, and whether it was observed or claimed |
-| `actor` | The team member: person or agent, with its identity |
-| `model`, `effort` | For an agent: the model ID and effort of the session |
-| `prompt` | For an agent: the role prompt, as `file` and `sha256` of its content |
-| `rules` | Version of the rules in force (the commit they ran from) |
-| `task`, `change`, `sha` | The task, the merge or pull request, and its head commit |
-| `requirements`, `clauses`, `tests` | The trace links ([traceability.md](traceability.md)) |
-| `level`, `class` | The level in force and the code class |
+| Field | Holds | In the schema |
+|---|---|---|
+| `v` | Version of the line format | yes |
+| `time` | When it happened | yes |
+| `type` | What happened (below) | yes |
+| `source` | The adapter that read it, and whether it was observed or claimed | yes |
+| `actor` | The team member: person or agent, with its identity | yes |
+| `model`, `effort` | For an agent: the model ID and effort of the session | yes |
+| `prompt` | For an agent: the role prompt, as `file` and `sha256` of its content | yes |
+| `rules` | Version of the rules in force (the commit they ran from) | waits for the rules |
+| `task`, `change`, `sha` | The task, the merge or pull request, and its head commit | yes |
+| `requirements`, `clauses`, `tests` | The trace links ([traceability.md](traceability.md)) | wait for the trace link (#38) |
+| `level`, `class` | The level in force and the code class | wait for the levels and the first rule that reads a class |
+| `team` | The team the event belongs to | waits until something says where a team comes from |
 
-Types, to begin with: task assigned, change opened or updated, tests written, checks passed or failed, review approved or changes requested, finding fixed, dismissed or left open, change merged, level changed, rule broken, escalated to a person.
+The schema also holds what the first steps added: `id`, `project`, `session`, `role`, `repo`, `branch`, `sig` and `data`.
+
+Types, in the first draft: task assigned, change opened or updated, tests written, checks passed or failed, review approved or changes requested, finding fixed, dismissed or left open, change merged, level changed, rule broken, escalated to a person. In the schema today are those that something writes: a task opened, assigned and closed; a change opened, updated, commented, merged and closed; checks passed or failed; a review that approved, asked for changes or commented; and what the steps since added (the ledger, a session, a tool call, a wait, a key, the start of observing, a change to `.howl/`). Tests written, the findings, level changed, rule broken and escalated wait for their steps.
 
 An event does not know its place in a ledger. A line of the ledger holds `prev`, the SHA-256 of the line before; `hash`, the SHA-256 of the event in its fixed form; and the event itself, in that fixed form. The fixed form is the JSON Canonicalization Scheme (RFC 8785), so that the Python package gives the same bytes as the engine. The same event can then wait in an inbox, and later be kept in more than one ledger.
 

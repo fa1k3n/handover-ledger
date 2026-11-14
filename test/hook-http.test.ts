@@ -85,7 +85,7 @@ test("a tool call's input and answer reach no file and no output of the server",
   for (const call of calls) assert.equal((await sendHook(running, call)).status, 200);
   await until(() => events(running).filter((e) => e.session === "secret").length === 3, 3000, "the three events");
   const tool = events(running).find((e) => e.session === "secret" && e.data?.tool === "Bash")!;
-  assert.deepEqual(tool.data, { tool: "Bash", target: "curl", outcome: "succeeded", ...("input_sha256" in tool.data ? { input_sha256: tool.data.input_sha256 } : {}) });
+  assert.deepEqual(tool.data, { tool: "Bash", target: "curl", outcome: "succeeded" });
   const kept = [readFileSync(running.ws.ledger, "utf8"), activity(running).join("\n"), running.output()];
   for (const name of inboxFiles(running.ws.inbox)) kept.push(readFileSync(join(running.ws.inbox, name), "utf8"));
   for (const secret of Object.values(secrets)) assert.ok(!kept.some((text) => text.includes(secret)), secret);
