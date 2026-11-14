@@ -1,0 +1,3 @@
+project: handover-ledger
+task_from_branch: '^issue-([0-9]+)'
+review_comment_pattern: '^\[review\]'

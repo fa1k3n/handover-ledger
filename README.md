@@ -260,6 +260,12 @@ The summary divides the time from the hand-over to the merge so that every secon
 - [docs/target.md](docs/target.md): where the platform may go: rule packs, vulnerabilities, storage, a log that follows the repository, people. Not planned.
 - [docs/decisions.md](docs/decisions.md): what is decided, what is open, and the order of the work.
 
+## Howl on itself
+
+Run `node src/cli/howl.ts observe` in this repository, and it records its own pull requests and reviews (see `.howl/howl.yml`).
+Changes reach `main` only through a pull request with the check green; `scripts/ruleset.sh` sets that rule at the code host.
+The ledger it writes is a trial, and not evidence.
+
 ## A rule for this repository
 
 It holds only general material. Never a client's rules, flows, names or data.
