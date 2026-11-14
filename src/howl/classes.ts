@@ -7,7 +7,8 @@
 // @code_class recording
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { git } from "./git.ts";
+import { LedgerError } from "../ledger/errors.ts";
+import { trackedFiles } from "./git.ts";
 import { plain, topLevel } from "./project.ts";
 
 export interface CodeClass {
@@ -58,12 +59,18 @@ function read(root: string, text: string): ClassSettings | null {
   return found;
 }
 
-/** The items of the `classes:` block: `- name: x`, then `paths: [a, b]` or `paths:` and `- a` lines. */
+/**
+ * The items of the `classes:` block: `- name: x`, then `paths: [a, b]` or `paths:` and `- a` lines.
+ * Only the keys of a class itself are read: what lies deeper, under another key, is passed over.
+ */
 function readBlock(text: string): CodeClass[] {
   const classes: CodeClass[] = [];
   let inBlock = false;
   let current: CodeClass | null = null;
   let inPaths = false;
+  // Where the `-` of a class stands, and where its keys stand; set by the first class.
+  let dashAt = -1;
+  let keysAt = -1;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/(^|\s)#.*$/, "");
     if (line.trim() === "") continue;
@@ -71,20 +78,29 @@ function readBlock(text: string): CodeClass[] {
       inBlock = /^classes:\s*$/.test(line);
       current = null;
       inPaths = false;
+      dashAt = -1;
+      keysAt = -1;
       continue;
     }
     if (!inBlock) continue;
-    const key = /^\s+(-\s+)?([A-Za-z_][A-Za-z0-9_]*):(.*)$/.exec(line);
+    const key = /^(\s+)(-\s+)?([A-Za-z_][A-Za-z0-9_]*):(.*)$/.exec(line);
     if (key) {
-      if (key[1] !== undefined) {
+      const indent = key[1]!.length;
+      if (key[2] !== undefined && (dashAt < 0 || indent === dashAt)) {
+        dashAt = indent;
+        keysAt = indent + key[2].length;
         current = { name: "", paths: [] };
         classes.push(current);
+      } else if (key[2] !== undefined || indent !== keysAt) {
+        // Deeper than the class: a key or an item of something this step does not read.
+        inPaths = false;
+        continue;
       }
       inPaths = false;
       if (!current) continue;
-      const value = key[3]!.trim();
-      if (key[2] === "name") current.name = plain(value);
-      else if (key[2] === "paths") {
+      const value = key[4]!.trim();
+      if (key[3] === "name") current.name = plain(value);
+      else if (key[3] === "paths") {
         if (value.startsWith("[") && value.endsWith("]")) {
           current.paths = value
             .slice(1, -1)
@@ -172,15 +188,14 @@ export interface ClassReport {
 
 /** Every tracked file with its class, and what is wrong. Only reads. */
 export function classify(settings: ClassSettings): ClassReport {
-  const listed = git(settings.root, "ls-files", "-z");
-  if (listed === null) throw new Error("git did not list the files: is this a git repository?");
-  const names = listed.split("\0").filter((n) => n !== "");
+  const names = trackedFiles(settings.root);
+  if (names === null) throw new LedgerError("git did not list the files: is this a git repository?");
   let pattern: RegExp | undefined;
   if (settings.header !== undefined) {
     try {
       pattern = new RegExp(settings.header);
     } catch {
-      throw new Error(`class_header is not a regular expression: ${settings.header}`);
+      throw new LedgerError(`class_header is not a regular expression: ${settings.header}`);
     }
   }
   const rank = (name: string) => settings.classes.findIndex((c) => sameClass(c.name, name));

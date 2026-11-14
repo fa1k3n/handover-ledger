@@ -13,6 +13,21 @@ export function git(dir: string, ...args: string[]): string | null {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
+/**
+ * The files git tracks in `dir`, or null when git fails or is not there. Not
+ * for the hook: the list of a large repository takes more than `git` allows.
+ */
+export function trackedFiles(dir: string): string[] | null {
+  const result = spawnSync("git", ["ls-files", "-z"], {
+    cwd: dir,
+    encoding: "utf8",
+    timeout: 60_000,
+    maxBuffer: 1024 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  return result.status === 0 ? result.stdout.split("\0").filter((name) => name !== "") : null;
+}
+
 /** The URL of the remote `origin`, or null. */
 export function originUrl(dir: string): string | null {
   return git(dir, "config", "--get", "remote.origin.url");

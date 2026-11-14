@@ -136,10 +136,66 @@ test("howl classes --check names each of the four faults", () => {
   const run = howl(["classes", "--check"], { cwd: root });
   assert.equal(run.status, 1);
   const lines = run.stdout.split("\n");
-  for (const file of ["other/none.txt", "src/nohead.ts", "src/unknown.ts", "src/differs.ts"]) {
-    assert.ok(lines.some((l) => l.startsWith(file)), `${file} is named`);
+  for (const [file, fault] of [
+    ["other/none.txt", /no class by path/],
+    ["src/nohead.ts", /no class in the header/],
+    ["src/unknown.ts", /names no class: made-up/],
+    ["src/differs.ts", /header says low, the path says middle/],
+  ] as const) {
+    const line = lines.find((l) => l.startsWith(`${file}:`));
+    assert.ok(line !== undefined, `${file} is named`);
+    assert.match(line, fault);
   }
   assert.ok(!lines.some((l) => l.startsWith("src/b.ts")));
+});
+
+test("a list of items under another key of a class is passed over: its names are not classes", () => {
+  const yml = `project: example
+classes:
+  - name: high
+    checks:
+      - name: lint
+        paths: [everything/**]
+      - name: unit
+    paths: [src/**]
+  - name: low
+    owner:
+      - name: someone
+    paths:
+      - docs/**
+`;
+  assert.deepEqual(findClasses(repo({}, yml))?.classes, [
+    { name: "high", paths: ["src/**"] },
+    { name: "low", paths: ["docs/**"] },
+  ]);
+});
+
+test("a class_header that is no regular expression ends with 2 and one line, not 1 and a stack", () => {
+  const yml = YML.replace("'@code_class\\s+(\\S+)'", "'@code_class (x'");
+  assert.ok(yml.includes("(x'"));
+  const run = howl(["classes", "--check"], { cwd: repo(GOOD, yml) });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /^howl: class_header is not a regular expression/);
+  assert.equal(run.stderr.trim().split("\n").length, 1);
+});
+
+test("outside a git repository howl classes ends with 2 and says so", () => {
+  const root = folder();
+  mkdirSync(join(root, ".howl"));
+  writeFileSync(join(root, ".howl", "howl.yml"), YML);
+  const run = howl(["classes", "--check"], { cwd: root, env: { GIT_CEILING_DIRECTORIES: dirname(root) } });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /^howl: git did not list the files/);
+});
+
+test("a list of tracked files longer than a megabyte is read whole", () => {
+  const deep = ["a", "b", "c"].map((c) => c.repeat(240)).join("/");
+  const files: Record<string, string> = {};
+  for (let i = 0; i < 1500; i++) files[`docs/${deep}/${i}.md`] = "";
+  const run = howl(["classes", "--check"], { cwd: repo(files) });
+  assert.equal(run.status, 0, run.stderr);
+  // The 1500 files and .howl/howl.yml.
+  assert.match(run.stdout, /^ok: 1501 files/);
 });
 
 test("an untracked file is not looked at", () => {
