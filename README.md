@@ -1,8 +1,15 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo-light.svg" width="96" height="96" alt="The mark of Handover Ledger: two overlapping rounded squares, the overlap filled">
+  </picture>
+</p>
+
 # Handover Ledger
 
-Audit-ready ledger of handovers in mixed teams of people and AI agents.
+Audit-ready ledger of handovers in mixed teams of people and AI agents. The command is `howl`.
 
-**Status:** an idea written down. The first step is built: the event schema, the ledger file and `howl verify`. This repository is private until the event schema and `howl verify` work and a licence is chosen. No licence yet: all rights reserved until then.
+**Status: early, and a trial.** This is version 0. The event schema may still change, nothing is published as a package, and a ledger written today is not evidence. What is built runs from a checkout, beside a team whose agents already work, and only records ([docs/observation.md](docs/observation.md)). The levels of autonomy and the rules around them are written down, not built.
 
 ## The idea in short
 
@@ -17,19 +24,19 @@ The method is the offer. The tool makes the method binding and measurable.
 
 ## The parts
 
-| Part | Does | Writes to the ledger |
-|---|---|---|
-| `ledger` (core) | Event schema, hash chain, rules, levels | Yes |
-| Adapters | Read what happened in the team's tools and turn it into events | Yes, through the core |
-| `howl` (CLI) | `howl init`, `howl verify`, `howl status`, `howl export` | Yes, through the core |
-| Dashboard | Views over the ledger | No |
-| VS Code extension | The team and the chain per change, in the editor | No |
+| Part | Does | Built today | Planned |
+|---|---|---|---|
+| `ledger` (core) | The event schema, the hash chain, the one writer | The schema (version 0), the chain, signed claims, checkpoints | Rules and levels |
+| Adapters | Read what happened in the team's tools and turn it into events | The hooks of Claude Code, GitHub (read only), and a code host kept in local files, which the tests use | GitLab, a tracker, a requirements tool |
+| `howl` (CLI) | Records, checks and reads | `hook`, `ingest`, `emit`, `observe`, `verify`, `watch`, `show`, `status`, `serve`, `key`, `keyd`, `anchor`, `export` | `howl init`, a `howl` that needs no Node |
+| Dashboard | Views over the ledger; it never writes | The team right now, the event stream, the overview, one change or task | The rest of the design, when the ledger holds its data |
+| VS Code extension | The team and the chain per change, in the editor | Nothing | All of it, when someone asks for it |
 
-One repository, TypeScript throughout.
+One repository, TypeScript throughout. The order of the work is in [docs/decisions.md](docs/decisions.md), and each step is an issue.
 
 ## Running it
 
-Node 24 or later is needed to build and test. A `howl` that needs no Node on the developer's machine comes later.
+Node 24 or later is needed to build and test. A `howl` that needs no Node on the developer's machine comes later. Nothing installs a `howl` command yet: where an example below says `howl`, run `npm run howl --` in this checkout, or `node /path/to/handover-ledger/src/cli/howl.ts` from another folder.
 
 ```sh
 npm install
@@ -266,6 +273,14 @@ Run `node src/cli/howl.ts observe` in this repository, and it records its own pu
 Changes reach `main` only through a pull request with the check green; `scripts/ruleset.sh` sets that rule at the code host.
 The ledger it writes is a trial, and not evidence.
 
+## Taking part
+
+Issues are welcome: a question, a fault, what a team would need. Open an issue before a pull request: each step is an issue first. A contributor agreement is proposed and not yet settled ([docs/decisions.md](docs/decisions.md)); until it is, a pull request from outside may have to wait. A change reaches `main` only through a pull request with the check green, and the rule below holds for everything sent here.
+
 ## A rule for this repository
 
 It holds only general material. Never a client's rules, flows, names or data.
+
+## Licence
+
+Apache License 2.0, see [LICENSE](LICENSE).

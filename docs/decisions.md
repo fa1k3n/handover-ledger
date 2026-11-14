@@ -6,7 +6,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 
 - **Name:** Handover Ledger. The repository was first named Handoff Ledger by mistake and was renamed the same day; "handoff" also collides with a well-known product feature and with the broad term "agent handoff". The command is `howl`, short for Handover Ledger; it was first `how` and was changed 2026-11-13. (2026-11-12)
 - **Own repository that stands entirely on its own.** It is tied to no other project: no shared code, field names or plans. (2026-11-13)
-- **Private first,** public when the event schema and `howl verify` work and the licence is chosen. (2026-11-12)
+- **Private first,** public when the event schema and `howl verify` work and the licence is chosen. (2026-11-12) Replaced 2026-11-14 by "Public now", at the end of this list.
 - **Several parts:** core, adapters, CLI, dashboard, VS Code extension. (2026-11-12)
 - **Open source with consulting** for the integration at clients. (2026-11-12)
 - **Levels of autonomy** as the way in for a team, combined with traceability so that it fits ISO and similar standards. (2026-11-12)
@@ -25,6 +25,8 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **CEL filters later:** the first filters are `field=value` pairs; a CEL expression filter replaces them when more is needed. (2026-11-13)
 - **Anchoring first, signing optional.** The ledger's head is kept outside the machine that writes it as checkpoints on `refs/howl/checkpoints` of the observed repository, pushed to its remote; a checkpoint may be signed with an SSH key. What a session claims is signed with a key per assignment. A Merkle tree and a transparency log come later. (2026-11-13)
 - **The log follows the repository; a central server is witness, index and dashboard.** Evidence is kept in a git reference of its own in the observed repository (not in the working tree) and travels with every push, so it works offline and in closed networks and a supplier can hand the repository over with its log. A push reaches the code host, not howl's server: the server reads `refs/howl/*` from the code host, or is told by a webhook when they move. When a session can reach the server, its hook also sends each event live, and keeps it locally when it cannot; the reference is the durable path, the live stream is for seeing at once. The server keeps the signed roots it has seen, as a witness that a reference was not rewritten, and the code host refuses force pushes to `refs/howl/*`. Tool calls stay local. The tie of a pseudonym to a person never goes into the repository. Before the server is built, the storage changes from one writer's chain to events as files named by their hash, with signed roots (#27). (2026-11-13)
+- **Licence: Apache 2.0,** for the widest spread. Legal departments in regulated industries often stop AGPL, and the income is consulting, not hosting. The check with a lawyer is still to be made. (2026-11-14)
+- **Public now.** The event schema and `howl verify` work and the licence is chosen, as first asked. The name check was also to come before; it follows instead. The work is done in the open from here on, and the code host's checks cost nothing on a public repository. (2026-11-14)
 
 ## Proposed, not yet answered
 
@@ -49,10 +51,10 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 
 - **Where agents' keys live for good:** `howl keyd` on the developer's machine as another user, a service of the organisation's instance, or a hardware key (TPM, a token); and how an agent proves to it which assignment it holds. A first form of keyd exists (2026-11-13).
 
-- **Licence:** Apache 2.0 for the widest spread, or AGPL as protection against hosted copies. The income is consulting and not hosting, and legal departments in regulated industries often stop AGPL, which speaks for Apache 2.0. To be checked with a lawyer.
+- **The licence checked with a lawyer:** Apache 2.0 is chosen (see Decided); the check is still to be made, also of the contributor agreement.
 - **Name check:** GitHub, npm, the VS Code Marketplace and the domain, and a trade mark search at EUIPO and PRV. "Handover" alone is already used by other products. Check also that `howl` is free as a package name and is not the command of another program; a scoped package that installs the command `howl` solves the first.
 - **Accounts for agents:** an app of the code host (cannot be assigned tasks everywhere), one machine account per agent (check the host's terms), or one shared bot account with the name in comment and label. Separation of duties needs more than a person's own account.
-- **Own account or an organisation** for the repository when it becomes public. It can be moved later.
+- **Own account or an organisation** for the repository. It is on the owner's own account and can be moved later.
 - **The second adapter:** GitLab seems the likely one for the first clients. The answers to the five questions in [vision.md](vision.md) decide.
 - **Which standard is mapped first.** The draft in [standards.md](standards.md) starts with ISO 26262 and ISO/SAE 21434.
 - **The number of review rounds** before a person is asked: two or three.
@@ -76,6 +78,6 @@ The order in the first discussion was: core with ledger and two adapters, dashbo
 
 ## Before going public
 
-- A licence file.
-- The name check.
-- Read every document once more for anything that names a client or a person.
+- A licence file. Done: Apache 2.0, in `LICENSE`. (2026-11-14)
+- The name check. Not made before going public; it follows (see Open).
+- Read every document, test and comment in the code once more for anything that names a client, a person or another project. Read 2026-11-14; what it found is #34.
