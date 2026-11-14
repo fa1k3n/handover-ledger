@@ -99,16 +99,30 @@ function sources(dir: string): string[] {
 test("every type of the schema is written somewhere under src: a type ahead of its step fails here", () => {
   const src = join(ROOT, "src");
   // What only reads names types too: it does not count as writing them.
-  const readers = ["read/", "dashboard/", "serve/"];
+  const readers = ["read/", "dashboard/", "serve/", "export/"];
   const texts = sources(src)
     .filter((path) => !readers.some((r) => relative(src, path).split("\\").join("/").startsWith(r)))
     .map((path) => readFileSync(path, "utf8"));
   assert.ok(texts.length > 10 && existsSync(join(src, "observe", "observe.ts")));
   const unwritten = schema.properties.type.enum.filter((type) => {
-    const literal = `"${type}"`;
-    // A type built from its first part: `review.${state}`, `checks.${state}`.
-    const built = `\`${type.slice(0, type.indexOf(".") + 1)}\${`;
-    return !texts.some((text) => text.includes(literal) || text.includes(built));
+    return !texts.some((text) => text.includes(`"${type}"`)) && !isBuilt(type, texts);
   });
   assert.deepEqual(unwritten, []);
+});
+
+/**
+ * Whether a type is built from its two parts: the first as `review.${state}` or `checks.${state}`,
+ * and the second named as a state of its own (`"approved"`, `"failed"`) by what writes.
+ */
+function isBuilt(type: string, texts: string[]): boolean {
+  const [first, second] = [type.slice(0, type.indexOf(".") + 1), type.slice(type.indexOf(".") + 1)];
+  return texts.some((text) => text.includes(`\`${first}\${`)) && texts.some((text) => text.includes(`"${second}"`));
+}
+
+test("the test of the types catches a type nothing writes, also one whose first part is built", () => {
+  const texts = ['this.event(`review.${r.state}`)', 'state: "approved" | "commented"', 'type: "task.opened"'];
+  assert.ok(isBuilt("review.approved", texts));
+  assert.ok(!isBuilt("review.withdrawn", texts), "the first part is built, the second is no state");
+  assert.ok(!isBuilt("made.up", texts));
+  assert.ok(!isBuilt("task.opened", texts), "named whole, not built");
 });
