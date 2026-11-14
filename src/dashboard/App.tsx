@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, detail, filterPairs, filterWith, hashFor, itemKey, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
+import { concerns, decodedFields, detail, filterPairs, filterWith, hashFor, itemKey, menuShown, needsInputHref, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -84,7 +84,7 @@ export function App() {
           </div>
           <div className="flex-1" />
           {needing.length > 0 && (
-            <a href={hashFor("stream", project)} className="flex items-center gap-2 rounded-full bg-accent px-3.5 py-2.5 text-sm font-semibold text-white no-underline">
+            <a href={needsInputHref(project)} className="flex items-center gap-2 rounded-full bg-accent px-3.5 py-2.5 text-sm font-semibold text-white no-underline">
               <span className="h-2 w-2 rounded-full bg-white" />
               {texts.needsInput(needing.length)}
             </a>
@@ -97,14 +97,15 @@ export function App() {
           </p>
         )}
         {project === null ? null : view === "overview" ? (
-          <Overview onError={fail} project={project} />
+          // #81: the team right now first, then the figures of the period: both are of the project picked.
+          <>
+            <Team agents={agents} notify={notify} onNotify={setNotify} />
+            <Overview onError={fail} project={project} />
+          </>
         ) : view === "change" ? (
           <ChangeView what={route.what ?? null} project={project} onError={fail} />
         ) : (
-          <>
-            <Team agents={agents} notify={notify} onNotify={setNotify} />
-            <Stream onError={fail} project={project} served={projects?.projects.length ?? 1} />
-          </>
+          <Stream onError={fail} project={project} served={projects?.projects.length ?? 1} />
         )}
       </main>
     </div>
@@ -145,7 +146,7 @@ function Header({ view, project, projects }: { view: View; project: string | nul
           </a>
         </nav>
         <div className="flex-1" />
-        {projects && !projects.single ? (
+        {menuShown(view, projects) && projects ? (
           <label className="flex items-center gap-2 text-[13px] text-pale">
             {texts.project}
             <select
@@ -161,7 +162,8 @@ function Header({ view, project, projects }: { view: View; project: string | nul
             </select>
           </label>
         ) : (
-          project && <span className="font-mono text-[13px] text-pale">{project}</span>
+          // The event log is every project (#79): it names none here.
+          view !== "stream" && project && <span className="font-mono text-[13px] text-pale">{project}</span>
         )}
       </div>
     </header>
