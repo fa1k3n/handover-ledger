@@ -204,17 +204,103 @@ function target(tool: string, input: Input, root: string): string | undefined {
  * The name of the program a shell command starts, past any variables set before
  * it. A statement that only sets variables (`H=/x` on a line of its own) is
  * passed over for the next one. Undefined when the name cannot be told safely.
+ *
+ * The command is read word by word as a shell reads it (#74): a value in
+ * quotes may hold spaces and signs, and no part of it is ever the program.
  */
 function program(command: string | undefined): string | undefined {
   if (command === undefined) return undefined;
-  for (const statement of command.split(/\n|;|&&|\|\|/)) {
-    for (const word of statement.trim().split(/\s+/)) {
-      if (word === "" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue;
-      const name = basename(word.replace(/^["'(]+|["')]+$/g, ""));
-      return /^[A-Za-z0-9._+-]+$/.test(name) ? name : undefined;
+  let at = 0;
+  for (;;) {
+    // Past the spaces, and the signs between statements and around groups.
+    while (at < command.length && /[\s;&|(){}]/.test(command[at]!)) at++;
+    if (at >= command.length) return undefined;
+    const word = shellWord(command, at);
+    if (word === null) return undefined;
+    at = word.end;
+    // A word that sets a variable, whatever its value holds.
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word.text)) continue;
+    // The program: what stands after the last `/` of the word itself, when that is a plain name.
+    const name = word.text.slice(word.slash + 1).replace(/["']/g, "");
+    return /^[A-Za-z0-9._+-]+$/.test(name) ? name : undefined;
+  }
+}
+
+/**
+ * One word of a shell command from `start`: it ends at a space or a sign that
+ * stands outside quotes and substitutions. `slash` is the place in the word of
+ * its last `/` outside a substitution, or -1. Null when a quote or a
+ * substitution does not close: then nothing can be told safely.
+ */
+function shellWord(s: string, start: number): { text: string; slash: number; end: number } | null {
+  let i = start;
+  let slash = -1;
+  while (i < s.length) {
+    const c = s[i]!;
+    if (/[\s;&|()]/.test(c)) break;
+    if (c === "/") slash = i - start;
+    if (c === "\\") i += 2;
+    else if (c === "'") {
+      const close = s.indexOf("'", i + 1);
+      if (close === -1) return null;
+      // Between single quotes every sign stands for itself.
+      const last = s.lastIndexOf("/", close);
+      if (last > i) slash = last - start;
+      i = close + 1;
+    } else if (c === '"') {
+      const close = doubleQuoted(s, i + 1, (at) => (slash = at - start));
+      if (close === -1) return null;
+      i = close;
+    } else if (c === "`" || (c === "$" && (s[i + 1] === "(" || s[i + 1] === "{"))) {
+      const close = substitution(s, i);
+      if (close === -1) return null;
+      i = close;
+    } else i++;
+  }
+  return { text: s.slice(start, Math.min(i, s.length)), slash, end: Math.min(i, s.length) };
+}
+
+/** The place after the `"` that closes a text in double quotes that starts at `i`, or -1. */
+function doubleQuoted(s: string, i: number, onSlash?: (at: number) => void): number {
+  while (i < s.length) {
+    const c = s[i]!;
+    if (c === '"') return i + 1;
+    if (c === "/") onSlash?.(i);
+    if (c === "\\") i += 2;
+    else if (c === "`" || (c === "$" && (s[i + 1] === "(" || s[i + 1] === "{"))) {
+      i = substitution(s, i);
+      if (i === -1) return -1;
+    } else i++;
+  }
+  return -1;
+}
+
+/** The place after a substitution that starts at `i`: `$(…)`, `${…}` or `` `…` ``; -1 when it does not close. */
+function substitution(s: string, i: number): number {
+  if (s[i] === "`") {
+    const close = s.indexOf("`", i + 1);
+    return close === -1 ? -1 : close + 1;
+  }
+  const [open, shut] = s[i + 1] === "(" ? ["(", ")"] : ["{", "}"];
+  let depth = 1;
+  i += 2;
+  while (i < s.length) {
+    const c = s[i]!;
+    if (c === "\\") i += 2;
+    else if (c === "'") {
+      const close = s.indexOf("'", i + 1);
+      if (close === -1) return -1;
+      i = close + 1;
+    } else if (c === '"') {
+      i = doubleQuoted(s, i + 1);
+      if (i === -1) return -1;
+    } else {
+      if (c === open) depth++;
+      else if (c === shut && --depth === 0) return i + 1;
+      i++;
     }
   }
-  return undefined;
+  return -1;
 }
 
 /** The repository's name, branch and head commit, when the folder is a git checkout. */
