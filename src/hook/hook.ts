@@ -9,15 +9,15 @@
 // - `model` comes only with SessionStart, and not always; `effort` is `{ level }`.
 // - SessionEnd hooks get 1.5 seconds by default.
 //
-// Only an agent's session is recorded. A tool call keeps the tool, the target,
-// the outcome and a hash of the input: never the input, the answer or a message.
+// Only an agent's session is recorded. A tool call keeps the tool, the target
+// and the outcome: never the input, the answer or a message, and no hash of the
+// input either (#50): a short input can be guessed from a plain hash.
 // @code_class recording
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { deliver } from "../inbox/deliver.ts";
 import { markDown, recentlyDown } from "../inbox/down.ts";
-import { fixedForm } from "../ledger/fixed.ts";
 import { projectDir } from "../ledger/place.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { git, originUrl, repoName } from "../howl/git.ts";
@@ -157,19 +157,8 @@ function describe(hook: Input, root: string): { type: LedgerEvent["type"]; data?
 function toolCall(hook: Input, root: string, outcome: string): Record<string, unknown> | undefined {
   const tool = text(hook.tool_name) ?? "unknown";
   const input = typeof hook.tool_input === "object" && hook.tool_input !== null ? (hook.tool_input as Input) : {};
-  let inputHash: string | undefined;
-  try {
-    inputHash = createHash("sha256").update(fixedForm(input)).digest("hex");
-  } catch {
-    // An input with no fixed form gets no hash.
-  }
-  return only({
-    tool,
-    target: target(tool, input, root),
-    outcome,
-    input_sha256: inputHash,
-    duration_ms: typeof hook.duration_ms === "number" && Number.isFinite(hook.duration_ms) ? hook.duration_ms : undefined,
-  });
+  // Only what a reader shows. Nothing made from the input, and not how long the call took: nothing reads it.
+  return only({ tool, target: target(tool, input, root), outcome });
 }
 
 /** What a tool call worked on: a path within the repository, or the name of a program. Never content. */
