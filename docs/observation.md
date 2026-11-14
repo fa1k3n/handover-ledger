@@ -44,7 +44,7 @@ project: example
 
 ## Rules for this mode
 
-- **Do not record all content.** A tool call can hold keys and code. Keep the tool, the target and the outcome, and a hash of the input, not the whole command and its answer. A large organisation will demand the same.
+- **Do not record all content.** A tool call can hold keys and code. Keep the tool, the target and the outcome, not the whole command and its answer. Keep no plain hash of the input either: a short input (`ls`, a file path) can be guessed by hashing candidates. A step that needs to prove what a call's input was adds a keyed hash, with its key beside the ledger. A large organisation will demand the same.
 - **This is a trial.** Where the agents run as the same user that keeps the ledger, it serves observation but is not evidence. The ledger says so in its first line.
 - **Evidence and activity are kept apart.** The chain holds the handovers: a session's start and end, a wait for a person, and what the code host shows. Tool calls are activity: many, kept in a file of their own without a chain, and removed after a time.
 - **People are not measured one by one.** A person is named by a pseudonym, kept beside the ledger and never in it. No figure is given per person.
