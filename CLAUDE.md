@@ -15,6 +15,10 @@ Handover Ledger: an audit-ready ledger of handovers in teams of people and AI ag
 - Tests first, from the issue's list, with `node:test`. No test framework. Few dependencies.
 - `npm test` runs every test from the root; `npm run check` also type-checks and checks the generated types.
 - One package, not workspaces: `src/ledger` (schema, writer, check) and `src/cli` (`howl`).
+- A change goes to `main` only through a pull request, from a branch `issue-<number>-<words>`. The session that wrote it does not merge it; the owner merges, with a squash.
+- The review is a fresh session that starts from the issue and the diff, never from the author's summary. It writes its findings as one comment on the pull request whose first line starts with `[review]`.
+- An existing test is changed only when the issue says so, and the pull request names each one.
+- A session never applies the ruleset (`scripts/ruleset.sh`) and never merges.
 
 ## Languages
 
