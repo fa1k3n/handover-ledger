@@ -304,6 +304,42 @@ test("an assignment that only claims name has an empty summary", () => {
   });
 });
 
+test("a claim on a change is shown and listed with it, whatever task the claim names", () => {
+  // Alone: only a claim names change 60, and it names a task.
+  const alone = [event("claimed", "review.approved", 5, "agent-x", { change: "60", task: "77" })];
+  for (const asked of [{ kind: "change" as const, id: "60" }, { id: "60" }]) {
+    const shown = show(alone, asked, null)!;
+    assert.equal(shown.task, undefined);
+    assert.equal(shown.claimed.length, 1);
+    assert.equal(shown.events.length, 1);
+    assert.equal(shown.summary.seconds, 0);
+    assert.deepEqual(shown.end, { state: "open" });
+  }
+  const run = howl(["show", "60", "--ledger", ledgerOf(alone), "--utc"]);
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /claimed {2}review\.approved on change 60 by agent-x$/m);
+
+  // The code host names no task for the change, the claim names one.
+  const sixty = event("observed", "change.opened", 0, "agent-a", { change: "60", sha: SHA.a });
+  const noTask = show([sixty, event("claimed", "change.merged", 5, "agent-x", { change: "60", task: "77" })], { kind: "change", id: "60" }, null)!;
+  assert.deepEqual(noTask.claimed.map((c) => [c.type, c.task]), [["change.merged", "77"]]);
+  assert.equal(noTask.task, undefined);
+  assert.deepEqual(noTask.end, { state: "open" });
+
+  // The code host names task 12, the claim names another.
+  const otherTask = show([opening(), event("claimed", "change.merged", 5, "agent-x", { task: "99" })], { kind: "change", id: "30" }, null)!;
+  assert.deepEqual(otherTask.claimed.map((c) => [c.type, c.task]), [["change.merged", "99"]]);
+  assert.equal(otherTask.task, "12");
+  assert.deepEqual(otherTask.end, { state: "open" });
+});
+
+test("a claim that carries a session makes no session of the timeline", () => {
+  const claim = event("claimed", "review.approved", 5, "agent-x", { session: "made-up", task: "12" });
+  const shown = show([opening(), claim], { kind: "change", id: "30" }, null)!;
+  assert.deepEqual(shown.sessions, []);
+  assert.equal(shown.claimed.length, 1);
+});
+
 test("a script's howl emit review.approved and change.merged, taken in, merge nothing", () => {
   const ws = workspace();
   const writer = openLedger(ws.ledger, { project: PROJECT });

@@ -148,10 +148,12 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
       if (e.sha) shas.add(e.sha);
     }
   }
-  // A claim that names the task is shown with it, as a claim, also when its change is not the task's.
-  const claimOfTask = (e: LedgerEvent) => claimOfHost(e) && task !== undefined && e.task === task;
+  // A claim of a task, a change or a review decides nothing here. It is shown, as a claim, with
+  // the task it names and with the change it names, whatever else it names (#51).
+  const claimHere = (e: LedgerEvent) =>
+    claimOfHost(e) && ((task !== undefined && e.task === task) || (e.change !== undefined && changes.has(e.change)));
   const elsewhere = (e: LedgerEvent) =>
-    (e.task !== undefined && e.task !== task) || (e.change !== undefined && !changes.has(e.change) && !claimOfTask(e));
+    !claimHere(e) && ((e.task !== undefined && e.task !== task) || (e.change !== undefined && !changes.has(e.change)));
   const direct = (e: LedgerEvent) =>
     (task !== undefined && e.task === task) ||
     (e.change !== undefined && changes.has(e.change)) ||
@@ -159,6 +161,7 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
     (e.sha !== undefined && shas.has(e.sha));
   const sessions = new Set(all.filter((e) => e.session && !claimOfHost(e) && !elsewhere(e) && direct(e)).map((e) => e.session!));
   const events = all.filter((e) => !elsewhere(e) && (direct(e) || (e.session !== undefined && sessions.has(e.session))));
+  if (events.length === 0) return null;
 
   const end = endOf(events);
   const acting = actingAgents(all);
@@ -179,7 +182,8 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
 
 function sessionParts(events: LedgerEvent[], activityFrom: string | null): Session[] {
   const by = new Map<string, LedgerEvent[]>();
-  for (const e of events) if (e.session) by.set(e.session, [...(by.get(e.session) ?? []), e]);
+  // A claim of what the code host owns is no part of a session, whatever it carries (#51).
+  for (const e of events) if (e.session && !claimOfHost(e)) by.set(e.session, [...(by.get(e.session) ?? []), e]);
   return [...by.entries()]
     .map(([session, own]): Session => {
       const started = own.find((e) => e.type === "session.started");
