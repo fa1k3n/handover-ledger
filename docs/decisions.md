@@ -20,7 +20,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **An event does not know its place in a ledger:** `prev` and the hash of the event belong to the line. (2026-11-13)
 - **Agents are measured one by one, people only as a team.** Only an agent's session is recorded; a person is named by a pseudonym kept beside the ledger. (2026-11-13)
 - **Evidence and activity are kept apart:** the chain holds the handovers, tool calls go to a file of their own and expire. (2026-11-13)
-- **A first dashboard now,** because the first user asked for it: the team right now and the event stream, then the overview, and only what the ledger already holds (#10 to #13). The rest of the design waits for its data. (2026-11-13)
+- **A first dashboard now,** to see a first trial: the team right now and the event stream, then the overview, and only what the ledger already holds (#10 to #13). The rest of the design waits for its data. (2026-11-13)
 - **The dashboard is React with Tailwind,** in TypeScript, built with Vite, in the same package. (2026-11-13)
 - **CEL filters later:** the first filters are `field=value` pairs; a CEL expression filter replaces them when more is needed. (2026-11-13)
 - **Anchoring first, signing optional.** The ledger's head is kept outside the machine that writes it as checkpoints on `refs/howl/checkpoints` of the observed repository, pushed to its remote; a checkpoint may be signed with an SSH key. What a session claims is signed with a key per assignment. A Merkle tree and a transparency log come later. (2026-11-13)
