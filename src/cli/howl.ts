@@ -3,6 +3,7 @@
 // @code_class recording
 import { readFileSync } from "node:fs";
 import { parseArgs, type ParseArgsConfig } from "node:util";
+import { ACTIVITY_FILE, LEDGER_FILE } from "../ledger/names.ts";
 
 const USAGE = `usage:
   howl verify [--project <name>] [--ledger <path>] [--issuer <fingerprint>] [--checkpoint <file | git>] [--signers <file>]
@@ -77,7 +78,7 @@ only read: they take no lock and run while the writer appends.
 
 The project is read from the nearest .howl/howl.yml, unless --project names it.
 Its files are in $HOWL_HOME, else $XDG_STATE_HOME/howl, else ~/.local/state/howl,
-in a folder named after the project: ledger.jsonl, activity.jsonl, inbox/,
+in a folder named after the project: ${LEDGER_FILE}, ${ACTIVITY_FILE}, inbox/,
 people.json (the pseudonyms of people, never in the ledger) and observe.json.
 
 verify ends with 0 when the ledger holds, 1 when it does not, and 2 when it
@@ -202,11 +203,8 @@ async function verifyCommand(args: string[]): Promise<number> {
   // #23: the signed claims, held to the keys issued for them.
   const { checkSignatures } = await import("../keys/keys.ts");
   if (values.issuer !== undefined && !/^[0-9a-f]{64}$/.test(values.issuer)) throw new UsageError("--issuer must be a key id: 64 hex digits");
-  const text = readFileSync(path, "utf8");
-  const lines = text
-    .split("\n")
-    .slice(0, -1)
-    .map((raw, i) => ({ n: i + 1, event: (JSON.parse(raw) as { event: import("../ledger/schema.ts").LedgerEvent }).event }));
+  const { ledgerLines } = await import("../read/reader.ts");
+  const lines = ledgerLines(path, { first: true }).map((r) => ({ n: r.n!, event: r.event }));
   const sigs = checkSignatures(lines, values.issuer);
   console.log(`signatures: ${sigs.signed} signed, ${sigs.unsigned} unsigned claimed${sigs.issuer ? `, issuer ${sigs.issuer}` : ""}`);
   for (const f of sigs.faults) console.log(`line ${f.line}: ${f.reason}`);
@@ -614,14 +612,13 @@ async function showCommand(args: string[]): Promise<number> {
   const [what] = positionals;
   if (what === undefined) throw new UsageError("show needs a task or a change: 12, task:12 or change:30");
   const ledger = await ledgerToRead(values);
-  const { readAll } = await import("../read/reader.ts");
+  const { activityFrom, readAll } = await import("../read/reader.ts");
   const { parseAsked, render, show } = await import("../read/show.ts");
   const reads = readAll(ledger);
-  const activity = reads.filter((r) => r.from === "activity");
   const shown = show(
     reads.map((r) => r.event),
     parseAsked(what),
-    activity.length > 0 ? activity[0]!.event.time : null,
+    activityFrom(reads),
   );
   if (shown === null) {
     console.error(`howl: nothing in the ledger names ${what}`);

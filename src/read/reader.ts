@@ -1,21 +1,33 @@
-// Reading the ledger and the activity file together, without a lock, while a
-// writer may be appending. A last line without its line break is half written:
-// it is left for the next read.
+// The one reader of the ledger and the activity file: every command, the
+// server and the export read through it, so that a change of how the events
+// are kept touches this module. It reads without a lock, while a writer may be
+// appending. A last line without its line break is half written: it is left
+// for the next read. A line howl cannot read is passed over (`howl verify`
+// names it) and still counts in the numbers of the lines.
 // @code_class reading
-import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { ACTIVITY_FILE } from "../ledger/names.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { byTime } from "./order.ts";
+
+export { byTime };
 
 export interface Read {
   event: LedgerEvent;
   /** The line as it stands in its file. */
   raw: string;
   from: "ledger" | "activity";
+  /** Of a line of the ledger: its number in the file, counted over every line. */
+  n?: number;
+  /** Of a line of the ledger: the hash of its event, and the hash of the line before. */
+  hash?: string;
+  prev?: string | null;
 }
 
 /** The activity file beside a ledger. */
 export function activityBeside(ledger: string): string {
-  return join(dirname(ledger), "activity.jsonl");
+  return join(dirname(ledger), ACTIVITY_FILE);
 }
 
 /**
@@ -26,6 +38,8 @@ export function activityBeside(ledger: string): string {
  */
 export class Tail {
   private offset = 0;
+  /** The whole lines read so far: the number of the last. */
+  private lines = 0;
   private ino: number | null = null;
   private readonly path: string;
   private readonly from: Read["from"];
@@ -50,6 +64,7 @@ export class Tail {
       const stat = fstatSync(fd);
       if ((this.ino !== null && stat.ino !== this.ino) || stat.size < this.offset) {
         this.offset = 0;
+        this.lines = 0;
         this.restarted = true;
       }
       this.ino = stat.ino;
@@ -58,41 +73,100 @@ export class Tail {
       const n = readSync(fd, bytes, 0, bytes.length, this.offset);
       const whole = bytes.subarray(0, n).lastIndexOf(0x0a) + 1;
       this.offset += whole;
-      return parseLines(bytes.subarray(0, whole).toString("utf8"), this.from);
+      const raws = bytes.subarray(0, whole).toString("utf8").split("\n").slice(0, -1);
+      const found = parseLines(raws, this.from, this.lines);
+      this.lines += raws.length;
+      return found;
     } finally {
       closeSync(fd);
     }
   }
 }
 
-function parseLines(text: string, from: Read["from"]): Read[] {
+/** The lines howl can read, of whole lines without their line breaks; the first of them is line `before + 1`. */
+function parseLines(raws: string[], from: Read["from"], before = 0): Read[] {
   const found: Read[] = [];
-  for (const raw of text.split("\n")) {
-    if (raw === "") continue;
+  raws.forEach((raw, i) => {
+    if (raw === "") return;
     try {
-      const value = JSON.parse(raw) as { event?: LedgerEvent } & LedgerEvent;
+      const value = JSON.parse(raw) as { prev?: string | null; hash?: string; event?: LedgerEvent } & LedgerEvent;
       const event = from === "ledger" ? value.event : value;
       if (event && typeof event === "object" && typeof event.time === "string" && typeof event.type === "string") {
-        found.push({ event, raw, from });
+        found.push(from === "ledger" ? { event, raw, from, n: before + i + 1, hash: value.hash, prev: value.prev } : { event, raw, from });
       }
     } catch {
       // Not a line howl can read: `howl verify` names it.
     }
-  }
+  });
   return found;
 }
 
-/** Sorts by time; events of the same time keep the order they were read in. */
-export function byTime(reads: Read[]): Read[] {
-  return reads
-    .map((r, i) => ({ r, i, t: Date.parse(r.event.time) }))
-    .sort((a, b) => a.t - b.t || a.i - b.i)
-    .map((x) => x.r);
+/** The whole lines of a file as bytes, without their line breaks. A last line with no line break is left out. */
+function wholeLines(bytes: Buffer): Buffer[] {
+  const out: Buffer[] = [];
+  let start = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0x0a) {
+      out.push(bytes.subarray(start, i));
+      start = i + 1;
+    }
+  }
+  return out;
+}
+
+export interface Whole {
+  /** Every whole line as bytes, without its line break: what the chain hashes. */
+  bytes: Buffer[];
+  /** The lines howl can read, the first line too, in the order of the file. */
+  lines: Read[];
+}
+
+/**
+ * The ledger read once, as it stands: its bytes line by line, and the lines
+ * read. For what copies or hashes the ledger (the export, the checkpoint), so
+ * that the bytes and the events are of the same moment.
+ */
+export function readWhole(ledger: string): Whole {
+  const bytes = wholeLines(readFileSync(ledger));
+  return {
+    bytes,
+    lines: parseLines(
+      bytes.map((b) => b.toString("utf8")),
+      "ledger",
+    ),
+  };
+}
+
+/**
+ * The lines of the ledger in the order of the file, each with its number, its
+ * hash and the hash of the line before. Not the first line (`ledger.created`)
+ * unless asked for.
+ */
+export function ledgerLines(ledger: string, options: { first?: boolean } = {}): Read[] {
+  const { lines } = readWhole(ledger);
+  return options.first ? lines : lines.filter((r) => r.event.type !== "ledger.created");
+}
+
+/** The lines of the activity file beside a ledger, in the order of the file. None when there is no file. */
+export function activityLines(ledger: string): Read[] {
+  return new Tail(activityBeside(ledger), "activity").read();
+}
+
+/** The number of whole lines of the ledger. */
+export function lineCount(ledger: string): number {
+  const bytes = readFileSync(ledger);
+  let n = 0;
+  for (const b of bytes) if (b === 0x0a) n++;
+  return n;
 }
 
 /** Everything in the ledger and the activity file beside it, in the order of time. Not the ledger's first line. */
 export function readAll(ledger: string): Read[] {
   statSync(ledger);
-  const all = [...new Tail(ledger, "ledger").read(), ...new Tail(activityBeside(ledger), "activity").read()];
-  return byTime(all.filter((r) => r.event.type !== "ledger.created"));
+  return byTime([...ledgerLines(ledger, { first: true }), ...activityLines(ledger)].filter((r) => r.event.type !== "ledger.created"));
+}
+
+/** The time of the oldest line of the activity file among `reads`, in the order of time; null when it holds none. */
+export function activityFrom(reads: Read[]): string | null {
+  return reads.find((r) => r.from === "activity")?.event.time ?? null;
 }

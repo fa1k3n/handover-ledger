@@ -6,32 +6,21 @@
 // @code_class evidence
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkLedger, REF, signatureHolds, type Checkpoint } from "../anchor/anchor.ts";
 import { LedgerError } from "../ledger/errors.ts";
 import { hashLine } from "../ledger/ledger.ts";
-import type { LedgerEvent } from "../ledger/schema.ts";
+import { LEDGER_FILE } from "../ledger/names.ts";
 import { verify } from "../ledger/verify.ts";
+import { readWhole } from "../read/reader.ts";
 import { show, type Asked } from "../read/show.ts";
 import { readTar } from "./tar.ts";
 
 export type Selection = { kind: "change" | "task"; id: string } | { since: string; until: string };
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
-
-function wholeLines(bytes: Buffer): Buffer[] {
-  const out: Buffer[] = [];
-  let start = 0;
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] === 0x0a) {
-      out.push(bytes.subarray(start, i));
-      start = i + 1;
-    }
-  }
-  return out;
-}
 
 /** The checkpoints on refs/howl/checkpoints of `repo` that name a line within the first `lines`. */
 function checkpointsOf(repo: string | undefined, lines: number): Map<string, Buffer> {
@@ -53,13 +42,18 @@ function checkpointsOf(repo: string | undefined, lines: number): Map<string, Buf
 }
 
 export function buildBundle(ledger: string, selection: Selection, opts: { version: string; repo?: string; now?: Date }): Map<string, Buffer> {
-  const all = readFileSync(ledger);
-  const lines = wholeLines(all);
+  // Read once: the bytes that go into the bundle and the events selected from them are of the same moment.
+  const whole = readWhole(ledger);
+  const lines = whole.bytes;
   if (lines.length === 0) throw new LedgerError(`${ledger}: the ledger is empty`);
   const ledgerBytes = Buffer.concat(lines.flatMap((l) => [l, Buffer.from("\n")]));
-  const events = lines.map((l, i) => ({ n: i + 1, event: (JSON.parse(l.toString("utf8")) as { event: LedgerEvent }).event }));
+  // A bundle is made of a ledger that can be read: every line, or none.
+  const unread = lines.findIndex((_, i) => whole.lines[i]?.n !== i + 1);
+  if (unread !== -1) throw new LedgerError(`${ledger}: line ${unread + 1} cannot be read: run \`howl verify\``);
+  const events = whole.lines.map((r) => ({ n: r.n!, event: r.event }));
   const files = new Map<string, Buffer>();
-  files.set("ledger.jsonl", ledgerBytes);
+  // The bundle holds the ledger under the name it has in the project's folder.
+  files.set(LEDGER_FILE, ledgerBytes);
 
   let selected: number[];
   let asked: string;
@@ -90,7 +84,7 @@ export function buildBundle(ledger: string, selection: Selection, opts: { versio
     "README.txt",
     Buffer.from(
       `An evidence bundle of Handover Ledger: ${asked}.\n\n` +
-        "ledger.jsonl    the ledger from its first line up to its head\n" +
+        `${LEDGER_FILE}    the ledger from its first line up to its head\n` +
         "selection.json  what was asked, and the numbers of the lines it selected\n" +
         "timeline.json   the timeline of the change or task (not for a period)\n" +
         "checkpoints/    the checkpoints that cover the head, kept outside the machine that wrote the ledger\n" +
@@ -138,17 +132,17 @@ export function verifyBundle(bytes: Buffer, signers?: string): { ok: boolean; me
   }
   for (const name of files.keys()) if (name !== "manifest.json" && !(name in manifest.files)) fail(`${name}: not in the manifest`);
 
-  const ledgerBytes = files.get("ledger.jsonl");
-  if (!ledgerBytes) return { ok: false, messages: [...messages, "ledger.jsonl: missing"] };
+  const ledgerBytes = files.get(LEDGER_FILE);
+  if (!ledgerBytes) return { ok: false, messages: [...messages, `${LEDGER_FILE}: missing`] };
   const dir = mkdtempSync(join(tmpdir(), "howl-bundle-"));
   try {
-    const path = join(dir, "ledger.jsonl");
+    const path = join(dir, LEDGER_FILE);
     writeFileSync(path, ledgerBytes);
     const chain = verify(path);
-    if (!chain.ok) fail(`ledger.jsonl: line ${chain.line}: ${chain.faults.join("; ")}`);
+    if (!chain.ok) fail(`${LEDGER_FILE}: line ${chain.line}: ${chain.faults.join("; ")}`);
     else {
-      messages.push(`ledger.jsonl: ${chain.lines} lines, the chain holds, head ${chain.head}`);
-      if (chain.head !== manifest.head) fail("ledger.jsonl: its head is not the manifest's");
+      messages.push(`${LEDGER_FILE}: ${chain.lines} lines, the chain holds, head ${chain.head}`);
+      if (chain.head !== manifest.head) fail(`${LEDGER_FILE}: its head is not the manifest's`);
     }
     const selection = json<{ lines: number[] }>("selection.json", files.get("selection.json"), { lines: [] });
     const count = chain.ok ? chain.lines : 0;

@@ -5,6 +5,7 @@
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents } from "./acting.ts";
 import { observed } from "./observed.ts";
+import { byTime } from "./order.ts";
 
 const DAY = 24 * 3600_000;
 /** The period of the figures. */
@@ -144,13 +145,6 @@ function median(values: number[]): number | null {
   const s = [...values].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
   return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
-}
-
-function byTime<T extends { event: LedgerEvent }>(items: T[]): T[] {
-  return items
-    .map((item, i) => ({ item, i, t: Date.parse(item.event.time) }))
-    .sort((a, b) => a.t - b.t || a.i - b.i)
-    .map((x) => x.item);
 }
 
 /** A duration, short: 50 min, 5 h 40 min, 2.5 d. */
