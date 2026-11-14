@@ -1,4 +1,5 @@
 // howl export and howl verify --bundle: the tests of issue #19.
+// @code_class tests
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";

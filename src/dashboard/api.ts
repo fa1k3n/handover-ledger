@@ -1,4 +1,5 @@
 // The dashboard's calls to howl serve: read-only JSON.
+// @code_class reading
 import type { Handover, KeyFigures } from "../read/overview.ts";
 import type { AgentRow } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";

@@ -255,6 +255,36 @@ Summary
 
 The summary divides the time from the hand-over to the merge so that every second is in one part, by the state after the last event before it: an agent working is *work*; an agent that stands still until a person answers, and an approved change not yet merged, is *waiting for a person*; a change whose head waits for its checks or for a review is *waiting for checks* or *waiting for review*; an agent that is done and waits for its next instruction is *waiting for instructions*. A person is shown by the pseudonym of `howl observe`, and no figure is given per person. `--json` gives the parts and the summary as one JSON document.
 
+## Code classes
+
+Every file has a code class: declared by path in `.howl/howl.yml`, and read from the file's own header where a team's files carry one. The two are compared. The class in force is the higher of them, so a repository can only be stricter.
+
+```yaml
+classes:                                   # from the highest demand to the lowest
+  - name: evidence
+    paths: [src/ledger/**, src/keys/**]
+  - name: tests
+    paths: [test/**]
+class_header: '@code_class\s+(\S+)'        # the first group is the class
+class_header_in: ['*.ts', '*.tsx', '*.sh'] # the files that must carry the header
+```
+
+A path is a glob: `*` within a folder, `**` across folders, and a pattern with no `/` matches the file's name in any folder. The first class with a matching path wins. The header is looked for in the first 50 lines, and the first match counts. Class names and header values are compared without regard to case, with spaces and `_` read as `-`.
+
+A team that already writes its safety class in a file header sets the pattern to match it. For example this header:
+
+```c
+/**
+ * @file    brake_control.c
+ * @brief   Example only.
+ * @safety_class ASIL-B
+ */
+```
+
+is read with `class_header: '@safety_class\s+(ASIL[- _]?[A-D]|QM)'` and the classes `asil-d`, `asil-c`, `asil-b`, `asil-a` and `qm`, in that order.
+
+`howl classes` prints each file git tracks with its class. `howl classes --check` ends with 1 and names each file that has no class by path, lacks a header where `class_header_in` asks for one, has a header that names no class, or has a header that differs from its path's class. With `--json` both give JSON. The command only reads.
+
 ## Documents
 
 - [docs/vision.md](docs/vision.md): the problem, who it is for, the offer, the market, the risks.

@@ -1,4 +1,5 @@
 // The overview: handovers derived from the ledger, and the key figures. The tests of issue #13.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LedgerEvent } from "../src/ledger/schema.ts";

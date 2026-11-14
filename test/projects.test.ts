@@ -1,4 +1,5 @@
 // One howl serve for every project, picked in the page: the tests of issue #15.
+// @code_class tests
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

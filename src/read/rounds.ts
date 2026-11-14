@@ -1,4 +1,5 @@
 // A review round in words, for `howl show` and the dashboard: the same reviewer and outcome in a row folds into one entry with a count. No Node, so the page can use it.
+// @code_class reading
 
 export interface RoundReview {
   actor?: { id: string };

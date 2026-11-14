@@ -2,6 +2,7 @@
 // names the number of lines and the hash of the last; kept in a git ref of the
 // observed repository and pushed to its remote, or in a file, or printed. A
 // ledger cut back or rewritten with a new chain no longer matches it.
+// @code_class evidence
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,4 +1,5 @@
 // A review round in words, with repeats folded: the same reviewer and outcome in a row is one entry with a count.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { roundText } from "../src/read/rounds.ts";

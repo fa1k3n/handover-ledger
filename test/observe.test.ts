@@ -1,4 +1,5 @@
 // `howl observe` against the local adapter: the tests of issue #3.
+// @code_class tests
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";

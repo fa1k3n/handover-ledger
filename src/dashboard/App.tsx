@@ -1,4 +1,5 @@
 // The dashboard page: the team right now and the event stream, read-only over howl serve.
+// @code_class reading
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { duration, type Handover, type KeyFigures } from "../read/overview.ts";
 import type { AgentRow, AgentState } from "../read/state.ts";

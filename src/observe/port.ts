@@ -4,6 +4,7 @@
 // The core (observe.ts) turns that state into events, and passes over what is
 // in the ledger already. So an adapter needs no memory of its own: reading the
 // same state twice is harmless.
+// @code_class recording
 
 export interface Account {
   login: string;

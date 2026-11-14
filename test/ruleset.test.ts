@@ -1,4 +1,5 @@
 // #35: the ruleset and the workflow agree, and the script compares a file with the host's answer.
+// @code_class tests
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";

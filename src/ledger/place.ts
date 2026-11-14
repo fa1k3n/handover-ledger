@@ -1,5 +1,6 @@
 // Where the ledger of a project lies. Never inside a repository: the place
 // depends on the user's environment, never on the working directory.
+// @code_class evidence
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { LedgerError } from "./errors.ts";

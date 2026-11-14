@@ -1,4 +1,5 @@
 // The dashboard brings no runtime dependency to howl: the test of issue #12.
+// @code_class tests
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";

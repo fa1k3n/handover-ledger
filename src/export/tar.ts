@@ -1,5 +1,6 @@
 // A minimal ustar writer and reader for evidence bundles (#19): regular files only,
 // fixed times and modes, so the same files always give the same bytes. gzip on top.
+// @code_class evidence
 import { gunzipSync, gzipSync } from "node:zlib";
 import { LedgerError } from "../ledger/errors.ts";
 

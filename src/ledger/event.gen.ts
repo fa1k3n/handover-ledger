@@ -1,4 +1,5 @@
 // Generated from schema/event.v0.schema.json by `npm run gen`. Do not edit.
+// @code_class evidence
 
 export type Name = string;
 

@@ -2,6 +2,7 @@
 // the ledger: a pseudonym does, made up the first time the account is seen and
 // kept in people.json beside the ledger. Removing a row there cuts the link
 // between the ledger and the person.
+// @code_class recording
 import { randomBytes } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

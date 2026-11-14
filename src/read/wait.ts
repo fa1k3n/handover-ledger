@@ -2,6 +2,7 @@
 // until someone answers) or instructions (it is done and waits for more). The
 // hook of each agent tool says so in `data.waits_for`; the readers ask only
 // this. No Node, so the dashboard can use it.
+// @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
 
 export type WaitsFor = "person" | "instructions";

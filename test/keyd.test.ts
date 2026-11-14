@@ -1,4 +1,5 @@
 // howl keyd: a signing service that holds the keys, so a session never sees one. The tests of issue #24.
+// @code_class tests
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";

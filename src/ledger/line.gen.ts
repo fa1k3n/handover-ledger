@@ -1,4 +1,5 @@
 // Generated from schema/line.v0.schema.json by `npm run gen`. Do not edit.
+// @code_class evidence
 
 /**
  * One line of the ledger: an event and its place in the chain. The event is checked against the event schema on its own.

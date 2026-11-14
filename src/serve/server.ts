@@ -1,6 +1,7 @@
 // `howl serve`: the dashboard's server. It answers on 127.0.0.1 only, serves the
 // built page and read-only JSON over the ledger and the activity file. It takes
 // no lock and never writes.
+// @code_class reading
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { basename, dirname, extname, join, normalize, sep } from "node:path";

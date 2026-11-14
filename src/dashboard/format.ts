@@ -1,5 +1,6 @@
 // The dashboard's pure parts: the filter text, times in local time and UTC, and
 // the fields of a decoded event. No DOM, so node:test can run them.
+// @code_class reading
 import { duration } from "../read/overview.ts";
 import type { Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";

@@ -1,4 +1,5 @@
 // The change view of the dashboard: one change or task, its whole timeline, as `howl show` gives it in the terminal (#22).
+// @code_class reading
 import { useEffect, useState } from "react";
 import { duration } from "../read/overview.ts";
 import { roundText } from "../read/rounds.ts";

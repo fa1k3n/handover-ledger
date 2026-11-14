@@ -1,4 +1,5 @@
 // A review is a review: comments on a pull request are not counted as reviews. The tests of issue #28.
+// @code_class tests
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";

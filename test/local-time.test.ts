@@ -1,4 +1,5 @@
 // howl watch and howl show print local time: the tests of issue #8.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { howl } from "./helpers.ts";

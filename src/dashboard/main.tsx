@@ -1,4 +1,5 @@
 // The dashboard's entry: mounts the page.
+// @code_class reading
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";

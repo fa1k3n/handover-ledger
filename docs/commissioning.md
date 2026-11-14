@@ -48,6 +48,8 @@ classes:
     level: 3
 ```
 
+A class is declared by path, and may also be read from the file's header with `class_header` (see the README). Where a file has both, they must agree: `howl classes --check` names each file where they do not.
+
 ## Teams and repositories
 
 A team is never bound to a repository. Ownership lies on the path, as in the example above.

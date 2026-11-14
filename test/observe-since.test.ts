@@ -1,4 +1,5 @@
 // howl observe --since: the first round starts at a date. The tests of issue #6, against the local adapter.
+// @code_class tests
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync } from "node:fs";
 import { test } from "node:test";

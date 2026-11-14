@@ -1,4 +1,5 @@
 // `howl watch`: one line per event, then the events as they come.
+// @code_class reading
 import { LedgerError } from "../ledger/errors.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { activityBeside, byTime, Tail, type Read } from "./reader.ts";

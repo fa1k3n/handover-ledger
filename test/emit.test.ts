@@ -1,4 +1,5 @@
 // `howl emit`: the tests of issue #2.
+// @code_class tests
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

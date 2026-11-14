@@ -1,3 +1,5 @@
+// Helpers shared by the tests: folders, events, ledgers, processes and git.
+// @code_class tests
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

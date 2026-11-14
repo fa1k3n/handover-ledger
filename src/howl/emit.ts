@@ -1,5 +1,6 @@
 // `howl emit`: an event from a script, left in the inbox as a hook leaves one.
 // Unlike the hook it says what is wrong and ends with 1: a script wants to know.
+// @code_class recording
 import { randomUUID } from "node:crypto";
 import { leave } from "../inbox/inbox.ts";
 import { LedgerError } from "../ledger/errors.ts";

@@ -5,6 +5,7 @@
 // file, without the line break; a shell script with sha256sum can check it.
 // `hash` is the SHA-256 of the event in its fixed form (fixed.ts), and the
 // event stands in the line in that form: the bytes hashed are the bytes in the file.
+// @code_class evidence
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,

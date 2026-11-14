@@ -1,5 +1,6 @@
 // The schemas are the source. The TypeScript types are generated from them and
 // kept in the repository; this test fails when the two have drifted apart.
+// @code_class tests
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";

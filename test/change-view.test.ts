@@ -1,4 +1,5 @@
 // One change or task in the dashboard, its whole timeline: the tests of issue #22.
+// @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
