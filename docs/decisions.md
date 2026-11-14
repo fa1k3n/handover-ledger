@@ -29,6 +29,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **Public now.** The event schema and `howl verify` work and the licence is chosen, as first asked. The name check was also to come before; it follows instead. The work is done in the open from here on, and the code host's checks cost nothing on a public repository. (2026-11-14)
 - **A code class for every file:** declared by path in `.howl/howl.yml` and read from the file's header with a pattern the project sets; the higher of the two is in force, and `howl classes --check` names every file where they disagree. This repository is classified in both ways: `evidence`, `rules`, `recording`, `reading`, `tests`, `documents`. (2026-11-14)
 - **A local server first, as a stand-in.** `howl up` is the writer, the dashboard and the way in for a session's events over HTTP, in one process on 127.0.0.1, started by hand, on the one-file ledger (#64). It is not the central server of "The log follows the repository": that one still waits for the storage of #27, and for #32 before it. (2026-11-14)
+- **The filter is a CEL expression,** evaluated by the library `@marcbachmann/cel-js` (MIT, no dependencies of its own), howl's second runtime dependency. The event is `event`, as in `event.type`; a field it does not have is an error, as in CEL; a filter never sees a person's pseudonym. The `field=value` pairs still work. This takes up "CEL filters later" of 2026-11-13. (2026-11-14)
 
 ## Proposed, not yet answered
 

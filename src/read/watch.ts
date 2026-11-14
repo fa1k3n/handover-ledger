@@ -2,6 +2,7 @@
 // @code_class reading
 import { LedgerError } from "../ledger/errors.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { readFilters, wantsActivity } from "./filter.ts";
 import { activityBeside, byTime, Tail, type Read } from "./reader.ts";
 import { waitsForPerson } from "./wait.ts";
 
@@ -17,38 +18,6 @@ export interface WatchOptions {
   /** Seconds between two looks at the files while following. */
   interval: number;
   colour: boolean;
-}
-
-type Filter = (event: LedgerEvent) => boolean;
-
-/** `field=value` pairs, all of which must match. A value ending in `*` matches what starts with the rest. */
-export function parseFilters(pairs: string[]): Filter[] {
-  return pairs.map((pair) => {
-    const at = pair.indexOf("=");
-    if (at <= 0) throw new LedgerError(`--filter ${pair}: give a field and a value, as type=tool.used`);
-    const field = pair.slice(0, at);
-    const value = pair.slice(at + 1);
-    const matches = value.endsWith("*") ? (v: string) => v.startsWith(value.slice(0, -1)) : (v: string) => v === value;
-    return (event: LedgerEvent) => {
-      const v = fieldOf(event, field);
-      return v !== undefined && matches(v);
-    };
-  });
-}
-
-function fieldOf(event: LedgerEvent, field: string): string | undefined {
-  switch (field) {
-    case "actor":
-      return event.actor?.id;
-    case "kind":
-      return event.source.kind;
-    case "adapter":
-      return event.source.adapter;
-    default: {
-      const v = (event as unknown as Record<string, unknown>)[field];
-      return typeof v === "string" || typeof v === "number" ? String(v) : undefined;
-    }
-  }
 }
 
 const RED = "\u001b[31m";
@@ -137,24 +106,18 @@ function short(event: LedgerEvent): string {
   }
 }
 
-/** Whether a `type` filter can match a tool call, so that it needs the activity file. */
-export function wantsActivity(pairs: string[]): boolean {
-  return pairs.some((pair) => {
-    if (!pair.startsWith("type=")) return false;
-    const value = pair.slice("type=".length);
-    return value.endsWith("*") ? "tool.used".startsWith(value.slice(0, -1)) : value === "tool.used";
-  });
-}
-
-/** Prints what is there, then, when following, what comes, until the process is stopped. */
-export async function watch(ledger: string, options: WatchOptions, write: (line: string) => void): Promise<void> {
-  const filters = parseFilters(options.filters);
+/**
+ * Prints what is there, then, when following, what comes, until the process is stopped.
+ * `warn` is told once what a filter could not work out (#82).
+ */
+export async function watch(ledger: string, options: WatchOptions, write: (line: string) => void, warn: (line: string) => void = () => {}): Promise<void> {
+  const filters = readFilters(options.filters);
   const since = options.since === undefined ? null : parseSince(options.since);
   if (since !== null && Number.isNaN(since)) throw new LedgerError(`--since ${options.since}: not a time`);
   const shown = (r: Read) =>
     r.event.type !== "ledger.created" &&
     (since === null || Date.parse(r.event.time) >= since) &&
-    filters.every((f) => f(r.event));
+    filters.test(r.event);
   const print = (r: Read) => write(options.json ? r.raw : formatLine(r.event, options.colour, options.utc));
   if (!options.json && !options.utc) write(zoneLine());
 
@@ -169,6 +132,8 @@ export async function watch(ledger: string, options: WatchOptions, write: (line:
     }
   };
   take(byTime(tails.flatMap((t) => t.read())));
+  const failed = filters.failed();
+  if (failed !== null) warn(`the filter could not be worked out for ${failed.events} event${failed.events === 1 ? "" : "s"}, which are left out: ${failed.reason}`);
   if (!options.follow) return;
 
   // #7: the timer is cleared when stopped, so the process ends at once.

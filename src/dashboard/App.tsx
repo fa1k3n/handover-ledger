@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, detail, filterPairs, filterWith, hashFor, itemKey, menuShown, needsInputHref, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
+import { concerns, decodedFields, DEFAULT_FILTER, detail, filterTexts, filterWith, hashFor, resetFilter, itemKey, menuShown, needsInputHref, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -435,22 +435,24 @@ const ROW_TINT = { warn: "bg-warn-pale", error: "bg-error-pale" };
  */
 function Stream({ onError, project, served }: { onError: (e: unknown) => void; project: string; served: number }) {
   const [paused, setPaused] = useState(false);
-  const [tools, setTools] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [filters, setFilters] = useState<string[]>([]);
+  // #82: every event is asked for, the tool calls too; the filter line says what is left out, and starts with them.
+  const [draft, setDraft] = useState(DEFAULT_FILTER);
+  const [filters, setFilters] = useState<string[]>(() => filterTexts(DEFAULT_FILTER));
   const [filterError, setFilterError] = useState<string | null>(null);
+  const [failed, setFailed] = useState<{ events: number; reason: string } | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [picked, setPicked] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.events(filters, tools).then(
+    api.events(filters, true).then(
       (r) => {
         setItems([...r.events].reverse());
         setFilterError(null);
+        setFailed(r.failed ?? null);
       },
       (e: Error) => (filters.length > 0 ? setFilterError(e.message) : onError(e)),
     );
-  }, [filters, tools, onError]);
+  }, [filters, onError]);
   usePoll(load, POLL_MS, !paused);
 
   const selected = useMemo(() => items.find((i) => itemKey(i) === picked) ?? items[0] ?? null, [items, picked]);
@@ -459,7 +461,7 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
   const narrow = (field: string, value: string) => {
     const next = filterWith(draft, field, value);
     setDraft(next);
-    setFilters(filterPairs(next));
+    setFilters(filterTexts(next));
   };
   const cellButton = "cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-inherit underline decoration-pale underline-offset-2";
   const button = "min-h-11 cursor-pointer rounded-lg px-4 text-sm font-medium";
@@ -484,18 +486,13 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
           <button type="button" onClick={() => setPaused(!paused)} className={`${button} border border-pale bg-white text-ink`}>
             {paused ? texts.stream.resume : texts.stream.pause}
           </button>
-          <div className="flex-1" />
-          <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-sm">
-            <input type="checkbox" checked={tools} onChange={(e) => setTools(e.target.checked)} className="m-0 h-5 w-5 accent-ink" />
-            {texts.stream.showTools}
-          </label>
         </div>
 
         <form
           className="flex flex-wrap items-end gap-2.5 rounded-xl border border-line bg-white px-4 py-3.5"
           onSubmit={(e) => {
             e.preventDefault();
-            setFilters(filterPairs(draft));
+            setFilters(filterTexts(draft));
           }}
         >
           <label className="flex flex-[1_1_420px] flex-col gap-1 text-[13px] text-mute">
@@ -504,7 +501,7 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
               type="text"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="actor=agent-1 type=session.*"
+              placeholder={'event.type.startsWith("review.") && event.project == "…"'}
               spellCheck={false}
               aria-invalid={filterError !== null}
               className={`min-h-11 rounded-lg border-[1.5px] bg-white px-3 font-mono text-sm text-ink ${filterError ? "border-error-ink" : "border-pale"}`}
@@ -516,16 +513,23 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
           <button
             type="button"
             onClick={() => {
-              setDraft("");
-              setFilters([]);
+              // Back to the default, not to nothing: the tool calls stay out until the reader takes the clause away.
+              const next = resetFilter();
+              setDraft(next);
+              setFilters(filterTexts(next));
             }}
             className={`${button} border border-pale bg-white text-ink`}
           >
-            {texts.stream.clear}
+            {texts.stream.reset}
           </button>
           <span className={`basis-full text-[13px] ${filterError ? "text-error-ink" : "text-mute"}`} role={filterError ? "alert" : undefined}>
             {filterError ?? texts.stream.filterHint}
           </span>
+          {failed !== null && filterError === null && (
+            <span className="basis-full text-[13px] text-warn-ink" role="status">
+              {texts.stream.failed(failed.events, failed.reason)}
+            </span>
+          )}
         </form>
 
         <div className="overflow-hidden rounded-xl border border-line bg-white">
@@ -620,7 +624,7 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
             </table>
           </div>
           <div className="border-t border-line px-4 py-2.5 text-[13px] text-mute">
-            {items.length === 0 ? texts.stream.empty : texts.stream.count(items.length, tools)}
+            {items.length === 0 ? texts.stream.empty : texts.stream.count(items.length)}
           </div>
         </div>
       </section>
