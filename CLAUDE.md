@@ -40,7 +40,7 @@ Handover Ledger: an audit-ready ledger of handovers in teams of people and AI ag
 - One writer at a time. Hooks and scripts never write to the chain; they leave events in an inbox.
 - An event the schema does not accept is refused and nothing is written.
 - Mark every event as observed (read from the team's tools) or claimed (sent by a session about itself).
-- Do not record all content: the tool, the target, the outcome and a hash of the input, never keys, whole commands or answers.
+- Do not record all content: the tool, the target and the outcome, never keys, whole commands or answers, and no plain hash of an input, which a short input can be guessed from.
 - A hook never disturbs the session: quick, silent, always status 0.
 
 ## Safe defaults

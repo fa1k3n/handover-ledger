@@ -1,11 +1,9 @@
 // `howl hook`: the tests of issue #2.
 // @code_class tests
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fixedForm } from "../src/ledger/fixed.ts";
 import { eventFaults } from "../src/ledger/schema.ts";
 import {
   folder,
@@ -197,13 +195,13 @@ test("a tool call on a file outside the repository keeps no path", () => {
   assert.ok(!JSON.stringify(e).includes("/etc/hosts"));
 });
 
-test("a shell command keeps the program's name and the hash of the input, not the command", () => {
+test("a shell command keeps the program's name, not the command and no hash of it", () => {
   const ws = workspace();
   const toolInput = { command: "TOKEN=abc123 curl -H 'Authorization: abc123' https://example.invalid", description: "x" };
   hook(ws, input(ws, "PostToolUse", { tool_name: "Bash", tool_input: toolInput, tool_response: {} }));
   const [e] = inboxEvents(ws.inbox);
   assert.equal(e?.data?.target, "curl");
-  assert.equal(e?.data?.input_sha256, createHashOf(toolInput));
+  assert.equal(e?.data?.input_sha256, undefined);
   assert.ok(!JSON.stringify(e).includes("abc123"));
 });
 
@@ -225,10 +223,6 @@ test("a shell command that first sets a variable on a line of its own keeps the 
     commands.map(([, target]) => target),
   );
 });
-
-function createHashOf(value: unknown): string {
-  return createHash("sha256").update(fixedForm(value)).digest("hex");
-}
 
 test("input that is not JSON: nothing printed, status 0, nothing written", () => {
   const ws = workspace();

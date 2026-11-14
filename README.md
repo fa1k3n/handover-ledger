@@ -56,6 +56,8 @@ A line of the ledger is `{"prev", "hash", "event"}`. The event does not know its
 
 `howl verify` checks every line: it is JSON, it follows the line schema, its event follows [schema/event.v0.schema.json](schema/event.v0.schema.json), `hash` is the hash of the event, and `prev` is the SHA-256 of the line before.
 
+The schema holds only what something writes. Seven types (`tests.written`, `finding.fixed`, `finding.dismissed`, `finding.left_open`, `level.changed`, `rule.broken`, `escalation.raised`) and seven fields (`requirements`, `clauses`, `tests`, `level`, `class`, `rules`, `team`) of the first draft were removed on 2026-11-14: no step wrote them. Each comes back with the step that writes it. A ledger that holds one of them no longer verifies, and `howl verify` names the line.
+
 ```sh
 npm run howl -- verify --project example       # the ledger of a project
 npm run howl -- verify --ledger path/to/ledger.jsonl
@@ -141,7 +143,7 @@ node /path/to/handover-ledger/src/cli/howl.ts verify --project example
 
 While no `howl up` runs, a hook leaves a file in the inbox, and nothing is lost: `howl up` takes the inbox in when it starts and at every round. `howl ingest --watch` (or without `--watch`, for one pass) is the writer alone, without the code host and the dashboard.
 
-A session's start, its end and every wait for a person go into the chain. Tool calls are activity: they go to `activity.jsonl`, one event per line with no chain, and are removed after `activity_days`. A tool call keeps the tool, the path within the repository or the name of the program, the outcome and a hash of the input; never the input, the answer or a message. A file in the inbox that is not a valid event is moved to `inbox/rejected/` with the reason beside it.
+A session's start, its end and every wait for a person go into the chain. Tool calls are activity: they go to `activity.jsonl`, one event per line with no chain, and are removed after `activity_days`. A tool call keeps the tool, the path within the repository or the name of the program, and the outcome; never the input, the answer or a message, and no hash of the input, which a short input could be guessed from. Lines written by a howl from before this change hold a hash and the time the call took; they stay until they expire. A file in the inbox that is not a valid event is moved to `inbox/rejected/` with the reason beside it.
 
 **From a script.** `howl emit` delivers an event as a hook does (to `howl up` when it runs, else into the inbox), with the agent from `HOWL_ACTOR` or `.howl/actor` when there is one. It ends with 1 and says why when the type or the JSON is wrong:
 
