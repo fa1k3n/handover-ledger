@@ -58,6 +58,15 @@ test("what cannot be told safely gives no target", () => {
   check(`X="only a value ${MARK}"`, undefined);
 });
 
+test("an array set before the program is a value: none of its elements is the target", () => {
+  check(`PASSWORDS=(${MARK} other) make`, "make");
+  check(`A=(one ${MARK}) B=(two three) npm test`, "npm");
+  check(`A=("x ${MARK}" 'y z' $(echo ${MARK} q)) make`, "make");
+  check(`A=(${MARK}\n  other\n) make`, "make");
+  check(`A=(${MARK} other`, undefined);
+  check(`A=(${MARK} other)`, undefined);
+});
+
 test("a plain program is the target as before, in quotes or not, with its path left out", () => {
   check("ls", "ls");
   check("make check", "make");

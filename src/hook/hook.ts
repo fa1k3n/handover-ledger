@@ -201,6 +201,13 @@ function program(command: string | undefined): string | undefined {
     const word = shellWord(command, at);
     if (word === null) return undefined;
     at = word.end;
+    // An array, `NAME=(a b c)`: the word ends at the `(`, and its elements are values, never the program.
+    if (/^[A-Za-z_][A-Za-z0-9_]*=$/.test(word.text) && command[at] === "(") {
+      const close = substitution(command, at - 1);
+      if (close === -1) return undefined;
+      at = close;
+      continue;
+    }
     // A word that sets a variable, whatever its value holds.
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word.text)) continue;
     // The program: what stands after the last `/` of the word itself, when that is a plain name.
