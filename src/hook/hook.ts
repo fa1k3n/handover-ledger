@@ -14,7 +14,7 @@
 // input either (#50): a short input can be guessed from a plain hash.
 // @code_class recording
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { deliver } from "../inbox/deliver.ts";
 import { markDown, recentlyDown } from "../inbox/down.ts";
@@ -60,33 +60,9 @@ export async function runHook(stdin: string, env: Record<string, string | undefi
   const hook = input as Input;
 
   const dir = typeof hook.cwd === "string" && isAbsolute(hook.cwd) ? hook.cwd : cwd;
-  const project = findProject(dir);
-  if (!project) return;
-  const actor = findActor(project.root, env);
-  if (!actor) return;
-
-  const what = describe(hook, project.root);
-  if (!what) return;
-
-  const event: LedgerEvent = {
-    v: 0,
-    id: randomUUID(),
-    time: new Date().toISOString(),
-    type: what.type,
-    source: { adapter: "claude-code-hook", kind: "claimed" },
-    project: project.project,
-    actor: { kind: "agent", id: actor },
-    session: text(hook.session_id),
-    model: text(hook.model),
-    effort: effort(hook.effort),
-    ...checkout(dir),
-    // Whoever starts the session may name its work: a review in a folder of its own is on the default branch.
-    change: named(env.HOWL_CHANGE),
-    task: named(env.HOWL_TASK),
-    role: named(env.HOWL_ROLE),
-    prompt: rolePrompt(env.HOWL_ROLE_PROMPT, project.root),
-    data: what.data,
-  };
+  const built = eventOfHook(hook, env, dir, "claude-code-hook");
+  if (!built) return;
+  const { project, event } = built;
   // #23: signed with the key of the assignment, when the session has one. A key that cannot be read never stops the hook.
   let out = event;
   const keyFile = named(env.HOWL_KEY);
@@ -112,6 +88,50 @@ export async function runHook(stdin: string, env: Record<string, string | undefi
   await deliver(project.project, out, env);
 }
 
+/**
+ * The event for a hook's JSON (#67: built here for `howl hook`, and by the
+ * server for a hook sent to it as it stands). `env` holds what the session
+ * names (`HOWL_ACTOR`, `HOWL_TASK`, `HOWL_CHANGE`, `HOWL_ROLE`,
+ * `HOWL_ROLE_PROMPT`), `dir` the folder the hook ran in. Null when nothing is
+ * recorded: no `.howl/howl.yml` above the folder, no agent, or a hook howl
+ * does not record. Nothing of a tool's input or answer is in the event.
+ */
+export function eventOfHook(
+  hook: Record<string, unknown>,
+  env: Record<string, string | undefined>,
+  dir: string,
+  adapter: string,
+): { project: NonNullable<ReturnType<typeof findProject>>; event: LedgerEvent } | null {
+  const project = findProject(dir);
+  if (!project) return null;
+  const actor = findActor(project.root, env);
+  if (!actor) return null;
+
+  const what = describe(hook, project.root);
+  if (!what) return null;
+
+  const event: LedgerEvent = {
+    v: 0,
+    id: randomUUID(),
+    time: new Date().toISOString(),
+    type: what.type,
+    source: { adapter, kind: "claimed" },
+    project: project.project,
+    actor: { kind: "agent", id: actor },
+    session: text(hook.session_id),
+    model: text(hook.model),
+    effort: effort(hook.effort),
+    ...checkout(dir),
+    // Whoever starts the session may name its work: a review in a folder of its own is on the default branch.
+    change: named(env.HOWL_CHANGE),
+    task: named(env.HOWL_TASK),
+    role: named(env.HOWL_ROLE),
+    prompt: rolePrompt(env.HOWL_ROLE_PROMPT, project.root),
+    data: what.data,
+  };
+  return { project, event };
+}
+
 /** The role prompt by its file within the repository and the SHA-256 of its content; none when it cannot be read there. */
 function rolePrompt(path: string | undefined, root: string): LedgerEvent["prompt"] {
   const p = named(path);
@@ -120,11 +140,17 @@ function rolePrompt(path: string | undefined, root: string): LedgerEvent["prompt
   const within = relative(root, full);
   if (within === "" || within.startsWith("..") || isAbsolute(within)) return undefined;
   try {
+    // A plain file of a prompt's size only: a pipe in its place would hold the reader up (#67: the server reads it too).
+    const stat = statSync(full);
+    if (!stat.isFile() || stat.size > MAX_PROMPT) return undefined;
     return { file: within.split(sep).join("/"), sha256: createHash("sha256").update(readFileSync(full)).digest("hex") };
   } catch {
     return undefined;
   }
 }
+
+/** The largest role prompt that is hashed. */
+const MAX_PROMPT = 1024 * 1024;
 
 /** A value from the environment, trimmed; undefined when empty. */
 function named(value: string | undefined): string | undefined {
@@ -176,17 +202,169 @@ function target(tool: string, input: Input, root: string): string | undefined {
  * The name of the program a shell command starts, past any variables set before
  * it. A statement that only sets variables (`H=/x` on a line of its own) is
  * passed over for the next one. Undefined when the name cannot be told safely.
+ *
+ * The command is read word by word as a shell reads it (#74): a value in
+ * quotes may hold spaces and signs, and no part of it is ever the program.
+ * What this small reader cannot follow gives no target: better none than a
+ * part of a value.
  */
 function program(command: string | undefined): string | undefined {
   if (command === undefined) return undefined;
-  for (const statement of command.split(/\n|;|&&|\|\|/)) {
-    for (const word of statement.trim().split(/\s+/)) {
-      if (word === "" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue;
-      const name = basename(word.replace(/^["'(]+|["')]+$/g, ""));
-      return /^[A-Za-z0-9._+-]+$/.test(name) ? name : undefined;
+  let at = 0;
+  for (;;) {
+    // Past the blanks, and the signs between statements and around groups.
+    while (at < command.length && /[ \t\n;&|(){}]/.test(command[at]!)) at++;
+    if (at >= command.length) return undefined;
+    // A comment runs to the end of its line.
+    if (command[at] === "#") {
+      const line = command.indexOf("\n", at);
+      if (line === -1) return undefined;
+      at = line;
+      continue;
+    }
+    const word = shellWord(command, at);
+    if (word === null) return undefined;
+    at = word.end;
+    // A redirection before the program (`2>/dev/null`, `> file`, `2>&1`): its file is no program.
+    const redirect = /^\d*(<<|<|>>|>)([^]*)$/.exec(word.text);
+    if (redirect) {
+      // A here-document: its lines follow, and they are content.
+      if (redirect[1] === "<<") return undefined;
+      if (redirect[2] === "") {
+        while (at < command.length && /[ \t&]/.test(command[at]!)) at++;
+        const file = shellWord(command, at);
+        if (file === null) return undefined;
+        at = file.end;
+      }
+      continue;
+    }
+    // A word that sets a variable, whatever its value holds.
+    const sets = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/.exec(word.text);
+    if (sets) {
+      // An array, `NAME=(a b c)`: the word ends at the `(`, and its elements are values, never the program.
+      if (sets[0].length === word.text.length && command[at] === "(") {
+        const close = group(command, at + 1, "(", ")", 0);
+        if (close === -1) return undefined;
+        at = close;
+      }
+      continue;
+    }
+    // The program: what stands after the last `/` of the word itself, when that is a plain name.
+    const name = word.text.slice(word.slash + 1).replace(/["']/g, "");
+    return /^[A-Za-z0-9._+-]+$/.test(name) ? name : undefined;
+  }
+}
+
+/** Deeper than this a command is not followed: it gives no target. */
+const MAX_NESTING = 100;
+
+/**
+ * One word of a shell command from `start`: it ends at a blank (a space, a
+ * tab, a line break: no other white sign parts words in a shell) or at a sign
+ * that stands outside quotes and substitutions. `slash` is the place in the
+ * word of its last `/` outside a substitution, or -1. Null when a quote or a
+ * substitution does not close: then nothing can be told safely.
+ */
+function shellWord(s: string, start: number): { text: string; slash: number; end: number } | null {
+  let i = start;
+  let slash = -1;
+  while (i < s.length) {
+    const c = s[i]!;
+    if (c === " " || c === "\t" || c === "\n" || c === ";" || c === "&" || c === "|" || c === "(" || c === ")") break;
+    if (c === "/") slash = i++ - start;
+    else if (c === "\\") i += 2;
+    else if (c === "'") {
+      const close = s.indexOf("'", i + 1);
+      if (close === -1) return null;
+      // Between single quotes every sign stands for itself. Only this span is searched, so a long command stays quick.
+      for (let k = close - 1; k > i; k--) {
+        if (s[k] === "/") {
+          slash = k - start;
+          break;
+        }
+      }
+      i = close + 1;
+    } else if (c === '"') {
+      const close = doubleQuoted(s, i + 1, 0, (at) => (slash = at - start));
+      if (close === -1) return null;
+      i = close;
+    } else {
+      const close = substitution(s, i, 0);
+      if (close === -1) return null;
+      i = close > i ? close : i + 1;
     }
   }
-  return undefined;
+  return { text: s.slice(start, Math.min(i, s.length)), slash, end: Math.min(i, s.length) };
+}
+
+/** The place after the `"` that closes a text in double quotes that starts at `i`, or -1. */
+function doubleQuoted(s: string, i: number, depth: number, onSlash?: (at: number) => void): number {
+  while (i < s.length) {
+    const c = s[i]!;
+    if (c === '"') return i + 1;
+    if (c === "/") onSlash?.(i);
+    if (c === "\\") i += 2;
+    else {
+      const close = substitution(s, i, depth);
+      if (close === -1) return -1;
+      i = close > i ? close : i + 1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The place after what starts at `i` when that is a substitution or a quote of
+ * the `$` kind: `$(…)`, `${…}`, `$[…]`, `` `…` `` or `$'…'`. `i` itself when
+ * nothing of the kind starts there, and -1 when it does not close or cannot be
+ * followed.
+ */
+function substitution(s: string, i: number, depth: number): number {
+  const c = s[i];
+  if (c !== "`" && c !== "$") return i;
+  if (depth > MAX_NESTING) return -1;
+  // A backquote or `$'…'` ends at its like that no `\` stands before.
+  if (c === "`" || s[i + 1] === "'") {
+    const shut = c === "`" ? "`" : "'";
+    for (let k = c === "`" ? i + 1 : i + 2; k < s.length; k++) {
+      if (s[k] === "\\") k++;
+      else if (s[k] === shut) return k + 1;
+    }
+    return -1;
+  }
+  const next = s[i + 1];
+  const shut = next === "(" ? ")" : next === "{" ? "}" : next === "[" ? "]" : null;
+  if (shut === null) return i;
+  const close = group(s, i + 2, next!, shut, depth + 1);
+  // A `case` in a substitution has a `)` that closes nothing: not followed.
+  if (close !== -1 && next === "(" && /\bcase\b/.test(s.slice(i + 2, close))) return -1;
+  return close;
+}
+
+/** The place after the `shut` that closes a group opened before `i`, quotes and substitutions inside it passed over; -1 when it does not close. */
+function group(s: string, i: number, open: string, shut: string, depth: number): number {
+  let level = 1;
+  while (i < s.length) {
+    const c = s[i]!;
+    if (c === "\\") i += 2;
+    else if (c === "'") {
+      const close = s.indexOf("'", i + 1);
+      if (close === -1) return -1;
+      i = close + 1;
+    } else if (c === '"') {
+      i = doubleQuoted(s, i + 1, depth);
+      if (i === -1) return -1;
+    } else if (c === "`" || c === "$") {
+      const close = substitution(s, i, depth);
+      if (close === -1) return -1;
+      i = close > i ? close : i + 1;
+    } else {
+      if (c === open) level++;
+      else if (c === shut && --level === 0) return i + 1;
+      i++;
+    }
+  }
+  return -1;
 }
 
 /** The repository's name, branch and head commit, when the folder is a git checkout. */

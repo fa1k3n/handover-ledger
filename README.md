@@ -133,6 +133,27 @@ The project's issuer key is made on first use in `~/.config/howl/<project>/issue
 
 A hook takes about 0.2 seconds, most of it the start of Node. The tool calls run `async`, so a session does not wait for them. `howl hook` prints nothing and always ends with 0: it never disturbs the session, also when the ledger cannot be reached. A wait is written in howl's words, `waits_for: person` (it stands still until someone answers) or `waits_for: instructions` (it is done and waits for more), beside the tool's own kind; the readers use only howl's words, so another agent tool needs only a hook of its own. Waits written before this are read by the tool's kind as before.
 
+**Without Node on the developer's machine.** While `howl up` runs (step 4), the hook can be one `curl` that sends the hook's JSON to it as it stands. The server builds the event, with the code of `howl hook`. Put the line in a script of its own that the settings call as the `command` of each hook above, for a project named `example`:
+
+```sh
+#!/bin/sh
+( curl -s -o /dev/null -m 1 -X POST -H 'Content-Type: application/json' -H @"$HOME/.local/state/howl/example/token" -H "X-Howl-Actor: $HOWL_ACTOR" -H "X-Howl-Task: $HOWL_TASK" -H "X-Howl-Change: $HOWL_CHANGE" -H "X-Howl-Role: $HOWL_ROLE" -H "X-Howl-Role-Prompt: $HOWL_ROLE_PROMPT" --data-binary @- http://127.0.0.1:4317/api/hook ) 2>/dev/null || true
+```
+
+It prints nothing, waits at most a second and always ends with 0, also on a machine with no `curl`. `howl up` makes the file `token` in the project's folder once, for its owner only. The file holds the header line itself and `curl` reads it (`-H @file`), so the token stands on no command line, where every user of the machine could read it. The agent, and the task, change and role a session names, travel as headers; with no `HOWL_ACTOR` and no `.howl/actor` nothing is recorded, as with `howl hook`.
+
+| | `howl hook` | `curl` to `howl up` |
+|---|---|---|
+| Starts on every call | Node, from a checkout of howl | `curl` |
+| Takes, per call | about 0.2 seconds | about 0.03 seconds |
+| When the server does not take it | the event waits in the inbox | the event is lost |
+| Signed with the session's key | yes, when it has one | no |
+| The tool's input and answer are dropped | in the hook's own process | in the server, on the same machine |
+
+With the `curl` line an event is lost whenever the server does not answer 200 within the second: no `howl up` runs, another program has its port, the token file is missing, or the hook's JSON is too large to send in that time (a tool call that read several megabytes). That is a limit of this first version: the rule is that it is stored, and the step that stores it follows. Until then `howl hook` is the way where no event may be lost.
+
+`howl up` itself still needs Node, and for now it runs on the same machine. What goes with the `curl` line is Node on every tool call, and Node on a machine that only records once the server runs elsewhere.
+
 **4. Bring the events in.** One process writes the events into the ledger. `howl up` is that process and the dashboard in one, and the hooks send their events to it as they happen (see "One process: howl up"):
 
 ```sh
@@ -141,7 +162,7 @@ node /path/to/handover-ledger/src/cli/howl.ts up                  # the writer a
 node /path/to/handover-ledger/src/cli/howl.ts verify --project example
 ```
 
-While no `howl up` runs, a hook leaves a file in the inbox, and nothing is lost: `howl up` takes the inbox in when it starts and at every round. `howl ingest --watch` (or without `--watch`, for one pass) is the writer alone, without the code host and the dashboard.
+While no `howl up` runs, `howl hook` leaves a file in the inbox, and nothing is lost (the `curl` line has no inbox): `howl up` takes the inbox in when it starts and at every round. `howl ingest --watch` (or without `--watch`, for one pass) is the writer alone, without the code host and the dashboard.
 
 A session's start, its end and every wait for a person go into the chain. Tool calls are activity: they go to `activity.jsonl`, one event per line with no chain, and are removed after `activity_days`. A tool call keeps the tool, the path within the repository or the name of the program, and the outcome; never the input, the answer or a message, and no hash of the input, which a short input could be guessed from. Lines written by a howl from before this change hold a hash and the time the call took; they stay until they expire. A file in the inbox that is not a valid event is moved to `inbox/rejected/` with the reason beside it.
 
@@ -213,7 +234,7 @@ It is the one writer of the project: it runs the rounds of `howl observe`, with 
 
 While it runs, a session's hook and `howl emit` send each event to it with a POST of `/api/events`, so the event is in the ledger and on the page within a second or two, not at the next round. The server leaves the event in the inbox and takes the inbox in at once, so there is still one way into the chain. When it does not answer within half a second, or answers anything but 200, the event is left in the inbox as before; nothing is lost, and a server that does not answer is not asked again for a minute.
 
-`howl up` says where it is in `server.json` in the project's folder, with a token that is new at every start, and removes the file when it stops. Only its owner can read the file, and a hook uses it only while the process that wrote it runs. The POST is refused without the token, from a page in a browser, for another project, and for an event that says `observed`: what a session sends is a claim. It answers on 127.0.0.1 only. A server on another machine is not built.
+`howl up` says where it is in `server.json` in the project's folder, with a token that is new at every start, and removes the file when it stops. Only its owner can read the file, and a hook uses it only while the process that wrote it runs. The POST is refused without the token, from a page in a browser, for another project, and for an event that says `observed`: what a session sends is a claim. `POST /api/hook` takes the hook's own JSON from the `curl` line (see "Recording a coding agent") under the same refusals, and keeps only the event it builds from it. Both POSTs take two tokens: the one of `server.json`, new at every start, and the lasting one of the file `token`. It answers on 127.0.0.1 only. A server on another machine is not built.
 
 ## Reading the ledger
 

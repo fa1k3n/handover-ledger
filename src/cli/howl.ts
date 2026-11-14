@@ -53,7 +53,11 @@ const USAGE = `usage:
             one writer of the project, the dashboard on http://127.0.0.1:4317
             and POST /api/events, where the hook and howl emit send their
             events while it runs. It says where it is, with a token, in
-            server.json in the project's folder, and removes it when it stops
+            server.json in the project's folder, and removes it when it stops.
+            POST /api/hook takes the JSON of a hook of Claude Code as it
+            stands, from a hook line that is only curl, and builds the event:
+            no Node on the developer's side. Its token is the file token in
+            the project's folder, made once and kept
   watch     print the events of the ledger, then follow them. --activity adds
             the tool calls of the activity file; a filter on type=tool.used
             does too. A field and a value filter: type=review.*, actor=agent-1,
@@ -587,12 +591,12 @@ async function upCommand(args: string[]): Promise<number> {
   const port = values.port === undefined ? 4317 : Number(values.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError("--port must be a port number");
   const { randomBytes } = await import("node:crypto");
-  const { existsSync, rmSync, writeFileSync } = await import("node:fs");
+  const { chmodSync, existsSync, readFileSync: read, rmSync, writeFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
   const { leave } = await import("../inbox/inbox.ts");
   const { ingestPass } = await import("../inbox/ingest.ts");
   const { LedgerError } = await import("../ledger/errors.ts");
-  const { howlHome, projectDir, serverPath } = await import("../ledger/place.ts");
+  const { howlHome, projectDir, serverPath, tokenPath } = await import("../ledger/place.ts");
   const { join } = await import("node:path");
   const { startServer } = await import("../serve/server.ts");
 
@@ -613,6 +617,30 @@ async function upCommand(args: string[]): Promise<number> {
   };
   const token = randomBytes(32).toString("hex");
   const file = serverPath(o.project);
+  // #67: a token that lasts, for a hook line that is written once: made the first time, and kept.
+  // The file holds the header line itself: `curl` reads it, and the token stands on no command line.
+  const { tokenLine, tokenOfLine } = await import("../hook/line.ts");
+  const lasting = (): string => {
+    const path = tokenPath(o.project);
+    try {
+      const kept = tokenOfLine(read(path, "utf8"));
+      if (kept !== null) {
+        chmodSync(path, 0o600);
+        return kept;
+      }
+    } catch {
+      // Not there, or not to be read: a new one.
+    }
+    const made = randomBytes(32).toString("hex");
+    // A file that holds no token is replaced. A folder of that name is not howl's to remove.
+    try {
+      rmSync(path, { force: true });
+      writeFileSync(path, tokenLine(made), { mode: 0o600, flag: "wx" });
+    } catch (e) {
+      throw new LedgerError(`${path}: the token cannot be written there: ${(e as Error).message}`);
+    }
+    return made;
+  };
   const root = fileURLToPath(new URL("../../dist/dashboard", import.meta.url));
   let server;
   try {
@@ -624,9 +652,15 @@ async function upCommand(args: string[]): Promise<number> {
       taskFromBranch: await branchPattern(),
       write: {
         project: o.project,
-        token,
+        tokens: [token, lasting()],
         take: (event) => {
-          leave(o.places.inbox, event);
+          try {
+            leave(o.places.inbox, event);
+          } catch (e) {
+            // The sender is told 500; the one who runs the server is told why.
+            console.error(`howl: an event that came in was not kept: ${(e as Error).message}`);
+            throw e;
+          }
           soon ??= setTimeout(takeIn, 50);
         },
       },

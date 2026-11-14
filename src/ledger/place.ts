@@ -49,6 +49,11 @@ export function serverPath(project: string, env: Env = process.env, home: string
   return join(projectDir(project, env, home), "server.json");
 }
 
+/** The token a hook line shows the writer's server, made once and kept (#67): `<project folder>/token`. */
+export function tokenPath(project: string, env: Env = process.env, home: string = homedir()): string {
+  return join(projectDir(project, env, home), "token");
+}
+
 /** The pseudonyms of the people of a project: `<project folder>/people.json`. Never in the ledger. */
 export function peoplePath(project: string, env: Env = process.env, home: string = homedir()): string {
   return join(projectDir(project, env, home), "people.json");
