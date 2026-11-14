@@ -2,6 +2,7 @@
 // the fields of a decoded event. No DOM, so node:test can run them.
 // @code_class reading
 import { ACTIVITY_FILE } from "../ledger/names.ts";
+import { isPair } from "../read/filter-text.ts";
 import { duration } from "../read/overview.ts";
 import type { Claim, Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
@@ -13,12 +14,35 @@ export function filterPairs(text: string): string[] {
 }
 
 /**
- * #79: the filter text with `field=value` in it, for a click on a value in the
- * list. A pair of the same field is taken out first: two values of one field
- * could never both match.
+ * #82: what the event log's filter line starts with. Every event is in the
+ * list, the tool calls too; this takes them out, and says so where the reader
+ * can change it.
+ */
+export const DEFAULT_FILTER = 'event.type != "tool.used"';
+
+/**
+ * #82: the filter text as the texts the server takes: pairs one by one, as
+ * before; anything else whole, as one CEL expression.
+ */
+export function filterTexts(text: string): string[] {
+  const pairs = filterPairs(text);
+  return pairs.every(isPair) ? pairs : [text.trim()];
+}
+
+/**
+ * The filter text narrowed to one value of a field, for a click on a value in
+ * the list (#79). On pairs, and on nothing, a pair is added, and one of the
+ * same field is taken out first: two values of one field could never both
+ * match. On an expression (#82) a clause is added, once; the repository is
+ * asked for first, as not every event has one.
  */
 export function filterWith(text: string, field: string, value: string): string {
-  return [...filterPairs(text).filter((pair) => !pair.startsWith(`${field}=`)), `${field}=${value}`].join(" ");
+  const pairs = filterPairs(text);
+  if (pairs.every(isPair)) return [...pairs.filter((pair) => !pair.startsWith(`${field}=`)), `${field}=${value}`].join(" ");
+  const equals = `event.${field} == ${JSON.stringify(value)}`;
+  const clause = field === "project" ? equals : `has(event.${field}) && ${equals}`;
+  const expression = text.trim();
+  return expression.includes(clause) ? expression : `(${expression}) && ${clause}`;
 }
 
 /** #79: what tells a row of the event log from every other: its project and its event. */

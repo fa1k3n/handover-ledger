@@ -19,6 +19,7 @@
     "dev:dashboard": "vite --config src/dashboard/vite.config.ts"
   },
   "dependencies": {
+    "@marcbachmann/cel-js": "8.0.0",
     "ajv": "8.20.0"
   },
   "devDependencies": {

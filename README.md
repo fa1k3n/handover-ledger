@@ -52,7 +52,7 @@ npm run howl -- serve --project example         # http://127.0.0.1:4317, every p
 npm run dev:dashboard                           # while working on the page, beside a running howl serve
 ```
 
-The event log of the page is one list of every project the server serves, in the order of time. `project=<name>` and `repo=<name>` narrow it as any other field does, and a click on a project or a repository in a row adds that filter. A column for the project shows when more than one is served, and one for the repository when the rows come from more than one. The list is a view: each project keeps its own ledger and its own chain, so a line number and a hash are named with their project. The team, the overview and one change are shown for the project picked in the menu.
+The event log of the page is one list of every project the server serves, in the order of time. Every event is in it, the tool calls too, and the filter line says what is left out: it starts with `event.type != "tool.used"`. A filter is a CEL expression over `event` (see `howl watch` below), and a click on a project or a repository in a row adds it to the filter. A column for the project shows when more than one is served, and one for the repository when the rows come from more than one. The list is a view: each project keeps its own ledger and its own chain, so a line number and a hash are named with their project. The team, the overview and one change are shown for the project picked in the menu.
 
 A line of the ledger is `{"prev", "hash", "event"}`. The event does not know its place: `prev` and `hash` belong to the line ([schema/line.v0.schema.json](schema/line.v0.schema.json)). `hash` is the SHA-256 of the event in its fixed form, the JSON Canonicalization Scheme (RFC 8785), and the event stands in the line in that form.
 
@@ -251,9 +251,23 @@ times in Europe/Stockholm (UTC+01:00); --utc for UTC
 2026-01-01 09:55:00 observed person-0a0a0a0a  review.approved          task 12  change 30  ccccccc
 ```
 
-Times are in the local time zone (`TZ`); `--utc` prints them as stored, `2026-01-01T08:20:00Z`. Tool calls are left out unless `--activity` is given or a filter asks for `type=tool.used`.
+Times are in the local time zone (`TZ`); `--utc` prints them as stored, `2026-01-01T08:20:00Z`. Tool calls are left out unless `--activity` is given or a filter names `tool.used`.
 
-`--filter field=value` can be given more than once, and all must match; a value may end in `*`. The fields are those of the event, with `actor`, `kind` (claimed or observed) and `adapter` besides. `--since <time>` passes over what came before (without an offset it is local time); `--json` prints the lines as they stand in the files; `--no-follow` stops after what is there. A wait for a person, failed checks and a review that asks for changes stand out in colour; not when the output is not a terminal, or when `NO_COLOR` is set.
+`--filter` takes a CEL expression over `event`, the event as it stands in the ledger:
+
+```sh
+howl watch --filter 'event.project == "example" && event.type.startsWith("review.")'
+howl watch --filter 'event.type == "tool.used" && event.data.tool == "Bash" && event.actor.id != "agent-1"'
+howl watch --filter 'has(event.change) && (event.source.kind == "claimed" || event.type == "checks.failed")'
+```
+
+- It is CEL as the library `@marcbachmann/cel-js` speaks it: `==`, `!=`, `<`, `>`, `&&`, `||`, `!`, parentheses, `in` with a list, and on text `startsWith`, `endsWith`, `contains` and `matches`. A time is compared as text: `event.time >= "2026-11-14T14:00"`.
+- A field the event does not have is an error, as in CEL, and most events have no `change`. Such an event is left out, and howl says once how many were and why. `has(event.change)` tests for a field: `has(event.change) && event.change == "30"`.
+- A wrong expression is refused before anything is read, with its place: `filter at 15: Unterminated string`. A method that no text has, as `event.type.nope()`, shows only when the first event is read: every event is then left out, and howl says why.
+- A filter never sees a person's pseudonym: for a person, `event.actor.id` reads `"a person"`, so no expression follows one person.
+- `field=value` still filters, as before: `--filter type=review.* --filter change=30`. A value may end in `*`; the fields are those of the event, with `actor`, `kind` (claimed or observed) and `adapter` besides.
+
+`--filter` can be given more than once, and all must match. `--since <time>` passes over what came before (without an offset it is local time); `--json` prints the lines as they stand in the files; `--no-follow` stops after what is there. A wait for a person, failed checks and a review that asks for changes stand out in colour; not when the output is not a terminal, or when `NO_COLOR` is set.
 
 **`howl show <task or change>`** gives the timeline of one assignment: `12`, `task:12` or `change:30`. It gathers what names the task, its changes, the hook events on their branches and commits, and the rest of those sessions; never what names another task.
 

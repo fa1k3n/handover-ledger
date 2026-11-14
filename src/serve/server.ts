@@ -20,7 +20,7 @@ import { actingAgents } from "../read/acting.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
 import { parseAsked, show } from "../read/show.ts";
 import { agentStates } from "../read/state.ts";
-import { parseFilters, wantsActivity } from "../read/watch.ts";
+import { readFilters, wantsActivity, type Failed } from "../read/filter.ts";
 
 export interface ServeOptions {
   /** One ledger only. */
@@ -189,7 +189,9 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     // #79: with no project named, every project the server serves; else the one named.
     const served = url.searchParams.has("project") ? [projectFor(url.searchParams, options)] : projectsOf(options);
     if (served.length === 0) throw new LedgerError("no project with a ledger");
-    json(res, 200, { now: Date.now(), events: events(served, url.searchParams, options.ledger === undefined) });
+    const found = events(served, url.searchParams, options.ledger === undefined);
+    // #82: what a filter could not work out is said only when there is something to say.
+    json(res, 200, found.failed === null ? { now: Date.now(), events: found.events } : { now: Date.now(), events: found.events, failed: found.failed });
     return;
   }
   const project = projectFor(url.searchParams, options);
@@ -243,17 +245,18 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
  *
  * `after` is a line of one ledger: over several projects it is refused.
  */
-function events(projects: Project[], params: URLSearchParams, named: boolean): Item[] {
+function events(projects: Project[], params: URLSearchParams, named: boolean): { events: Item[]; failed: Failed | null } {
   const pairs = params.getAll("filter");
-  const filters = parseFilters(pairs);
+  const filters = readFilters(pairs);
   const after = Number(params.get("after") ?? 0) || 0;
   if (after > 0 && projects.length > 1) throw new LedgerError("after is a line of one ledger: name the project");
   const limit = Math.max(1, Math.min(5000, Number(params.get("limit") ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
   const activity = params.get("activity") === "1" || wantsActivity(pairs);
 
-  return byTime(projects.flatMap((project) => itemsOf(project, after, activity, named)))
-    .filter((item) => filters.every((f) => f(item.event)))
+  const found = byTime(projects.flatMap((project) => itemsOf(project, after, activity, named)))
+    .filter((item) => filters.test(item.event))
     .slice(-limit);
+  return { events: found, failed: filters.failed() };
 }
 
 /** The ledger lines of one project after `after` (all when 0), then the lines of its activity file when asked for. */
