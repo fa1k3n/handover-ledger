@@ -2,14 +2,14 @@
 // 127.0.0.1 only, serves the built page and read-only JSON over the ledger and
 // the activity file. It takes no lock and never writes.
 //
-// With `write` (`howl up`, #64) a POST of /api/events is handed to
-// `src/inbox/receive.ts`, which decides what the writer takes. This module
+// With `write` (`howl up`, #64 and #67) a POST of /api/events or /api/hook is
+// handed to `src/inbox/receive.ts`, which decides what the writer takes. This module
 // only reads. Without `write` every POST is refused, as before.
 // @code_class reading
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { basename, dirname, extname, join, normalize, sep } from "node:path";
-import { receive, type Write } from "../inbox/receive.ts";
+import { receive, receiveHook, type Write } from "../inbox/receive.ts";
 import { LedgerError } from "../ledger/errors.ts";
 import { LEDGER_FILE } from "../ledger/names.ts";
 import { isProjectName } from "../ledger/place.ts";
@@ -92,9 +92,10 @@ export async function startServer(options: ServeOptions): Promise<Served> {
 
   const server = createServer((req, res) => {
     try {
-      if (options.write !== undefined && req.method === "POST" && pathOf(req) === "/api/events") {
-        receive(req, res, options.write);
-        return;
+      if (options.write !== undefined && req.method === "POST") {
+        const path = pathOf(req);
+        if (path === "/api/events") return receive(req, res, options.write);
+        if (path === "/api/hook") return receiveHook(req, res, options.write);
       }
       handle(req, res, options, ledgerVerdict);
     } catch (e) {
@@ -164,6 +165,11 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     return;
   }
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  if (url.pathname === "/api/hook") {
+    // Only a POST, and only on a server that writes.
+    res.writeHead(405, { allow: "POST" }).end();
+    return;
+  }
   if (url.pathname === "/api/projects") {
     const projects = projectsOf(options);
     json(res, 200, { single: options.ledger !== undefined, default: defaultOf(projects, options)?.name ?? null, projects: projects.map((p) => ({ name: p.name, lines: lineCount(p.ledger) })) });
