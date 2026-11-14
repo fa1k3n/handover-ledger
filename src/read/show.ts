@@ -126,14 +126,17 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   if (asked.kind === "change" || (asked.kind === undefined && !namesTask)) {
     if (!all.some((e) => e.change === asked.id)) return null;
     changes.add(asked.id);
-    // The task of a change is the one the code host shows; a session's word for it only when the host has none (#51).
-    const named = all.filter((e) => e.change === asked.id && e.task !== undefined);
+    // The task of a change is the one the code host shows; a session's word for it only when the
+    // host has none, and never a claim of a change or a review (#51).
+    const named = all.filter((e) => e.change === asked.id && e.task !== undefined && !claimOfHost(e));
     task = (named.find(observed) ?? named[0])?.task;
   } else {
     if (!namesTask) return null;
     task = asked.id;
   }
-  if (task !== undefined) for (const e of all) if (e.task === task && e.change !== undefined) changes.add(e.change);
+  // A change is of the task when the code host or a session's own event names both; a claim of a
+  // change or a review links nothing (#51).
+  if (task !== undefined) for (const e of all) if (e.task === task && e.change !== undefined && !claimOfHost(e)) changes.add(e.change);
 
   const branches = new Set<string>();
   const shas = new Set<string>();
@@ -145,14 +148,16 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
       if (e.sha) shas.add(e.sha);
     }
   }
+  // A claim that names the task is shown with it, as a claim, also when its change is not the task's.
+  const claimOfTask = (e: LedgerEvent) => claimOfHost(e) && task !== undefined && e.task === task;
   const elsewhere = (e: LedgerEvent) =>
-    (e.task !== undefined && e.task !== task) || (e.change !== undefined && !changes.has(e.change));
+    (e.task !== undefined && e.task !== task) || (e.change !== undefined && !changes.has(e.change) && !claimOfTask(e));
   const direct = (e: LedgerEvent) =>
     (task !== undefined && e.task === task) ||
     (e.change !== undefined && changes.has(e.change)) ||
     (e.branch !== undefined && branches.has(e.branch)) ||
     (e.sha !== undefined && shas.has(e.sha));
-  const sessions = new Set(all.filter((e) => e.session && !elsewhere(e) && direct(e)).map((e) => e.session!));
+  const sessions = new Set(all.filter((e) => e.session && !claimOfHost(e) && !elsewhere(e) && direct(e)).map((e) => e.session!));
   const events = all.filter((e) => !elsewhere(e) && (direct(e) || (e.session !== undefined && sessions.has(e.session))));
 
   const end = endOf(events);
@@ -293,9 +298,12 @@ function endOf(events: LedgerEvent[]): End {
  * not the state of the change, not the end, and not who took part.
  */
 function summarise(all: LedgerEvent[], end: End): Summary {
-  const kept = all.filter((e) => !claimOfHost(e));
-  // An assignment that only claims name still has a length: that of its claims.
-  const events = kept.length > 0 ? kept : all;
+  const events = all.filter((e) => !claimOfHost(e));
+  if (events.length === 0) {
+    // Only claims name the assignment: nothing was seen, so nothing is measured.
+    const at = all[0]!.time;
+    return { from: at, to: at, open: true, seconds: 0, parts: { work: 0, person: 0, instructions: 0, checks: 0, review: 0 }, reviewRounds: 0, actors: [] };
+  }
   const handover = events.find((e) => e.type === "task.assigned");
   // #22: without a hand-over, from the first sign of work, not from when the task was opened (it may wait for days).
   const work = events.find((e) => e.type.startsWith("session.") || e.type.startsWith("change.") || e.type === "tool.used");

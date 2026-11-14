@@ -4,6 +4,7 @@
 // the observed event is evidence and is never rewritten.
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { claimOfHost } from "./observed.ts";
 
 /** A session's events this long before an observed event count for it. */
 export const BEFORE_MS = 10 * 60_000;
@@ -23,7 +24,8 @@ export interface Acting {
  * than one matches.
  */
 export function actingAgents(events: LedgerEvent[]): Map<string, Acting> {
-  const own = events.filter((e) => e.source.kind === "claimed" && e.actor?.kind === "agent");
+  // A session's own events. A claimed review or change is no session at the change (#51).
+  const own = events.filter((e) => e.source.kind === "claimed" && e.actor?.kind === "agent" && !claimOfHost(e));
   const found = new Map<string, Acting>();
   for (const e of events) {
     if (e.source.kind !== "observed" || e.change === undefined) continue;

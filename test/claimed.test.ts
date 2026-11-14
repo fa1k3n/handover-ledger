@@ -137,12 +137,12 @@ test("a claimed opening, head, comment and closing are not the change's", () => 
     event("claimed", "change.opened", 7, "agent-b", { change: "31", task: "12" }),
   ];
   const shown = show(events, { kind: "task", id: "12" }, null)!;
-  const [thirty, other] = shown.changes;
+  // Change 31 is named by a claim alone: it is no change of the task.
+  assert.equal(shown.changes.length, 1);
+  const [thirty] = shown.changes;
   assert.deepEqual(thirty!.opened, { time: at(0), actor: { kind: "agent", id: "agent-a" } });
   assert.deepEqual(thirty!.heads, [{ sha: SHA.a, time: at(0) }]);
   assert.equal(thirty!.comments, 0);
-  assert.equal(other!.opened, undefined);
-  assert.deepEqual(other!.heads, []);
   assert.deepEqual(shown.end, { state: "open" });
   assert.deepEqual(
     shown.claimed.map((c) => c.type),
@@ -245,6 +245,63 @@ test("a claimed task event is no hand-over: it starts no clock and is listed as 
   const both = show([...events.slice(0, 2), given, ...events.slice(2)], { kind: "task", id: "12" }, null)!;
   assert.deepEqual(both.handover, [{ time: at(-5), actor: { kind: "agent", id: "agent-a" }, kind: "observed" }]);
   assert.equal(both.summary.from, at(-5));
+});
+
+test("a claimed review is not a session at the change: it stands behind no person's review", () => {
+  const person = { kind: "person" as const, id: "person-0a0a0a0a" };
+  const review = () => event("observed", "review.approved", 5, "", { actor: person });
+  const claim = (agent: string) => event("claimed", "review.approved", 5, agent);
+  const row = (events: LedgerEvent[]) => handovers(items(events)).find((h) => h.step === "Implementation → review")!;
+
+  const claimedOnly = [opening(), review(), claim("agent-x")];
+  assert.equal(row(claimedOnly).to, person.id);
+  assert.equal(row(claimedOnly).via, undefined);
+  assert.equal(keyFigures(claimedOnly, NOW).unattributed.count, 1);
+  assert.equal(show(claimedOnly, { kind: "change", id: "30" }, null)!.reviews[0]!.reviews[0]!.by, undefined);
+
+  // A session of its own at the change is still matched, and another agent's claim does not stand in its way.
+  const session = event("claimed", "session.started", 4, "agent-r", { session: "s9" });
+  const withSession = [opening(), session, review(), claim("agent-x")];
+  assert.equal(row(withSession).to, "agent-r");
+  assert.equal(row(withSession).via, person.id);
+  assert.equal(keyFigures(withSession, NOW).unattributed.count, 0);
+});
+
+test("a claim of a change or a review links no change to a task; a session's own event still does", () => {
+  const other = [
+    event("observed", "change.opened", 1, "agent-c", { change: "40", branch: "other", sha: SHA.b }),
+    event("observed", "change.merged", 10, "agent-c", { change: "40" }),
+  ];
+  const claim = event("claimed", "review.commented", 5, "agent-z", { change: "40", task: "12" });
+  const shown = show([opening(), ...other, claim].sort((a, b) => a.time.localeCompare(b.time)), { kind: "change", id: "30" }, null)!;
+  assert.deepEqual(shown.changes.map((c) => c.change), ["30"]);
+  assert.deepEqual(shown.end, { state: "open" });
+
+  const session = event("claimed", "session.started", 5, "agent-a", { change: "40", task: "12", session: "s1" });
+  const linked = show([opening(), ...other, session].sort((a, b) => a.time.localeCompare(b.time)), { kind: "change", id: "30" }, null)!;
+  assert.deepEqual(linked.changes.map((c) => c.change), ["30", "40"]);
+
+  // The task of a change that is asked for: never from a claim of a change or a review.
+  const fifty = event("observed", "change.opened", 0, "agent-a", { change: "50", sha: SHA.a });
+  const named = (type: LedgerEvent["type"]) => event("claimed", type, 1, "agent-z", { change: "50", task: "77" });
+  assert.equal(show([fifty, named("review.approved")], { kind: "change", id: "50" }, null)!.task, undefined);
+  assert.equal(show([fifty, named("session.started")], { kind: "change", id: "50" }, null)!.task, "77");
+});
+
+test("an assignment that only claims name has an empty summary", () => {
+  const events = [event("claimed", "review.approved", 5, "agent-x", { change: "60" }), event("claimed", "change.merged", 60, "agent-x", { change: "60" })];
+  const shown = show(events, { kind: "change", id: "60" }, null)!;
+  assert.equal(shown.claimed.length, 2);
+  assert.deepEqual(shown.end, { state: "open" });
+  assert.deepEqual(shown.summary, {
+    from: at(5),
+    to: at(5),
+    open: true,
+    seconds: 0,
+    parts: { work: 0, person: 0, instructions: 0, checks: 0, review: 0 },
+    reviewRounds: 0,
+    actors: [],
+  });
 });
 
 test("a script's howl emit review.approved and change.merged, taken in, merge nothing", () => {
