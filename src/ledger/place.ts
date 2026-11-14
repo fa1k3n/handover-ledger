@@ -44,6 +44,11 @@ export function activityPath(project: string, env: Env = process.env, home: stri
   return join(projectDir(project, env, home), ACTIVITY_FILE);
 }
 
+/** Where the writer's server says how to reach it while it runs (#64): `<project folder>/server.json`. */
+export function serverPath(project: string, env: Env = process.env, home: string = homedir()): string {
+  return join(projectDir(project, env, home), "server.json");
+}
+
 /** The pseudonyms of the people of a project: `<project folder>/people.json`. Never in the ledger. */
 export function peoplePath(project: string, env: Env = process.env, home: string = homedir()): string {
   return join(projectDir(project, env, home), "people.json");

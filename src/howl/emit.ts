@@ -1,10 +1,10 @@
-// `howl emit`: an event from a script, left in the inbox as a hook leaves one.
+// `howl emit`: an event from a script, delivered as a hook delivers one: to the
+// writer's server when one runs, else into the inbox (#64).
 // Unlike the hook it says what is wrong and ends with 1: a script wants to know.
 // @code_class recording
 import { randomUUID } from "node:crypto";
-import { leave } from "../inbox/inbox.ts";
+import { deliver } from "../inbox/deliver.ts";
 import { LedgerError } from "../ledger/errors.ts";
-import { inboxPath } from "../ledger/place.ts";
 import { eventFaults, type LedgerEvent } from "../ledger/schema.ts";
 import { findActor, findProject } from "./project.ts";
 
@@ -16,10 +16,11 @@ export interface EmitOptions {
 }
 
 /**
- * Leaves the event in the inbox. Returns the path of its file, or null outside
- * a repository with `.howl/howl.yml`. Throws a LedgerError on a wrong event.
+ * Delivers the event. Returns "sent" when the server took it, the path of its
+ * file when it is left in the inbox, or null outside a repository with
+ * `.howl/howl.yml`. Throws a LedgerError on a wrong event.
  */
-export function emit(options: EmitOptions, env: Record<string, string | undefined>, cwd: string): string | null {
+export async function emit(options: EmitOptions, env: Record<string, string | undefined>, cwd: string): Promise<string | null> {
   const project = findProject(cwd);
   if (!project) return null;
 
@@ -54,5 +55,5 @@ export function emit(options: EmitOptions, env: Record<string, string | undefine
   const defined = JSON.parse(JSON.stringify(event)) as unknown;
   const faults = eventFaults(defined);
   if (faults.length > 0) throw new LedgerError(`not a valid event: ${faults.join("; ")}`);
-  return leave(inboxPath(project.project, env), defined as LedgerEvent);
+  return (await deliver(project.project, defined as LedgerEvent, env)) ?? "sent";
 }
