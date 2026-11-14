@@ -7,6 +7,7 @@
 // @code_class reading
 import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { wholeLines } from "../ledger/lines.ts";
 import { ACTIVITY_FILE } from "../ledger/names.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { byTime } from "./order.ts";
@@ -92,7 +93,8 @@ function parseLines(raws: string[], from: Read["from"], before = 0): Read[] {
       const value = JSON.parse(raw) as { prev?: string | null; hash?: string; event?: LedgerEvent } & LedgerEvent;
       const event = from === "ledger" ? value.event : value;
       if (event && typeof event === "object" && typeof event.time === "string" && typeof event.type === "string") {
-        found.push(from === "ledger" ? { event, raw, from, n: before + i + 1, hash: value.hash, prev: value.prev } : { event, raw, from });
+        // The keys in the order the server has always sent them.
+        found.push(from === "ledger" ? { n: before + i + 1, from, hash: value.hash, prev: value.prev, event, raw } : { from, event, raw });
       }
     } catch {
       // Not a line howl can read: `howl verify` names it.
@@ -101,21 +103,8 @@ function parseLines(raws: string[], from: Read["from"], before = 0): Read[] {
   return found;
 }
 
-/** The whole lines of a file as bytes, without their line breaks. A last line with no line break is left out. */
-function wholeLines(bytes: Buffer): Buffer[] {
-  const out: Buffer[] = [];
-  let start = 0;
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] === 0x0a) {
-      out.push(bytes.subarray(start, i));
-      start = i + 1;
-    }
-  }
-  return out;
-}
-
 export interface Whole {
-  /** Every whole line as bytes, without its line break: what the chain hashes. */
+  /** Every whole line as bytes, without its line break: what the chain hashes. Split by `src/ledger/lines.ts`. */
   bytes: Buffer[];
   /** The lines howl can read, the first line too, in the order of the file. */
   lines: Read[];
