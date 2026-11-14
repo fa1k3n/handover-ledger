@@ -2,7 +2,7 @@
 // the fields of a decoded event. No DOM, so node:test can run them.
 // @code_class reading
 import { duration } from "../read/overview.ts";
-import type { Head, Session } from "../read/show.ts";
+import type { Claim, Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
 
@@ -146,6 +146,12 @@ export function headText(h: Head, first: boolean): string {
   return [`${first ? "head" : "new head"} ${h.sha.slice(0, 7)}${h.by ? ` by ${h.by} (matched)` : ""}`, h.checks ? `checks ${h.checks}` : null]
     .filter(Boolean)
     .join(" · ");
+}
+
+/** A claim for the change view: `review.approved · change 30 · agent-1`; its task when it names no change. */
+export function claimText(c: Claim): string {
+  const on = c.change !== undefined ? `change ${c.change}` : c.task !== undefined ? `task ${c.task}` : null;
+  return [c.type, on, c.actor?.id ?? "someone"].filter(Boolean).join(" · ");
 }
 
 /** A session for the change view: `agent-1 · fix · 33 min · Bash 54, Read 1`. */

@@ -4,6 +4,7 @@
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents } from "./acting.ts";
+import { observed } from "./observed.ts";
 
 const DAY = 24 * 3600_000;
 /** The period of the figures. */
@@ -25,7 +26,7 @@ export interface Handover {
   hash?: string;
 }
 
-/** The handovers, newest first. A review by the author of the change is none. */
+/** The handovers, newest first, from observed events (#51). A review by the author of the change is none. */
 export function handovers(items: { event: LedgerEvent; hash?: string }[]): Handover[] {
   const sorted = byTime(items);
   const acting = actingAgents(sorted.map((i) => i.event));
@@ -34,7 +35,8 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
   const task = new Map<string, string>();
   const rows: Handover[] = [];
   for (const { event: e, hash } of sorted) {
-    if (e.change === undefined) continue;
+    // #51: what a session or a script claims of a change is no handover, and does not say which task it has.
+    if (e.change === undefined || !observed(e)) continue;
     if (e.task !== undefined) task.set(e.change, e.task);
     const matched = acting.get(e.id);
     const actor = matched?.agent ?? e.actor?.id;
@@ -92,7 +94,8 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
   const leadTimes: number[] = [];
   const rounds: number[] = [];
   for (const e of sorted) {
-    if (e.change === undefined) continue;
+    // #51: the figures count what the code host showed, never a claim.
+    if (e.change === undefined || !observed(e)) continue;
     const t = Date.parse(e.time);
     const work = e.task ?? `change ${e.change}`;
     if (e.type === "change.opened") {
@@ -114,7 +117,7 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
   const acting = actingAgents(sorted);
   const missing = sorted.filter(
     (e) =>
-      e.source.kind === "observed" &&
+      observed(e) &&
       e.change !== undefined &&
       now - Date.parse(e.time) <= PERIOD_MS &&
       (e.type === "change.opened" || e.type === "change.updated" || e.type.startsWith("review.")) &&
