@@ -35,17 +35,10 @@
         "change.opened",
         "change.updated",
         "change.merged",
-        "tests.written",
         "checks.passed",
         "checks.failed",
         "review.approved",
         "review.changes_requested",
-        "finding.fixed",
-        "finding.dismissed",
-        "finding.left_open",
-        "level.changed",
-        "rule.broken",
-        "escalation.raised",
         "session.started",
         "tool.used",
         "agent.waiting",
@@ -109,10 +102,6 @@
         }
       }
     },
-    "team": {
-      "description": "The team the event belongs to.",
-      "$ref": "#/$defs/name"
-    },
     "session": {
       "description": "For an agent: the session the event comes from.",
       "$ref": "#/$defs/name"
@@ -148,10 +137,6 @@
         }
       }
     },
-    "rules": {
-      "description": "Version of the rules in force: the commit they ran from.",
-      "$ref": "#/$defs/name"
-    },
     "repo": {
       "description": "The repository the event concerns.",
       "$ref": "#/$defs/name"
@@ -172,40 +157,6 @@
       "description": "The head commit.",
       "type": "string",
       "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
-    },
-    "requirements": {
-      "description": "IDs of the requirements the event is linked to.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/name"
-      },
-      "uniqueItems": true
-    },
-    "clauses": {
-      "description": "IDs of the clauses of those requirements.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/name"
-      },
-      "uniqueItems": true
-    },
-    "tests": {
-      "description": "Names of the tests that cover them.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/name"
-      },
-      "uniqueItems": true
-    },
-    "level": {
-      "description": "The level of autonomy in force.",
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 3
-    },
-    "class": {
-      "description": "The code class.",
-      "$ref": "#/$defs/name"
     },
     "sig": {
       "description": "The Ed25519 signature of the event's fixed form without sig, by the key of an assignment (key.issued) or by the issuer.",
