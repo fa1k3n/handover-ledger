@@ -35,10 +35,9 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
   const task = new Map<string, string>();
   const rows: Handover[] = [];
   for (const { event: e, hash } of sorted) {
-    if (e.change === undefined) continue;
+    // #51: what a session or a script claims of a change is no handover, and does not say which task it has.
+    if (e.change === undefined || !observed(e)) continue;
     if (e.task !== undefined) task.set(e.change, e.task);
-    // #51: what a session or a script claims of a change is no handover.
-    if (!observed(e)) continue;
     const matched = acting.get(e.id);
     const actor = matched?.agent ?? e.actor?.id;
     if (e.type === "change.opened" && actor !== undefined) {

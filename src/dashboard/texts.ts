@@ -90,7 +90,7 @@ export const texts = {
     comments: (n: number) => `${n} comment${n === 1 ? "" : "s"}, not counted as reviews`,
     round: (n: number) => `Round ${n}:`,
     claimed: "Claimed, not seen at the code host",
-    claimedNote: "Sent by a session or a script. Not counted as a review, a head, a merge or a closing.",
+    claimedNote: "Sent by a session or a script, not read from the code host. They count for nothing above.",
   },
   error: (message: string) => `Cannot reach howl serve: ${message}`,
 };

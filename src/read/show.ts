@@ -69,10 +69,11 @@ export interface Round {
 
 export type End = { state: "merged" | "closed"; time: string; actor?: Actor } | { state: "open" };
 
-/** #51: an event of a change or a review that a session or a script sent, and no adapter read. */
+/** #51: an event of a task, a change or a review that a session or a script sent, and no adapter read. */
 export interface Claim {
   time: string;
   type: string;
+  task?: string;
   change?: string;
   actor?: Actor;
 }
@@ -125,7 +126,9 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   if (asked.kind === "change" || (asked.kind === undefined && !namesTask)) {
     if (!all.some((e) => e.change === asked.id)) return null;
     changes.add(asked.id);
-    task = all.find((e) => e.change === asked.id && e.task !== undefined)?.task;
+    // The task of a change is the one the code host shows; a session's word for it only when the host has none (#51).
+    const named = all.filter((e) => e.change === asked.id && e.task !== undefined);
+    task = (named.find(observed) ?? named[0])?.task;
   } else {
     if (!namesTask) return null;
     task = asked.id;
@@ -159,11 +162,11 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
     changes: changeParts(events, changes, acting),
     events,
     handover: events
-      .filter((e) => e.type === "task.assigned")
+      .filter((e) => e.type === "task.assigned" && observed(e))
       .map((e) => defined({ time: e.time, actor: e.actor, kind: e.source.kind })),
     sessions: sessionParts(events, activityFrom),
     reviews: rounds(events, acting),
-    claimed: events.filter(claimOfHost).map((e) => defined({ time: e.time, type: e.type, change: e.change, actor: e.actor })),
+    claimed: events.filter(claimOfHost).map((e) => defined({ time: e.time, type: e.type, task: e.task, change: e.change, actor: e.actor })),
     end,
     summary: summarise(events, end),
   };
@@ -229,7 +232,7 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
     parts.push(
       defined({
         change,
-        branch: own.find((e) => e.branch)?.branch,
+        branch: seen.find((e) => e.branch)?.branch,
         opened: opened ? defined({ time: opened.time, actor: opened.actor, by: acting.get(opened.id)?.agent }) : undefined,
         heads,
         comments: seen.filter((e) => e.type === "change.commented").length,
@@ -269,7 +272,8 @@ function rounds(all: LedgerEvent[], acting: Map<string, Acting> = new Map()): Ro
 function endOf(events: LedgerEvent[]): End {
   const merged = events.find((e) => e.type === "change.merged" && observed(e));
   if (merged) return defined({ state: "merged" as const, time: merged.time, actor: merged.actor });
-  const changes = new Set(events.filter((e) => e.change).map((e) => e.change));
+  // The changes the code host showed: one that only a claim names keeps nothing open.
+  const changes = new Set(events.filter((e) => e.change && observed(e)).map((e) => e.change));
   const closed = events.filter((e) => e.type === "change.closed" && observed(e));
   // Closed only when every change of the assignment is closed without merge.
   if (closed.length > 0 && new Set(closed.map((e) => e.change)).size === changes.size) {
@@ -284,8 +288,14 @@ function endOf(events: LedgerEvent[]): End {
  * state after the last event before it. The agent working comes first; then a
  * wait for a person; then what the change waits for; then an idle agent
  * waiting for instructions. What is left is work, by whoever does it.
+ *
+ * #51: a claim of what the code host owns moves nothing here: not the start,
+ * not the state of the change, not the end, and not who took part.
  */
-function summarise(events: LedgerEvent[], end: End): Summary {
+function summarise(all: LedgerEvent[], end: End): Summary {
+  const kept = all.filter((e) => !claimOfHost(e));
+  // An assignment that only claims name still has a length: that of its claims.
+  const events = kept.length > 0 ? kept : all;
   const handover = events.find((e) => e.type === "task.assigned");
   // #22: without a hand-over, from the first sign of work, not from when the task was opened (it may wait for days).
   const work = events.find((e) => e.type.startsWith("session.") || e.type.startsWith("change.") || e.type === "tool.used");
@@ -360,7 +370,7 @@ function summarise(events: LedgerEvent[], end: End): Summary {
     open: end.state === "open",
     seconds: (stop - start) / 1000,
     parts,
-    reviewRounds: rounds(events).length,
+    reviewRounds: rounds(all).length,
     actors: [...actors.values()],
   };
 }
@@ -375,7 +385,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   out.push(`${title}: ${shown.end.state}`, "");
 
   out.push("Hand-over");
-  const opened = shown.events.find((e) => e.type === "task.opened" && e.task === shown.task);
+  const opened = shown.events.find((e) => e.type === "task.opened" && e.task === shown.task && observed(e));
   if (opened) out.push(`  ${t(opened.time)}  ${opened.source.kind.padEnd(8)}  task opened by ${who(opened.actor)}`);
   if (shown.handover.length === 0) out.push("  given to no one in the ledger");
   for (const h of shown.handover) out.push(`  ${t(h.time)}  ${h.kind.padEnd(8)}  given to ${who(h.actor)}`);
@@ -424,13 +434,14 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   if (shown.claimed.length > 0) {
     out.push("", "Claimed, not seen at the code host");
     for (const c of shown.claimed) {
-      out.push(`  ${t(c.time)}  claimed  ${c.type}${c.change !== undefined ? ` on change ${c.change}` : ""} by ${who(c.actor)}`);
+      const on = c.change !== undefined ? ` on change ${c.change}` : c.task !== undefined ? ` on task ${c.task}` : "";
+      out.push(`  ${t(c.time)}  claimed  ${c.type}${on} by ${who(c.actor)}`);
     }
   }
 
   out.push("", "End");
   out.push(shown.end.state === "open" ? "  open" : `  ${t(shown.end.time)}  observed  ${shown.end.state} by ${who(shown.end.actor)}`);
-  const closed = shown.events.findLast((e) => e.type === "task.closed" && e.task === shown.task);
+  const closed = shown.events.findLast((e) => e.type === "task.closed" && e.task === shown.task && observed(e));
   if (closed) out.push(`  ${t(closed.time)}  ${closed.source.kind.padEnd(8)}  task closed by ${who(closed.actor)}`);
 
   const s = shown.summary;

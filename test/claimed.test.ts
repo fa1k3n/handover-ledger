@@ -20,7 +20,7 @@ const SHA = { a: "a".repeat(40), b: "b".repeat(40) };
 
 let n = 0;
 function event(kind: "observed" | "claimed", type: LedgerEvent["type"], minute: number, actor: string, extra: Partial<LedgerEvent> = {}): LedgerEvent {
-  return {
+  const made: LedgerEvent = {
     v: 0,
     id: `e-${++n}`,
     time: at(minute),
@@ -31,6 +31,9 @@ function event(kind: "observed" | "claimed", type: LedgerEvent["type"], minute: 
     change: "30",
     ...extra,
   };
+  // `change: undefined` in `extra` means an event that names no change.
+  if (made.change === undefined) delete made.change;
+  return made;
 }
 
 const opening = () => event("observed", "change.opened", 0, "agent-a", { task: "12", branch: "task-12-x", sha: SHA.a });
@@ -73,8 +76,8 @@ test("a claimed approval and merge give no round and no end in howl show, and ar
   assert.equal(shown.summary.reviewRounds, 0);
   assert.equal(shown.summary.open, true);
   assert.deepEqual(shown.claimed, [
-    { time: at(5), type: "review.approved", change: "30", actor: { kind: "agent", id: "agent-b" } },
-    { time: at(6), type: "change.merged", change: "30", actor: { kind: "agent", id: "agent-b" } },
+    { time: at(5), type: "review.approved", task: "12", change: "30", actor: { kind: "agent", id: "agent-b" } },
+    { time: at(6), type: "change.merged", task: "12", change: "30", actor: { kind: "agent", id: "agent-b" } },
   ]);
   // Single events are still shown, with their mark.
   assert.deepEqual(
@@ -166,6 +169,82 @@ test("a claimed review does not start a round or end one, beside observed review
   );
   assert.equal(shown.reviews[0]!.followedBy, null);
   assert.equal(handovers(items(events)).length, 2);
+});
+
+test("a change that only a claim names does not keep the assignment open", () => {
+  const events = [
+    opening(),
+    event("claimed", "change.opened", 2, "agent-b", { change: "31", task: "12" }),
+    event("observed", "change.closed", 9, "agent-a", { task: "12" }),
+  ];
+  const shown = show(events, { kind: "task", id: "12" }, null)!;
+  assert.deepEqual(shown.end, { state: "closed", time: at(9), actor: { kind: "agent", id: "agent-a" } });
+});
+
+test("a claim moves no second of the summary: not its parts, its start, its end or who took part", () => {
+  const merge = () => event("observed", "change.merged", 60, "agent-a", { task: "12" });
+  const plain = show([opening(), merge()], { kind: "change", id: "30" }, null)!.summary;
+  assert.deepEqual(plain.parts, { work: 0, person: 0, instructions: 0, checks: 0, review: 3600 });
+  for (const type of ["review.approved", "review.changes_requested", "change.merged", "change.closed", "change.updated"] as const) {
+    const claim = event("claimed", type, 5, "agent-z", { task: "12" });
+    const { summary } = show([opening(), claim, merge()], { kind: "change", id: "30" }, null)!;
+    assert.deepEqual(summary, plain, `a claimed ${type}`);
+  }
+  // Before the opening and after the last observed event of an open change.
+  const early = event("claimed", "change.opened", -10, "agent-z", { task: "12" });
+  const late = event("claimed", "change.merged", 30, "agent-z", { task: "12" });
+  const open = show([early, opening(), event("observed", "review.commented", 20, "agent-b", { task: "12" }), late], { kind: "change", id: "30" }, null)!.summary;
+  assert.equal(open.from, at(0));
+  assert.equal(open.to, at(20));
+  assert.equal(open.seconds, 1200);
+  assert.deepEqual(open.actors.map((a) => a.id).sort(), ["agent-a", "agent-b"]);
+});
+
+test("the task of a handover and the branch of a change are the code host's, not a claim's", () => {
+  const events = [
+    event("claimed", "session.started", -1, "agent-a", { task: "99", branch: "main", session: "s1" }),
+    opening(),
+    event("claimed", "review.commented", 3, "agent-z", { task: "99" }),
+    event("observed", "review.commented", 5, "agent-b"),
+  ];
+  const rows = handovers(items(events));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.task, "12");
+  const shown = show(events, { kind: "change", id: "30" }, null)!;
+  assert.equal(shown.changes[0]!.branch, "task-12-x");
+});
+
+test("a claimed task event is no hand-over: it starts no clock and is listed as claimed", () => {
+  const events = [
+    event("claimed", "task.opened", -30, "agent-z", { task: "12", change: undefined }),
+    event("claimed", "task.assigned", -20, "agent-z", { task: "12", change: undefined }),
+    opening(),
+    event("observed", "change.merged", 60, "agent-a", { task: "12" }),
+    event("claimed", "task.closed", 61, "agent-z", { task: "12", change: undefined }),
+  ];
+  const shown = show(events, { kind: "task", id: "12" }, null)!;
+  assert.deepEqual(shown.handover, []);
+  assert.equal(shown.summary.from, at(0));
+  assert.equal(shown.summary.seconds, 3600);
+  assert.deepEqual(
+    shown.claimed.map((c) => [c.type, c.task]),
+    [
+      ["task.opened", "12"],
+      ["task.assigned", "12"],
+      ["task.closed", "12"],
+    ],
+  );
+  const text = howl(["show", "task:12", "--ledger", ledgerOf(events), "--utc"]).stdout;
+  const lines = text.split("\n");
+  assert.equal(lines[lines.indexOf("Hand-over") + 1], "  given to no one in the ledger");
+  assert.ok(!lines.some((l) => /task (opened|closed) by/.test(l)), text);
+  assert.ok(lines.some((l) => /claimed {2}task\.assigned on task 12 by agent-z$/.test(l)), text);
+  assert.equal(claimText(shown.claimed[1]!), "task.assigned · task 12 · agent-z");
+  // An observed hand-over beside it is the hand-over, as before.
+  const given = event("observed", "task.assigned", -5, "agent-a", { task: "12", change: undefined });
+  const both = show([...events.slice(0, 2), given, ...events.slice(2)], { kind: "task", id: "12" }, null)!;
+  assert.deepEqual(both.handover, [{ time: at(-5), actor: { kind: "agent", id: "agent-a" }, kind: "observed" }]);
+  assert.equal(both.summary.from, at(-5));
 });
 
 test("a script's howl emit review.approved and change.merged, taken in, merge nothing", () => {

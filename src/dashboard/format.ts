@@ -148,9 +148,10 @@ export function headText(h: Head, first: boolean): string {
     .join(" · ");
 }
 
-/** A claim for the change view: `review.approved · change 30 · agent-1`. */
+/** A claim for the change view: `review.approved · change 30 · agent-1`; its task when it names no change. */
 export function claimText(c: Claim): string {
-  return [c.type, c.change !== undefined ? `change ${c.change}` : null, c.actor?.id ?? "someone"].filter(Boolean).join(" · ");
+  const on = c.change !== undefined ? `change ${c.change}` : c.task !== undefined ? `task ${c.task}` : null;
+  return [c.type, on, c.actor?.id ?? "someone"].filter(Boolean).join(" · ");
 }
 
 /** A session for the change view: `agent-1 · fix · 33 min · Bash 54, Read 1`. */
