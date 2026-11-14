@@ -12,6 +12,29 @@ export function filterPairs(text: string): string[] {
   return text.split(/\s+/).filter(Boolean);
 }
 
+/**
+ * #79: the filter text with `field=value` in it, for a click on a value in the
+ * list. A pair of the same field is taken out first: two values of one field
+ * could never both match.
+ */
+export function filterWith(text: string, field: string, value: string): string {
+  return [...filterPairs(text).filter((pair) => !pair.startsWith(`${field}=`)), `${field}=${value}`].join(" ");
+}
+
+/** #79: what tells a row of the event log from every other: its project and its event. */
+export function itemKey(item: Item): string {
+  return `${item.project ?? ""}\u0000${item.event.id}`;
+}
+
+/**
+ * #79: the columns the event log adds. The project, when the server serves
+ * more than one; the repository, when the rows shown come from more than one.
+ */
+export function streamColumns(items: Item[], served: number): { project: boolean; repo: boolean } {
+  const repos = new Set(items.map((item) => item.event.repo).filter((repo) => repo !== undefined));
+  return { project: served > 1, repo: repos.size > 1 };
+}
+
 /** The time of day to the second in a time zone, the viewer's when none is given. */
 export function localTime(time: string, timeZone?: string): string {
   return new Intl.DateTimeFormat("en-GB", {
@@ -39,6 +62,8 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
   const d = (e.data ?? {}) as Record<string, unknown>;
   const actor = e.actor ? `${e.actor.id} (${e.actor.kind === "person" ? "person, pseudonym" : e.actor.kind})` : undefined;
   const fields: (Field | null)[] = [
+    // #79: the line number and the hashes are those of this project's ledger.
+    item.project !== undefined ? { k: "Project", v: item.project } : null,
     item.from === "ledger" ? { k: "Line", v: String(item.n) } : { k: "File", v: ACTIVITY_FILE },
     item.hash !== undefined ? { k: "Line hash", v: item.hash } : null,
     item.from === "ledger" ? { k: "Previous hash", v: item.prev ?? "none: the first line" } : null,
@@ -47,6 +72,7 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
     actor ? { k: "Actor", v: actor } : null,
     item.by !== undefined ? { k: "Acted by", v: `${item.by} (matched to its session)` } : null,
     { k: "Source", v: `${e.source.kind} · ${e.source.adapter}` },
+    e.repo !== undefined ? { k: "Repository", v: e.repo } : null,
     e.task !== undefined ? { k: "Task", v: e.task } : null,
     e.change !== undefined ? { k: "Change", v: e.change } : null,
     e.branch !== undefined ? { k: "Branch", v: e.branch } : null,
