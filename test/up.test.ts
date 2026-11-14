@@ -60,7 +60,8 @@ test("an event sent with the token is a line of the ledger within a second, a to
   assert.equal((await send(running.url, running.token, tool)).status, 200);
   await until(() => lines(running.ws.ledger).some((l) => l.event.id === started.id), 1000, "the event in the ledger");
   await until(() => activity(running).some((raw) => JSON.parse(raw).id === tool.id), 1000, "the tool call in the activity file");
-  assert.deepEqual(inboxFiles(running.ws.inbox), []);
+  // The writer removes the file a moment after it wrote the line: waited for, not looked at once.
+  await until(() => inboxFiles(running.ws.inbox).length === 0, 2000, "the inbox taken in");
   assert.ok(!lines(running.ws.ledger).some((l) => l.event.id === tool.id), "a tool call is not in the chain");
   const verified = howl(["verify", "--ledger", running.ws.ledger]);
   assert.equal(verified.status, 0, verified.stdout);
