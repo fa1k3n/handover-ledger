@@ -1,7 +1,7 @@
 // A running `howl up` for the tests of issue #64: a child process, its server file and its end.
 // @code_class tests
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { folder, PROJECT, workspace, type Workspace } from "./helpers.ts";
@@ -63,11 +63,28 @@ export async function up(setup = observed(), args: string[] = []): Promise<Up> {
   let ended: number | null | undefined;
   const done = new Promise<number | null>((resolve) => child.on("close", (status) => resolve((ended = status))));
   const file = serverFile(ws);
-  await until(() => {
-    if (ended !== undefined) throw new Error(`howl up ended with ${ended}: ${text}`);
-    return existsSync(file);
-  }, 15_000, "the start of howl up");
-  const { url, token } = JSON.parse(readFileSync(file, "utf8")) as { url: string; token: string };
+  /** The server file of this process: not one that was there before it. */
+  const written = (): { url: string; token: string } | null => {
+    try {
+      if (!statSync(file).isFile()) return null;
+      const value = JSON.parse(readFileSync(file, "utf8")) as { url: string; token: string; pid: number };
+      return value.pid === child.pid ? value : null;
+    } catch {
+      return null;
+    }
+  };
+  let found: { url: string; token: string };
+  try {
+    found = await until(() => {
+      if (ended !== undefined) throw new Error(`howl up ended with ${ended}: ${text}`);
+      return written();
+    }, 15_000, "the start of howl up");
+  } catch (e) {
+    // Never left running: a test's process waits for its children.
+    child.kill("SIGKILL");
+    throw e;
+  }
+  const { url, token } = found;
   return {
     ws,
     host,

@@ -1,16 +1,17 @@
 // #64: `howl up`, one process that writes and serves, and takes events over HTTP.
 // @code_class tests
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { request } from "node:http";
 import { after, before, test } from "node:test";
 import { leave } from "../src/inbox/inbox.ts";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
 import { startServer } from "../src/serve/server.ts";
-import { folder, howl, inboxFiles, lines, PROJECT, rawLines } from "./helpers.ts";
+import { folder, git, howl, inboxFiles, lines, PROJECT, rawLines } from "./helpers.ts";
 import { at } from "./local-host.ts";
 import { ledgerWith } from "./helpers.ts";
-import { claim, observed, send, until, up, type Up } from "./up-helpers.ts";
+import { claim, observed, send, serverFile, until, up, type Up } from "./up-helpers.ts";
 
 let running: Up;
 before(async () => {
@@ -100,7 +101,12 @@ test("each refusal gives its status and writes nothing", async () => {
     ["no event", 400, async () => (await send(url, token, { hello: "there" })).status],
     ["an event of a type that is not in the schema", 400, async () => (await send(url, token, claim("made.up"))).status],
     ["another project", 400, async () => (await send(url, token, { ...good(), project: "another" })).status],
-    ["ledger.created", 400, async () => (await send(url, token, claim("ledger.created"))).status],
+    ["ledger.created", 400, async () => (await send(url, token, claim("ledger.created", { data: { mode: "trial" } }))).status],
+    [
+      "an event with data nested too deep to read",
+      400,
+      async () => (await send(url, token, JSON.stringify(good()).replace(/\}$/, `,"data":{"deep":${"[".repeat(100_000)}${"]".repeat(100_000)}}}`))).status,
+    ],
     ["an event that says observed", 400, async () => (await send(url, token, { ...good(), source: { adapter: "github", kind: "observed" } })).status],
   ];
   for (const [name, status, run] of cases) assert.equal(await run(), status, name);
@@ -113,6 +119,9 @@ test("each refusal gives its status and writes nothing", async () => {
 test("a refusal says why, and a GET of /api/events still reads", async () => {
   const refused = await send(running.url, running.token, { ...claim("session.started"), source: { adapter: "x", kind: "observed" } });
   assert.match(((await refused.json()) as { error: string }).error, /claim/);
+  // An event the schema accepts and only the ledger may write: refused for that, not for its form.
+  const created = await send(running.url, running.token, claim("ledger.created", { data: { mode: "trial" } }));
+  assert.match(((await created.json()) as { error: string }).error, /written by the ledger itself/);
   const read = await fetch(`${running.url}/api/events`);
   assert.equal(read.status, 200);
   for (const method of ["PUT", "DELETE", "PATCH"]) {
@@ -150,7 +159,45 @@ test("SIGTERM ends it with 0: the server file is gone, the lock is free, and wha
   assert.ok(!existsSync(mine.file));
   assert.ok(!existsSync(`${mine.ws.ledger}.lock`));
   await assert.rejects(fetch(`${mine.url}/api/agents`));
+  // Taken in by `howl up` itself as it stopped: its rounds are an hour apart, and no other writer has run yet.
+  assert.ok(lines(mine.ws.ledger).some((l) => l.event.id === left.id));
+  assert.deepEqual(inboxFiles(mine.ws.inbox), []);
   const round = howl(["observe", "--once"], { cwd: mine.ws.root, env: mine.ws.env });
   assert.equal(round.status, 0, round.stderr);
-  assert.ok(lines(mine.ws.ledger).some((l) => l.event.id === left.id));
+});
+
+test("at its start howl up clears what a server before it left: server.down, and a server.json that is no file", async () => {
+  const setup = observed();
+  const dir = dirname(setup.ws.ledger);
+  mkdirSync(join(serverFile(setup.ws), "x"), { recursive: true });
+  writeFileSync(join(dir, "server.down"), `${new Date().toISOString()}\n`);
+  const mine = await up(setup);
+  try {
+    assert.ok(statSync(mine.file).isFile());
+    assert.ok(!existsSync(join(dir, "server.down")), "a hook asks the new server at once");
+  } finally {
+    await mine.stop();
+  }
+});
+
+test("howl up --anchor-every writes a checkpoint for lines that came by POST", async () => {
+  const setup = observed();
+  const remote = folder();
+  git(remote, "init", "-q", "--bare");
+  git(setup.ws.root, "init", "-q");
+  git(setup.ws.root, "commit", "-q", "--allow-empty", "-m", "start");
+  git(setup.ws.root, "remote", "add", "origin", remote);
+  // A round every second; the code host shows nothing, so only what is sent writes lines.
+  const mine = await up(setup, ["--interval", "1", "--anchor-every", "60"]);
+  try {
+    const marker = join(dirname(mine.ws.ledger), "anchor.json");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    assert.ok(!existsSync(marker), "no checkpoint while nothing was written");
+    assert.equal((await send(mine.url, mine.token, claim("session.started"))).status, 200);
+    await until(() => existsSync(marker), 10_000, "the checkpoint");
+    const log = git(remote, "log", "--format=%s", "refs/howl/checkpoints").split("\n").filter(Boolean);
+    assert.equal(log.length, 1);
+  } finally {
+    await mine.stop();
+  }
 });

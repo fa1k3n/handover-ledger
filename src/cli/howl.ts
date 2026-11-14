@@ -539,6 +539,8 @@ async function observing(command: "observe" | "up", values: { once?: boolean; in
     writer.close();
     throw e;
   }
+  // #64: the lines written between two rounds, for an event that came in over HTTP: a round's checkpoint covers them.
+  let wroteBetween = 0;
   const once = async () => {
     const round = await observer.round();
     const pass = round.ingested;
@@ -547,7 +549,9 @@ async function observing(command: "observe" | "up", values: { once?: boolean; in
     }
     if (pass.rejected > 0) console.error(`howl: ${pass.rejected} rejected, see ${inboxPath(project)}/rejected`);
     // #18: a checkpoint after a round that wrote lines, at most once per --anchor-every minutes.
-    if (anchorEvery !== null && round.appended + pass.ledger > 0) {
+    const sent = wroteBetween;
+    wroteBetween = 0;
+    if (anchorEvery !== null && round.appended + pass.ledger + sent > 0) {
       const { existsSync, readFileSync: read, writeFileSync } = await import("node:fs");
       const { join, dirname } = await import("node:path");
       const marker = join(dirname(ledgerPath(project)), "anchor.json");
@@ -565,7 +569,7 @@ async function observing(command: "observe" | "up", values: { once?: boolean; in
       }
     }
   };
-  return { found, project, places, writer, interval, once };
+  return { found, project, places, writer, interval, once, wrote: (lines: number) => void (wroteBetween += lines) };
 }
 
 /**
@@ -588,7 +592,8 @@ async function upCommand(args: string[]): Promise<number> {
   const { leave } = await import("../inbox/inbox.ts");
   const { ingestPass } = await import("../inbox/ingest.ts");
   const { LedgerError } = await import("../ledger/errors.ts");
-  const { howlHome, serverPath } = await import("../ledger/place.ts");
+  const { howlHome, projectDir, serverPath } = await import("../ledger/place.ts");
+  const { join } = await import("node:path");
   const { startServer } = await import("../serve/server.ts");
 
   // The writer first: a second `howl up` or `howl observe` of the project is refused here, before anything else.
@@ -600,6 +605,7 @@ async function upCommand(args: string[]): Promise<number> {
     soon = undefined;
     try {
       const pass = ingestPass(o.places, o.writer, o.found.activityDays, Date.now(), { expire: false });
+      o.wrote(pass.ledger);
       if (pass.rejected > 0) console.error(`howl: ${pass.rejected} rejected, see ${o.places.inbox}/rejected`);
     } catch (e) {
       console.error(`howl: the inbox was not taken in: ${(e as Error).message}`);
@@ -625,8 +631,10 @@ async function upCommand(args: string[]): Promise<number> {
         },
       },
     });
-    // The lock is held, so a file that is there was left by a server that did not stop cleanly.
-    rmSync(file, { force: true });
+    // The lock is held, so what is there was left by a server that did not stop cleanly: its file,
+    // and the mark that it did not answer, which would keep the hooks from asking this one.
+    rmSync(file, { force: true, recursive: true });
+    rmSync(join(projectDir(o.project), "server.down"), { force: true, recursive: true });
     writeFileSync(file, `${JSON.stringify({ url: server.url, token, pid: process.pid })}\n`, { mode: 0o600, flag: "wx" });
   } catch (e) {
     signal.off();

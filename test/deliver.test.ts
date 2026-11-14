@@ -68,11 +68,12 @@ after(async () => {
   await running.stop();
 });
 
-// The rounds of this `howl up` are an hour apart. So an event that is in the ledger within a second went
-// through the server: a file the hook had left in the inbox would still lie there.
+// The rounds of this `howl up` are an hour apart. So an event that is in the ledger within seconds went
+// through the server: a file the hook had left in the inbox would still lie there. It takes well under a
+// second; the limit leaves room for a slow machine.
 test("with howl up running, howl hook leaves nothing in the inbox and the event is in the ledger", async () => {
   await hook(running.ws);
-  await until(() => lines(running.ws.ledger).some((l) => l.event.type === "session.started" && l.event.session === "session-1"), 1000, "the event in the ledger");
+  await until(() => lines(running.ws.ledger).some((l) => l.event.type === "session.started" && l.event.session === "session-1"), 3000, "the event in the ledger");
   assert.deepEqual(inboxFiles(running.ws.inbox), []);
   assert.ok(!existsSync(down(running.ws)));
 });
@@ -81,7 +82,7 @@ test("with howl up running, howl emit goes the same way", async () => {
   const result = await howlAsync(["emit", "checks.passed", "--change", "123"], { cwd: running.ws.root, env: running.ws.env });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
-  await until(() => lines(running.ws.ledger).some((l) => l.event.type === "checks.passed" && l.event.change === "123"), 1000, "the event in the ledger");
+  await until(() => lines(running.ws.ledger).some((l) => l.event.type === "checks.passed" && l.event.change === "123"), 3000, "the event in the ledger");
   assert.deepEqual(inboxFiles(running.ws.inbox), []);
 });
 
@@ -140,8 +141,8 @@ test("with a server that takes the connection and never answers, the hook ends i
     pointAt(ws, `http://127.0.0.1:${(silent.address() as AddressInfo).port}`);
     const plain = await hook(workspace());
     const took = await hook(ws);
-    // The wait for the server on top of what a hook takes anyway on this machine, with room for a slow one.
-    assert.ok(took - plain < SERVER_TIMEOUT_MS + 2000, `${took} ms against ${plain} ms without a server`);
+    // Within a second on top of what a hook takes anyway on this machine: the limit, and room for a slow start.
+    assert.ok(took - plain < SERVER_TIMEOUT_MS + 500, `${took} ms against ${plain} ms without a server`);
     assert.equal(inboxFiles(ws.inbox).length, 1);
     assert.ok(existsSync(down(ws)));
   } finally {
@@ -178,6 +179,74 @@ test("a server file that names another machine, has no token, or cannot be read,
   }
   assert.equal(inboxFiles(ws.inbox).length, 3);
   assert.ok(!existsSync(down(ws)));
+});
+
+test("a server file whose token cannot go into a header loses nothing: the inbox, silently", async () => {
+  const server = await answering(200);
+  try {
+    for (const token of ["line\nbreak", "snow\u2603man", ""]) {
+      const ws = workspace();
+      mkdirSync(dirname(ws.ledger), { recursive: true });
+      writeFileSync(serverFile(ws), JSON.stringify({ url: server.url, token, pid: process.pid }));
+      await hook(ws);
+      assert.equal(inboxFiles(ws.inbox).length, 1, JSON.stringify(token));
+      const emitted = await howlAsync(["emit", "checks.passed"], { cwd: ws.root, env: ws.env });
+      assert.equal(emitted.status, 0, emitted.stderr);
+      assert.equal(emitted.stderr, "");
+      assert.equal(inboxFiles(ws.inbox).length, 2);
+    }
+    assert.equal(server.calls.length, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test("a server file that is a pipe or a folder does not hold the hook up", async () => {
+  for (const make of [(path: string) => spawnSync("mkfifo", [path]), (path: string) => mkdirSync(path)]) {
+    const ws = workspace();
+    mkdirSync(dirname(ws.ledger), { recursive: true });
+    make(serverFile(ws));
+    const result = await Promise.race([hook(ws), new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))]);
+    assert.notEqual(result, null, "the hook ended");
+    assert.equal(inboxFiles(ws.inbox).length, 1);
+  }
+});
+
+test("a server that answers 200 with anything but ok has not taken the event", async () => {
+  const ws = workspace();
+  const calls: number[] = [];
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      calls.push(1);
+      res.writeHead(200, { "content-type": "text/html" }).end("<p>hello</p>");
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    pointAt(ws, `http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    await hook(ws);
+    assert.equal(calls.length, 1);
+    assert.equal(inboxFiles(ws.inbox).length, 1);
+    assert.ok(!existsSync(down(ws)), "it answered: it is not down");
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("a server.down from a time to come does not keep the server from being asked", async () => {
+  const ws = workspace();
+  const server = await answering(200);
+  try {
+    pointAt(ws, server.url);
+    writeFileSync(down(ws), `${new Date(Date.now() + 365 * 86_400_000).toISOString()}\n`);
+    await hook(ws);
+    assert.equal(server.calls.length, 1);
+    assert.deepEqual(inboxFiles(ws.inbox), []);
+  } finally {
+    await server.close();
+  }
 });
 
 test("a server file left by a process that is gone sends nothing to whatever has its port now", async () => {

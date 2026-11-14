@@ -10,7 +10,7 @@
 // but a 200 leaves the event in the inbox, and a server that does not answer
 // is not asked again for a minute.
 // @code_class recording
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fixedForm } from "../ledger/fixed.ts";
 import { inboxPath, projectDir, serverPath } from "../ledger/place.ts";
@@ -37,8 +37,12 @@ const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 /** What `server.json` says, when it names a server on this machine, a token and a process that is alive; else null. */
 export function readServerFile(path: string): ServerFile | null {
   try {
+    // A plain, small file only: a pipe or a device in its place would hold the hook up.
+    const stat = statSync(path);
+    if (!stat.isFile() || stat.size > 64 * 1024) return null;
     const value = JSON.parse(readFileSync(path, "utf8")) as Partial<ServerFile> | null;
-    if (typeof value?.url !== "string" || typeof value.token !== "string" || value.token === "") return null;
+    // A token that cannot stand in a header is no token.
+    if (typeof value?.url !== "string" || typeof value.token !== "string" || !/^[\x21-\x7e]+$/.test(value.token)) return null;
     if (typeof value.pid !== "number" || !Number.isInteger(value.pid) || value.pid <= 0 || !alive(value.pid)) return null;
     const url = new URL(value.url);
     if (url.protocol !== "http:" || !LOOPBACK.has(url.hostname)) return null;
@@ -68,24 +72,32 @@ export async function deliver(project: string, event: LedgerEvent, env: Env): Pr
   if (server === null) return leave(inbox, event);
   const down = join(projectDir(project, env), "server.down");
   if (recentlyDown(down, SERVER_PAUSE_MS)) return leave(inbox, event);
-  const status = await post(server, fixedForm(event));
-  if (status === 200) return null;
-  if (status === null) markDown(down);
+  let answer: Answer;
+  try {
+    answer = await post(server, fixedForm(event));
+  } catch {
+    // Whatever goes wrong in asking, the event is not lost.
+    return leave(inbox, event);
+  }
+  if (answer === "taken") return null;
+  if (answer === "silent") markDown(down);
   return leave(inbox, event);
 }
 
-/** The status the server answers with, or null when it does not answer in time. */
-async function post(server: ServerFile, body: Buffer): Promise<number | null> {
+/** taken: 200 and `{"ok": true}`. refused: any other answer. silent: no answer in time. */
+type Answer = "taken" | "refused" | "silent";
+
+async function post(server: ServerFile, body: Buffer): Promise<Answer> {
   // Loaded only when there is a server to ask: a hook without one starts as quickly as before.
   const { request } = await import("node:http");
-  return await new Promise<number | null>((resolve) => {
+  return await new Promise<Answer>((resolve) => {
     let done = false;
-    const finish = (status: number | null) => {
+    const finish = (answer: Answer) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       req.destroy();
-      resolve(status);
+      resolve(answer);
     };
     const req = request(
       new URL("/api/events", server.url),
@@ -96,12 +108,30 @@ async function post(server: ServerFile, body: Buffer): Promise<number | null> {
         headers: { "content-type": "application/json", "content-length": body.length, authorization: `Bearer ${server.token}`, connection: "close" },
       },
       (res) => {
-        res.resume();
-        finish(res.statusCode ?? null);
+        if (res.statusCode !== 200) {
+          res.resume();
+          finish("refused");
+          return;
+        }
+        // Only howl's own answer counts: another program on the port may say 200 to anything.
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          if (text.length > 1024) finish("refused");
+        });
+        res.on("end", () => {
+          try {
+            finish((JSON.parse(text) as { ok?: unknown } | null)?.ok === true ? "taken" : "refused");
+          } catch {
+            finish("refused");
+          }
+        });
+        res.on("error", () => finish("refused"));
       },
     );
-    const timer = setTimeout(() => finish(null), SERVER_TIMEOUT_MS);
-    req.on("error", () => finish(null));
+    const timer = setTimeout(() => finish("silent"), SERVER_TIMEOUT_MS);
+    req.on("error", () => finish("silent"));
     req.end(body);
   });
 }
