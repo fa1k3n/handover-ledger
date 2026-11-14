@@ -48,6 +48,52 @@ test("a value in quotes that holds a space or a sign is not cut: the program aft
   check(`export A="x ${MARK}" && make`, "export");
 });
 
+test("the forms of a value a shell knows beyond plain quotes keep nothing either", () => {
+  // An array: its elements are a value.
+  check(`TOKENS=(${MARK}123 other); make`, "make");
+  check(`ARGS=(--token ${MARK}) curl https://example.invalid`, "curl");
+  check(`ARGS+=("a ${MARK}" 'b c') make`, "make");
+  check(`X+="more ${MARK}" make`, "make");
+  // Quotes in the ANSI-C form, where \' does not close.
+  check(`A=$'x\\' ${MARK} \\'' ls`, "ls");
+  // A backquote that is escaped does not close the substitution.
+  check(`X=\`a \\\` ${MARK} \\\`\` make`, "make");
+  // Only a space, a tab and a line break part words: other white signs are part of a value.
+  check(`X=a\u00a0${MARK} make`, "make");
+  check(`X=a\r${MARK} make`, "make");
+  check(`X=a\u3000${MARK} make`, "make");
+  // The old form of arithmetic.
+  check(`X=$[ ${MARK} + 1 ] make`, "make");
+  // A redirection before the program: its file is no program.
+  check(`2>/dev/null make`, "make");
+  check(`>/tmp/x/${MARK} make`, "make");
+  check(`> /tmp/x/${MARK} 2>&1 make`, "make");
+  check(`< "/tmp/in ${MARK}" make`, "make");
+});
+
+test("what a reader this small cannot follow gives no target, and never a part of a value", () => {
+  // A `case` inside a substitution: its `)` does not close it.
+  check(`X=$(case y in a) ${MARK};; esac) make`, undefined);
+  // A here-document before the program.
+  check(`<<EOF cat\n${MARK}\nEOF`, undefined);
+});
+
+test("a very long command and one nested very deep are read in time, and the event is written", () => {
+  const long = `X=${"'a/b'".repeat(40_000)} make`;
+  const started = Date.now();
+  check(long, "make");
+  const took = Date.now() - started;
+  const short = Date.now();
+  check("make", "make");
+  assert.ok(took - (Date.now() - short) < 500, `${took} ms for ${long.length} characters`);
+  // Nested deeper than a reader should follow: no target, but the tool call is recorded.
+  const deep = `${'X="$('.repeat(5000)}x${')"'.repeat(5000)} make`;
+  const event = eventOf(deep);
+  assert.equal(event.type, "tool.used");
+  assert.equal(event.data?.target, undefined);
+  assert.equal(event.data?.outcome, "succeeded");
+});
+
 test("what cannot be told safely gives no target", () => {
   check(`X="never closed ${MARK} curl`, undefined);
   check(`X='never closed ${MARK} curl`, undefined);
