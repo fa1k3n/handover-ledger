@@ -32,15 +32,38 @@ test("outside the reader, src/ledger and src/inbox, no source names the two file
   for (const path of sources()) {
     const file = relative(SRC, path).split("\\").join("/");
     if (keeps(file)) continue;
-    readFileSync(path, "utf8")
-      .split("\n")
-      .forEach((line, i) => {
-        if (/ledger\.jsonl|activity\.jsonl/.test(line)) faults.push(`${file}:${i + 1} names a file`);
-        // A line of the ledger is `{prev, hash, event}`: a parse that is read as one.
-        if (/JSON\.parse\(.*\)\s+as\s+\{[^}]*\b(prev|event)\b/.test(line)) faults.push(`${file}:${i + 1} parses a line`);
-      });
+    const text = readFileSync(path, "utf8");
+    text.split("\n").forEach((line, i) => {
+      if (/ledger\.jsonl|activity\.jsonl/.test(line)) faults.push(`${file}:${i + 1} names a file`);
+    });
+    faults.push(...parsesLine(text).map((what) => `${file} ${what}`));
   }
   assert.deepEqual(faults, []);
+});
+
+/** What in a source reads or parses the ledger or the activity file itself. Statement by statement, so a wrapped line counts. */
+function parsesLine(text: string): string[] {
+  const found: string[] = [];
+  for (const statement of text.split(";")) {
+    const one = statement.replace(/\s+/g, " ").trim();
+    // A line of the ledger is `{prev, hash, event}`: a parse that is read as one, with or without a cast.
+    if (/JSON\.parse\(/.test(one) && (/\bas \{[^}]*\b(prev|event)\b/.test(one) || /JSON\.parse\([^;]*\)\)?\.(event|prev)\b/.test(one))) {
+      found.push(`parses a line: ${one.slice(0, 80)}`);
+    }
+    // One of the two files opened by its path.
+    if (/\b(readFileSync|openSync|createReadStream)\(\s*(ledger|activity)\w*\(?/i.test(one)) found.push(`opens a file: ${one.slice(0, 80)}`);
+  }
+  return found;
+}
+
+test("the source test finds a parse with no cast, a wrapped cast and a file opened by its path", () => {
+  assert.equal(parsesLine("const e = JSON.parse(raw).event;").length, 1);
+  assert.equal(parsesLine("const e = (JSON.parse(raw) as\n  {\n    event: X }).event;").length, 1);
+  assert.equal(parsesLine("const l = JSON.parse(raw) as { prev: string | null };").length, 1);
+  assert.equal(parsesLine("const t = readFileSync(ledgerPath(project), \"utf8\");").length, 1);
+  assert.equal(parsesLine("const fd = openSync(ledger, \"r\");").length, 1);
+  assert.equal(parsesLine("const t = readFileSync(activityBeside(ledger));").length, 1);
+  assert.deepEqual(parsesLine("const c = JSON.parse(kept.text) as Checkpoint; const s = readFileSync(file, \"utf8\"); statSync(ledger);"), []);
 });
 
 test("one byTime: no other source sorts events by time", () => {
@@ -176,6 +199,10 @@ test("the server's lines are the reader's: the same numbers and hashes", async (
       body.events.map((e) => [e.n, e.hash, e.prev, e.raw]),
       byTime(lines).map((l) => [l.n, l.hash, l.prev, l.raw]),
     );
+    // The keys in the order the server sent them before this step: its answers are the same byte for byte.
+    const withTools = (await (await fetch(`${server.url}/api/events?limit=5000&activity=1`)).json()) as { events: { from: string }[] };
+    assert.deepEqual(Object.keys(withTools.events.find((e) => e.from === "ledger")!), ["n", "from", "hash", "prev", "event", "raw"]);
+    assert.deepEqual(Object.keys(withTools.events.find((e) => e.from === "activity")!), ["from", "event", "raw"]);
   } finally {
     await server.close();
   }
