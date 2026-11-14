@@ -3,11 +3,11 @@
 export const texts = {
   brand: "Handover",
   brandSub: "Ledger",
-  nav: { label: "Main menu", overview: "Overview", stream: "Team and stream", change: "Change" },
+  nav: { label: "Main menu", overview: "Overview", stream: "Events", change: "Change" },
   project: "Project",
   via: (account: string) => `via ${account}`,
   matched: "(matched)",
-  title: "Team and event stream",
+  title: "Events",
   subtitle: "Read-only · times in local time",
   verified: (lines: number) => `Ledger verified · ${lines} lines`,
   broken: (line: number) => `Chain broken at line ${line}`,

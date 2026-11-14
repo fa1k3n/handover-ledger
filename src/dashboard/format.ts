@@ -168,6 +168,21 @@ export function hashFor(view: View, project: string | null, what: string | null 
   return query ? `#${view}?${query}` : `#${view}`;
 }
 
+/**
+ * #81: whether the project menu shows. The overview and the change view are of
+ * one project, so the menu steers them; the event log is every project the
+ * server serves (#79), so it steers nothing there. Not for a server of one
+ * ledger, as before.
+ */
+export function menuShown(view: View, projects: { single: boolean } | null): boolean {
+  return view !== "stream" && projects !== null && !projects.single;
+}
+
+/** #81: where "needs input" leads: the overview, which starts with the team. */
+export function needsInputHref(project: string | null): string {
+  return hashFor("overview", project);
+}
+
 /** A head of a change for the change view: `new head 399a7cb by agent-1 (matched) · checks failed`. */
 export function headText(h: Head, first: boolean): string {
   return [`${first ? "head" : "new head"} ${h.sha.slice(0, 7)}${h.by ? ` by ${h.by} (matched)` : ""}`, h.checks ? `checks ${h.checks}` : null]
