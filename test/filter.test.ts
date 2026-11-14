@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { DEFAULT_FILTER, filterTexts, filterWith } from "../src/dashboard/format.ts";
+import { DEFAULT_FILTER, filterTexts, filterWith, resetFilter } from "../src/dashboard/format.ts";
 import { isPair } from "../src/read/filter-text.ts";
 import { readFilters, wantsActivity } from "../src/read/filter.ts";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
@@ -195,6 +195,12 @@ test("#82: the event log starts with the tool calls filtered out, said in the fi
   // On pairs, and on nothing, it stays a pair, as before.
   assert.equal(filterWith("actor=agent-1", "project", "a"), "actor=agent-1 project=a");
   assert.equal(filterWith("", "project", "a"), "project=a");
+});
+
+test("#82: the button under the filter line puts the default back, never nothing: tool calls do not come by themselves", () => {
+  assert.equal(resetFilter(), DEFAULT_FILTER);
+  assert.ok(!kept(resetFilter()).types.includes("tool.used"));
+  assert.deepEqual(filterTexts(resetFilter()), [DEFAULT_FILTER]);
 });
 
 test("#82: the library is howl's second runtime dependency, at an exact version, and the page does not load it", () => {

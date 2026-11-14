@@ -21,6 +21,15 @@ export function filterPairs(text: string): string[] {
 export const DEFAULT_FILTER = 'event.type != "tool.used"';
 
 /**
+ * #82: what the filter line holds after its button. The default, never
+ * nothing: tool calls are many, and they do not come into the list by
+ * themselves. Whoever wants them takes the clause out of the line.
+ */
+export function resetFilter(): string {
+  return DEFAULT_FILTER;
+}
+
+/**
  * #82: the filter text as the texts the server takes: pairs one by one, as
  * before; anything else whole, as one CEL expression.
  */

@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, DEFAULT_FILTER, detail, filterTexts, filterWith, hashFor, itemKey, menuShown, needsInputHref, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
+import { concerns, decodedFields, DEFAULT_FILTER, detail, filterTexts, filterWith, hashFor, resetFilter, itemKey, menuShown, needsInputHref, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -513,12 +513,14 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
           <button
             type="button"
             onClick={() => {
-              setDraft("");
-              setFilters([]);
+              // Back to the default, not to nothing: the tool calls stay out until the reader takes the clause away.
+              const next = resetFilter();
+              setDraft(next);
+              setFilters(filterTexts(next));
             }}
             className={`${button} border border-pale bg-white text-ink`}
           >
-            {texts.stream.clear}
+            {texts.stream.reset}
           </button>
           <span className={`basis-full text-[13px] ${filterError ? "text-error-ink" : "text-mute"}`} role={filterError ? "alert" : undefined}>
             {filterError ?? texts.stream.filterHint}
