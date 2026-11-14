@@ -1,8 +1,6 @@
 // Generated from schema/event.v0.schema.json by `npm run gen`. Do not edit.
 // @code_class evidence
 
-export type Name = string;
-
 /**
  * Something that happened, and who or what did it. An event does not know its place in a ledger: that belongs to the line.
  */
@@ -28,17 +26,10 @@ export interface LedgerEvent {
     | "change.opened"
     | "change.updated"
     | "change.merged"
-    | "tests.written"
     | "checks.passed"
     | "checks.failed"
     | "review.approved"
     | "review.changes_requested"
-    | "finding.fixed"
-    | "finding.dismissed"
-    | "finding.left_open"
-    | "level.changed"
-    | "rule.broken"
-    | "escalation.raised"
     | "session.started"
     | "tool.used"
     | "agent.waiting"
@@ -81,10 +72,6 @@ export interface LedgerEvent {
     id: string;
   };
   /**
-   * The team the event belongs to.
-   */
-  team?: string;
-  /**
    * For an agent: the session the event comes from.
    */
   session?: string;
@@ -114,10 +101,6 @@ export interface LedgerEvent {
     sha256: string;
   };
   /**
-   * Version of the rules in force: the commit they ran from.
-   */
-  rules?: string;
-  /**
    * The repository the event concerns.
    */
   repo?: string;
@@ -137,26 +120,6 @@ export interface LedgerEvent {
    * The head commit.
    */
   sha?: string;
-  /**
-   * IDs of the requirements the event is linked to.
-   */
-  requirements?: Name[];
-  /**
-   * IDs of the clauses of those requirements.
-   */
-  clauses?: Name[];
-  /**
-   * Names of the tests that cover them.
-   */
-  tests?: Name[];
-  /**
-   * The level of autonomy in force.
-   */
-  level?: number;
-  /**
-   * The code class.
-   */
-  class?: string;
   /**
    * The Ed25519 signature of the event's fixed form without sig, by the key of an assignment (key.issued) or by the issuer.
    */

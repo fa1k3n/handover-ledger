@@ -101,4 +101,4 @@ The first entries of the ledger are the commissioning: the instance created, the
 
 ## What to build first
 
-Only the trial mode and one instance with one project. But give every event a project ID and a team ID from the first version: cheap now, costly to add later.
+Only the trial mode and one instance with one project. But give every event a project ID from the first version: cheap now, costly to add later. A team ID was meant to come with it; it left the schema on 2026-11-14, as nothing says yet where a team comes from, and comes back with the step that writes it.

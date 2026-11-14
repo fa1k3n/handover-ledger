@@ -30,14 +30,14 @@ test("howl emit with a type and data gives one inbox file", () => {
 
 test("howl emit without an actor writes the event with no actor", () => {
   const ws = workspace({ actor: null });
-  assert.equal(howl(["emit", "tests.written"], { cwd: ws.root, env: ws.env }).status, 0);
+  assert.equal(howl(["emit", "checks.passed"], { cwd: ws.root, env: ws.env }).status, 0);
   assert.equal(inboxEvents(ws.inbox)[0]?.actor, undefined);
 });
 
 test("howl emit takes the actor from .howl/actor", () => {
   const ws = workspace({ actor: null });
   writeFileSync(join(ws.root, ".howl", "actor"), "agent-from-file\n");
-  assert.equal(howl(["emit", "tests.written"], { cwd: ws.root, env: ws.env }).status, 0);
+  assert.equal(howl(["emit", "checks.passed"], { cwd: ws.root, env: ws.env }).status, 0);
   assert.deepEqual(inboxEvents(ws.inbox)[0]?.actor, { kind: "agent", id: "agent-from-file" });
 });
 
