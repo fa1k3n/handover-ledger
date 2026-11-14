@@ -42,8 +42,12 @@ export interface Pass {
 
 const DAY = 86_400_000;
 
-/** One pass over the inbox, with the writer of the ledger held by the caller. */
-export function ingestPass(places: Places, writer: LedgerWriter, activityDays: number, now = Date.now()): Pass {
+/**
+ * One pass over the inbox, with the writer of the ledger held by the caller.
+ * `expire: false` leaves the old activity lines for a later pass: looking for
+ * them reads the whole activity file, too much for a pass per event (#64).
+ */
+export function ingestPass(places: Places, writer: LedgerWriter, activityDays: number, now = Date.now(), options: { expire?: boolean } = {}): Pass {
   const pass: Pass = { ledger: 0, activity: 0, rejected: 0, duplicates: 0, expired: 0 };
   let names: string[] = [];
   try {
@@ -80,7 +84,7 @@ export function ingestPass(places: Places, writer: LedgerWriter, activityDays: n
     }
   }
 
-  pass.expired = expire(places.activity, now - activityDays * DAY);
+  if (options.expire !== false) pass.expired = expire(places.activity, now - activityDays * DAY);
   return pass;
 }
 
@@ -92,6 +96,11 @@ function parse(text: string, project: string): LedgerEvent {
   } catch {
     throw new LedgerError("the file is not JSON");
   }
+  return eventOf(value, project);
+}
+
+/** A value as an event the writer of `project` can take in; a LedgerError says why not. Shared with the server's POST (#64). */
+export function eventOf(value: unknown, project: string): LedgerEvent {
   const faults = eventFaults(value);
   if (faults.length > 0) throw new LedgerError(`not a valid event: ${faults.join("; ")}`);
   const event = value as LedgerEvent;

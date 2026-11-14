@@ -1,10 +1,15 @@
-// `howl serve`: the dashboard's server. It answers on 127.0.0.1 only, serves the
-// built page and read-only JSON over the ledger and the activity file. It takes
-// no lock and never writes.
+// The dashboard's server, for `howl serve` and `howl up`. It answers on
+// 127.0.0.1 only, serves the built page and read-only JSON over the ledger and
+// the activity file. It takes no lock and never writes.
+//
+// With `write` (`howl up`, #64) a POST of /api/events is handed to
+// `src/inbox/receive.ts`, which decides what the writer takes. This module
+// only reads. Without `write` every POST is refused, as before.
 // @code_class reading
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { basename, dirname, extname, join, normalize, sep } from "node:path";
+import { receive, type Write } from "../inbox/receive.ts";
 import { LedgerError } from "../ledger/errors.ts";
 import { LEDGER_FILE } from "../ledger/names.ts";
 import { isProjectName } from "../ledger/place.ts";
@@ -32,6 +37,8 @@ export interface ServeOptions {
   host?: string;
   /** For the default project (or the one ledger) only: it comes from that project's howl.yml. */
   taskFromBranch?: RegExp;
+  /** #64: the writer behind this server. Without it the server only reads. */
+  write?: Write;
 }
 
 interface Project {
@@ -85,6 +92,10 @@ export async function startServer(options: ServeOptions): Promise<Served> {
 
   const server = createServer((req, res) => {
     try {
+      if (options.write !== undefined && req.method === "POST" && pathOf(req) === "/api/events") {
+        receive(req, res, options.write);
+        return;
+      }
       handle(req, res, options, ledgerVerdict);
     } catch (e) {
       const status = e instanceof LedgerError ? 400 : 500;
@@ -106,6 +117,14 @@ export async function startServer(options: ServeOptions): Promise<Served> {
         server.close(() => resolve());
       }),
   };
+}
+
+function pathOf(req: IncomingMessage): string {
+  try {
+    return new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+  } catch {
+    return "";
+  }
 }
 
 /** The projects served: the one ledger, or every folder of the home that holds a ledger, by name. */

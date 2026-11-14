@@ -17,6 +17,7 @@ const USAGE = `usage:
   howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
   howl ingest [--project <name>] [--watch] [--interval <seconds>]
   howl observe [--once] [--interval <seconds>] [--since <date | now>] [--anchor-every <minutes>]
+  howl up [--port <n>] [--interval <seconds>] [--since <date | now>] [--anchor-every <minutes>]
   howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--utc] [--json] [--no-follow]
   howl show <task or change> [--utc] [--json]
   howl status [--follow] [--json]
@@ -39,14 +40,20 @@ const USAGE = `usage:
             holds the key and the session gets a token instead
   keyd      a signing service that holds the keys, so a session never sees one.
             Run it as another user for the keys to be out of the sessions' reach
-  hook      called by the hooks of Claude Code: leaves an event in the inbox.
-            Prints nothing and always ends with 0
-  emit      leave an event in the inbox from a script
+  hook      called by the hooks of Claude Code: hands an event to howl up
+            when it runs, else leaves it in the inbox. Prints nothing and
+            always ends with 0
+  emit      an event from a script, delivered as the hook delivers one
   ingest    the one writer: bring the inbox into the ledger and the activity file
   observe   the one writer a team keeps running: each round brings the inbox in
             and records what happened at the code host since the last round.
             Read access is enough. GitHub: a token from $HOWL_GITHUB_TOKEN,
             else $GITHUB_TOKEN, else \`gh auth token\`
+  up        observe and serve in one process, for a team to start once: the
+            one writer of the project, the dashboard on http://127.0.0.1:4317
+            and POST /api/events, where the hook and howl emit send their
+            events while it runs. It says where it is, with a token, in
+            server.json in the project's folder, and removes it when it stops
   watch     print the events of the ledger, then follow them. --activity adds
             the tool calls of the activity file; a filter on type=tool.used
             does too. A field and a value filter: type=review.*, actor=agent-1,
@@ -119,6 +126,8 @@ async function main(argv: string[]): Promise<number> {
         return await ingestCommand(rest);
       case "observe":
         return await observeCommand(rest);
+      case "up":
+        return await upCommand(rest);
       case "watch":
         return await watchCommand(rest);
       case "show":
@@ -417,7 +426,7 @@ async function emitCommand(args: string[]): Promise<number> {
   const { emit } = await import("../howl/emit.ts");
   const { LedgerError } = await import("../ledger/errors.ts");
   try {
-    emit({ type, ...values }, process.env, process.cwd());
+    await emit({ type, ...values }, process.env, process.cwd());
     return 0;
   } catch (e) {
     if (!(e instanceof LedgerError)) throw e;
@@ -467,6 +476,15 @@ async function observeCommand(args: string[]): Promise<number> {
     since: { type: "string" },
     "anchor-every": { type: "string" },
   });
+  const o = await observing("observe", values);
+  return await repeat(values.once ? null : o.interval, o.once, () => o.writer.close(), signal);
+}
+
+/**
+ * What `howl observe` and `howl up` share: the one writer of the project of
+ * the working directory, held until its `writer` is closed, and one round.
+ */
+async function observing(command: "observe" | "up", values: { once?: boolean; interval?: string; since?: string; "anchor-every"?: string }) {
   const anchorEvery = values["anchor-every"] === undefined ? null : Number(values["anchor-every"]);
   if (anchorEvery !== null && !(anchorEvery > 0)) throw new UsageError("--anchor-every must be a number of minutes above 0");
   const { findProject } = await import("../howl/project.ts");
@@ -477,7 +495,7 @@ async function observeCommand(args: string[]): Promise<number> {
   const { LedgerError } = await import("../ledger/errors.ts");
 
   const found = findProject(process.cwd());
-  if (!found) throw new UsageError("observe needs a .howl/howl.yml above the working directory");
+  if (!found) throw new UsageError(`${command} needs a .howl/howl.yml above the working directory`);
   const interval = values.interval === undefined ? 60 : Number(values.interval);
   if (!(interval > 0)) throw new UsageError("--interval must be a number of seconds above 0");
   if (found.taskFromBranch !== undefined) {
@@ -502,6 +520,7 @@ async function observeCommand(args: string[]): Promise<number> {
   const host = await codeHost(found);
 
   const { project } = found;
+  const places = { project, inbox: inboxPath(project), activity: activityPath(project) };
   const writer = openLedger(ledgerPath(project), { project });
   let observer;
   try {
@@ -509,7 +528,7 @@ async function observeCommand(args: string[]): Promise<number> {
       host,
       writer,
       ledgerPath: ledgerPath(project),
-      places: { project, inbox: inboxPath(project), activity: activityPath(project) },
+      places,
       cursorPath: cursorPath(project),
       people: new People(peoplePath(project)),
       settings: found,
@@ -520,6 +539,8 @@ async function observeCommand(args: string[]): Promise<number> {
     writer.close();
     throw e;
   }
+  // #64: the lines written between two rounds, for an event that came in over HTTP: a round's checkpoint covers them.
+  let wroteBetween = 0;
   const once = async () => {
     const round = await observer.round();
     const pass = round.ingested;
@@ -528,7 +549,9 @@ async function observeCommand(args: string[]): Promise<number> {
     }
     if (pass.rejected > 0) console.error(`howl: ${pass.rejected} rejected, see ${inboxPath(project)}/rejected`);
     // #18: a checkpoint after a round that wrote lines, at most once per --anchor-every minutes.
-    if (anchorEvery !== null && round.appended + pass.ledger > 0) {
+    const sent = wroteBetween;
+    wroteBetween = 0;
+    if (anchorEvery !== null && round.appended + pass.ledger + sent > 0) {
       const { existsSync, readFileSync: read, writeFileSync } = await import("node:fs");
       const { join, dirname } = await import("node:path");
       const marker = join(dirname(ledgerPath(project)), "anchor.json");
@@ -546,7 +569,100 @@ async function observeCommand(args: string[]): Promise<number> {
       }
     }
   };
-  return await repeat(values.once ? null : interval, once, () => writer.close(), signal);
+  return { found, project, places, writer, interval, once, wrote: (lines: number) => void (wroteBetween += lines) };
+}
+
+/**
+ * #64: `howl observe` and `howl serve` in one process, and the way in for the
+ * events of the hook and of `howl emit` while it runs.
+ */
+async function upCommand(args: string[]): Promise<number> {
+  const signal = stopSignal();
+  const { values } = parse(args, {
+    port: { type: "string" },
+    interval: { type: "string" },
+    since: { type: "string" },
+    "anchor-every": { type: "string" },
+  });
+  const port = values.port === undefined ? 4317 : Number(values.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError("--port must be a port number");
+  const { randomBytes } = await import("node:crypto");
+  const { existsSync, rmSync, writeFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { leave } = await import("../inbox/inbox.ts");
+  const { ingestPass } = await import("../inbox/ingest.ts");
+  const { LedgerError } = await import("../ledger/errors.ts");
+  const { howlHome, projectDir, serverPath } = await import("../ledger/place.ts");
+  const { join } = await import("node:path");
+  const { startServer } = await import("../serve/server.ts");
+
+  // The writer first: a second `howl up` or `howl observe` of the project is refused here, before anything else.
+  const o = await observing("up", values);
+  // An event that comes in is left in the inbox, as a hook leaves one, and the inbox is taken in at once:
+  // those that come together in one pass. The old activity lines are left for the rounds.
+  let soon: NodeJS.Timeout | undefined;
+  const takeIn = () => {
+    soon = undefined;
+    try {
+      const pass = ingestPass(o.places, o.writer, o.found.activityDays, Date.now(), { expire: false });
+      o.wrote(pass.ledger);
+      if (pass.rejected > 0) console.error(`howl: ${pass.rejected} rejected, see ${o.places.inbox}/rejected`);
+    } catch (e) {
+      console.error(`howl: the inbox was not taken in: ${(e as Error).message}`);
+    }
+  };
+  const token = randomBytes(32).toString("hex");
+  const file = serverPath(o.project);
+  const root = fileURLToPath(new URL("../../dist/dashboard", import.meta.url));
+  let server;
+  try {
+    server = await startServer({
+      home: howlHome(),
+      defaultProject: o.project,
+      port,
+      root,
+      taskFromBranch: await branchPattern(),
+      write: {
+        project: o.project,
+        token,
+        take: (event) => {
+          leave(o.places.inbox, event);
+          soon ??= setTimeout(takeIn, 50);
+        },
+      },
+    });
+    // The lock is held, so what is there was left by a server that did not stop cleanly: its file,
+    // and the mark that it did not answer, which would keep the hooks from asking this one.
+    rmSync(file, { force: true, recursive: true });
+    rmSync(join(projectDir(o.project), "server.down"), { force: true, recursive: true });
+    writeFileSync(file, `${JSON.stringify({ url: server.url, token, pid: process.pid })}\n`, { mode: 0o600, flag: "wx" });
+  } catch (e) {
+    signal.off();
+    o.writer.close();
+    await server?.close();
+    if ((e as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      throw new LedgerError(`port ${port} is taken: is howl serve or another howl up running? Give another with --port`);
+    }
+    throw e;
+  }
+  console.log(`howl up: ${server.url} (the writer of ${o.project}; every project in ${howlHome()} is shown, read-only)`);
+  if (!existsSync(`${root}/index.html`)) {
+    console.error("howl: the page is not built (npm run build:dashboard): the writer and the API run without it");
+  }
+  try {
+    return await repeat(o.interval, o.once, () => {}, signal);
+  } finally {
+    // The file first, so that no hook sends to a server that is closing.
+    rmSync(file, { force: true });
+    await server.close();
+    clearTimeout(soon);
+    try {
+      ingestPass(o.places, o.writer, o.found.activityDays, Date.now(), { expire: false });
+    } catch {
+      // What is left in the inbox is taken in by the next writer.
+    }
+    o.writer.close();
+  }
 }
 
 /** The ledger to read: --ledger, else that of --project, else that of the nearest .howl/howl.yml. */
