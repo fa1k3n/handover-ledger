@@ -131,7 +131,7 @@ The project's issuer key is made on first use in `~/.config/howl/<project>/issue
 
 A hook takes about 0.2 seconds, most of it the start of Node. The tool calls run `async`, so a session does not wait for them. `howl hook` prints nothing and always ends with 0: it never disturbs the session, also when the ledger cannot be reached. A wait is written in howl's words, `waits_for: person` (it stands still until someone answers) or `waits_for: instructions` (it is done and waits for more), beside the tool's own kind; the readers use only howl's words, so another agent tool needs only a hook of its own. Waits written before this are read by the tool's kind as before.
 
-**4. Bring the events in.** Hooks only leave files in the inbox. One process writes them into the ledger:
+**4. Bring the events in.** Hooks only leave files in the inbox. One process writes them into the ledger (`howl up`, below, is that process and the dashboard in one, and takes the events as they happen):
 
 ```sh
 cd the/observed/repository
@@ -195,6 +195,21 @@ review_comment_pattern: '^\[review\]'   # a comment whose first line matches cou
 The first round reads the whole history of the repository: on a repository with hundreds of issues and pull requests it takes minutes.
 
 **Known limit:** when the repository belongs to a person's account and not to an organisation, `repo` and every id hold that account's name. It names the repository, not who did what.
+
+## One process: howl up
+
+`howl up` is `howl observe` and `howl serve` in one process, for a team to start once in the observed repository:
+
+```sh
+cd the/observed/repository
+node /path/to/handover-ledger/src/cli/howl.ts up        # the writer, and the dashboard on http://127.0.0.1:4317
+```
+
+It is the one writer of the project: it runs the rounds of `howl observe`, with the same options, and a second `howl up` or `howl observe` of the same project is refused. It serves the dashboard and its read-only calls for every project, as `howl serve` does.
+
+While it runs, a session's hook and `howl emit` send each event to it with a POST of `/api/events`, so the event is in the ledger and on the page within a second or two, not at the next round. The server leaves the event in the inbox and takes the inbox in at once, so there is still one way into the chain. When it does not answer within half a second, or answers anything but 200, the event is left in the inbox as before; nothing is lost, and a server that does not answer is not asked again for a minute.
+
+`howl up` says where it is in `server.json` in the project's folder, with a token that is new at every start, and removes the file when it stops. Only its owner can read the file, and a hook uses it only while the process that wrote it runs. The POST is refused without the token, from a page in a browser, for another project, and for an event that says `observed`: what a session sends is a claim. It answers on 127.0.0.1 only. A server on another machine is not built.
 
 ## Reading the ledger
 
@@ -299,7 +314,7 @@ is read with `class_header: '@safety_class\s+(ASIL[- _]?[A-D]|QM)'` and the clas
 
 ## Howl on itself
 
-Run `node src/cli/howl.ts observe` in this repository, and it records its own pull requests and reviews (see `.howl/howl.yml`).
+Run `node src/cli/howl.ts observe` (or `up`, for the dashboard as well) in this repository, and it records its own pull requests and reviews (see `.howl/howl.yml`).
 Changes reach `main` only through a pull request with the check green; `scripts/ruleset.sh` sets that rule at the code host.
 The ledger it writes is a trial, and not evidence.
 

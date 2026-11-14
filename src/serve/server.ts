@@ -1,13 +1,20 @@
-// `howl serve`: the dashboard's server. It answers on 127.0.0.1 only, serves the
-// built page and read-only JSON over the ledger and the activity file. It takes
-// no lock and never writes.
+// The dashboard's server, for `howl serve` and `howl up`. It answers on
+// 127.0.0.1 only, serves the built page and read-only JSON over the ledger and
+// the activity file. It takes no lock and never writes.
+//
+// With `write` (`howl up`, #64) it also takes one event per POST of
+// /api/events and hands it to the writer that started it. Without it every
+// POST is refused, as before.
 // @code_class reading
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { basename, dirname, extname, join, normalize, sep } from "node:path";
+import { eventOf } from "../inbox/ingest.ts";
 import { LedgerError } from "../ledger/errors.ts";
 import { LEDGER_FILE } from "../ledger/names.ts";
 import { isProjectName } from "../ledger/place.ts";
+import type { LedgerEvent } from "../ledger/schema.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
 import { activityFrom, activityLines, byTime, ledgerLines, lineCount, readAll, type Read } from "../read/reader.ts";
 import { checkSignatures } from "../keys/keys.ts";
@@ -32,7 +39,21 @@ export interface ServeOptions {
   host?: string;
   /** For the default project (or the one ledger) only: it comes from that project's howl.yml. */
   taskFromBranch?: RegExp;
+  /** #64: the writer behind this server. Without it the server only reads. */
+  write?: Write;
 }
+
+export interface Write {
+  /** The one project whose events are taken. */
+  project: string;
+  /** What a sender must show: `Authorization: Bearer <token>`. */
+  token: string;
+  /** Makes the event safe on the writer's side. It throws when it cannot. */
+  take(event: LedgerEvent): void;
+}
+
+/** The largest body of a POST. An event is far smaller. */
+export const MAX_BODY = 256 * 1024;
 
 interface Project {
   name: string;
@@ -85,6 +106,10 @@ export async function startServer(options: ServeOptions): Promise<Served> {
 
   const server = createServer((req, res) => {
     try {
+      if (options.write !== undefined && req.method === "POST" && pathOf(req) === "/api/events") {
+        receive(req, res, options.write);
+        return;
+      }
       handle(req, res, options, ledgerVerdict);
     } catch (e) {
       const status = e instanceof LedgerError ? 400 : 500;
@@ -106,6 +131,85 @@ export async function startServer(options: ServeOptions): Promise<Served> {
         server.close(() => resolve());
       }),
   };
+}
+
+function pathOf(req: IncomingMessage): string {
+  try {
+    return new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * #64: one event from a session's hook or a script. It is refused unless it
+ * comes from a process of this machine that can read the token (never a page
+ * in a browser), and is a claim of this server's project that the schema
+ * accepts. The answer is given when the whole body is read.
+ */
+function receive(req: IncomingMessage, res: ServerResponse, write: Write): void {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  req.on("data", (chunk: Buffer) => {
+    size += chunk.length;
+    if (size <= MAX_BODY) chunks.push(chunk);
+    // Far beyond the limit: the sender is not heard to the end.
+    else if (size > 8 * MAX_BODY) req.destroy();
+  });
+  req.on("error", () => {});
+  req.on("end", () => {
+    try {
+      const refusal = refusalOf(req, write, size);
+      if (refusal !== null) {
+        json(res, refusal[0], { error: refusal[1] });
+        return;
+      }
+      let value: unknown;
+      try {
+        value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        json(res, 400, { error: "the body is not JSON" });
+        return;
+      }
+      let event: LedgerEvent;
+      try {
+        event = eventOf(value, write.project);
+      } catch (e) {
+        if (!(e instanceof LedgerError)) throw e;
+        json(res, 400, { error: e.message });
+        return;
+      }
+      if (event.source.kind !== "claimed") {
+        json(res, 400, { error: "source.kind must be claimed: what is sent to the server is a claim, never what an adapter observed" });
+        return;
+      }
+      write.take(event);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 500, { error: (e as Error).message });
+    }
+  });
+}
+
+/** Why a POST is refused before its body is looked at: the status and the reason. Null when it may go on. */
+function refusalOf(req: IncomingMessage, write: Write, size: number): [number, string] | null {
+  // The address the server itself answers on: a name that only resolves to this machine is not enough.
+  const port = req.socket.localPort;
+  const host = req.headers.host ?? "";
+  if (![`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`].includes(host)) return [403, "the Host is not this server's address"];
+  if (req.headers.origin !== undefined) return [403, "a page in a browser cannot send events"];
+  const sent = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
+  if (sent === undefined || !sameText(sent, write.token)) return [401, "no token, or not the token of server.json"];
+  const type = (req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
+  if (type !== "application/json") return [415, "the content type must be application/json"];
+  if (size > MAX_BODY) return [413, `the body is larger than ${MAX_BODY} bytes`];
+  return null;
+}
+
+/** Whether two texts are the same, in a time that does not depend on where they differ. */
+function sameText(a: string, b: string): boolean {
+  const hash = (text: string) => createHash("sha256").update(text).digest();
+  return timingSafeEqual(hash(a), hash(b));
 }
 
 /** The projects served: the one ledger, or every folder of the home that holds a ledger, by name. */
