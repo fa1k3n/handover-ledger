@@ -553,6 +553,8 @@ async function observing(command: "observe" | "up", values: { once?: boolean; in
       settings: found,
       warn: (message) => console.error(`howl: ${message}`),
       start,
+      // #38: the tests of a head, read from the repository this runs in. Nothing without the settings of `howl trace`.
+      traceAt: await traceReader(found.root),
     });
   } catch (e) {
     writer.close();
@@ -862,6 +864,18 @@ async function traceCommand(args: string[]): Promise<number> {
     for (const gap of gaps) console.log(gap);
   }
   return values.check && gaps.length > 0 ? 1 : 0;
+}
+
+/** #38: what the tests of a commit name, for the observer; null when the repository has no settings for it. */
+async function traceReader(root: string) {
+  const { findTrace, summaryAt } = await import("../howl/trace.ts");
+  let settings;
+  try {
+    settings = findTrace(root);
+  } catch {
+    return undefined;
+  }
+  return settings === null ? undefined : (sha: string) => summaryAt(root, settings, sha);
 }
 
 async function serveCommand(args: string[]): Promise<number> {

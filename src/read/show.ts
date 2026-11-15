@@ -10,6 +10,7 @@
 // per person. Everything is ordered and computed by `time`, never by the order
 // of the lines.
 // @code_class reading
+import { traceText, type HeadTrace } from "./trace-text.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
 import { claimOfHost, observed } from "./observed.ts";
@@ -49,6 +50,8 @@ export interface Head {
   by?: string;
   checks?: "passed" | "failed";
   checksTime?: string;
+  /** #38: what the tests of this commit name, as the code host's repository shows it; none when it was not read. */
+  trace?: HeadTrace;
 }
 
 export interface ChangePart {
@@ -236,6 +239,12 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
       if (checks) {
         head.checks = checks.type === "checks.passed" ? "passed" : "failed";
         head.checksTime = checks.time;
+      }
+      // #38: only what was read from the repository counts, never a claim of a session.
+      const read = seen.find((e) => e.type === "trace.read" && e.sha === head.sha);
+      const data = read?.data as { covered?: unknown; touched?: unknown; tests?: unknown } | undefined;
+      if (data !== undefined && Array.isArray(data.covered) && Array.isArray(data.touched) && typeof data.tests === "number") {
+        head.trace = { covered: data.covered.map(String), touched: data.touched.map(String), tests: data.tests };
       }
     }
     parts.push(
@@ -431,6 +440,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
     for (const [i, h] of c.heads.entries()) {
       const checks = h.checks ? `, checks ${h.checks} at ${t(h.checksTime!)}` : "";
       out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${h.by ? ` by ${h.by} (matched)` : ""}${checks}`);
+      out.push(`      ${traceText(h.trace)}`);
     }
     if (c.comments > 0) out.push(`  comments: ${c.comments}, not counted as reviews`);
   }

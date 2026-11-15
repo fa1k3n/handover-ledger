@@ -29,7 +29,7 @@ An event that an agent sends about itself is the agent's claim. An event that an
 
 ## What is read today
 
-`howl trace` reads one link from the repository alone: the requirements in Markdown tables, and the tests that name them. It gives the matrix of requirements and tests and three gaps: a built requirement by test that no test covers, a test that names an ID no table holds, and an ID given twice. Nothing of it is in the ledger yet: the changes, the results of a test run and the reviewers come with the steps that record them.
+`howl trace` reads one link from the repository alone: the requirements in Markdown tables, and the tests that name them. It gives the matrix of requirements and tests and three gaps: a built requirement by test that no test covers, a test that names an ID no table holds, and an ID given twice. The link to a change is in the ledger: `howl observe` reads the tests of each head with the same code and records the requirements they name (`trace.read`: IDs, counts and a hash, never a test's name), and `howl show` and the overview say it, also for a change that names none. What is not there yet: whether the tests passed, and the verification results and reviewers per requirement.
 
 ## The evidence package
 

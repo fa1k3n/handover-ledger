@@ -249,6 +249,9 @@ export function headText(h: Head, first: boolean): string {
     .join(" · ");
 }
 
+/** #38: the line under a head in the change view: what its tests name, a gap said plainly, or that nothing was read. */
+export { traceText } from "../read/trace-text.ts";
+
 /** A claim for the change view: `review.approved · change 30 · agent-1`; its task when it names no change. */
 export function claimText(c: Claim): string {
   const on = c.change !== undefined ? `change ${c.change}` : c.task !== undefined ? `task ${c.task}` : null;

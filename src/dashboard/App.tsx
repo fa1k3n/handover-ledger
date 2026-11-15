@@ -213,6 +213,16 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
           value: f.reviewRoundsMean === null ? texts.overview.none : f.reviewRoundsMean.toFixed(1),
           note: texts.overview.roundsNote(f.periodDays, f.merged),
         },
+        // #38: nothing to say, and no tile, when no merged change was read against a requirement.
+        ...(f.requirementsNamed.merged > f.requirementsNamed.unrecorded
+          ? [
+              {
+                label: texts.overview.named,
+                value: texts.overview.namedValue(f.requirementsNamed.named, f.requirementsNamed.merged - f.requirementsNamed.unrecorded),
+                note: texts.overview.namedNote(f.periodDays, f.requirementsNamed.without.length, f.requirementsNamed.unrecorded),
+              },
+            ]
+          : []),
         { label: texts.overview.unattributed, value: String(f.unattributed.count), note: texts.overview.unattributedNote(f.periodDays) },
       ]
     : [];

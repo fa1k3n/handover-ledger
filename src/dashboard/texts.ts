@@ -70,6 +70,10 @@ export const texts = {
     rounds: "Review rounds per change",
     roundsNote: (days: number, merged: number) => `mean of ${merged} merged changes, last ${days} days`,
     none: "–",
+    named: "Changes naming a requirement",
+    namedValue: (named: number, read: number) => `${named} of ${read}`,
+    namedNote: (days: number, without: number, unrecorded: number) =>
+      `merged heads whose tests name one, last ${days} days${without > 0 ? ` · ${without} do not` : ""}${unrecorded > 0 ? ` · ${unrecorded} not read` : ""}`,
     unattributed: "No agent matched",
     unattributedNote: (days: number) => `changes and reviews through a person's account, last ${days} days`,
     unattributedList: "Through a person's account with no agent matched:",

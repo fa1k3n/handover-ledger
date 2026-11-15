@@ -61,6 +61,8 @@ export interface ObserverParts {
   warn: (message: string) => void;
   /** #6: where the first round starts, when there is no cursor yet; none reads from the beginning. */
   start?: string;
+  /** #38: what the tests of a commit name, read from the repository on this machine; null when it cannot be read. */
+  traceAt?: (sha: string) => { covered: string[]; touched: string[]; tests: number; list: string } | null;
 }
 
 export class Observer {
@@ -75,9 +77,11 @@ export class Observer {
   private readonly settings: ObserveSettings;
   private readonly warn: (message: string) => void;
   private readonly start: string | undefined;
+  private readonly traceAt: ObserverParts["traceAt"];
 
   constructor(parts: ObserverParts) {
     this.start = parts.start;
+    this.traceAt = parts.traceAt;
     ({
       host: this.host,
       writer: this.writer,
@@ -222,6 +226,13 @@ export class Observer {
     const config = (change.files ?? []).filter((f) => f === ".howl" || f.startsWith(".howl/"));
     if (config.length > 0) {
       found.push(this.event(`config:${n}:${head}`, "config.changed", change.head.at, undefined, { ...of(head), data: { paths: config } }, seen));
+    }
+
+    // #38: what the tests of this head name, once for a head, when the repository has the commit and the settings.
+    const traceKey = `trace:${n}:${head}`;
+    if (this.traceAt !== undefined && !this.writer.has(this.id(traceKey))) {
+      const read = this.traceAt(head);
+      if (read !== null) found.push(this.event(traceKey, "trace.read", change.head.at, undefined, { ...of(head), data: { ...read } }, seen));
     }
 
     for (const r of change.reviews) {

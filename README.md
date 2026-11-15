@@ -388,7 +388,11 @@ src/diag/mod.rs:43 req_brk_051_a_fault_is_counted_once: names REQ-BRK-051, which
 
 In `howl.yml` a `#` after white space starts a comment, also inside quotes, and a list in square brackets is split at every comma. A pattern with a comma goes on a line of its own under the key, as above. A quote inside a quoted value is taken as it stands: `''` is two quotes and not one, so write a pattern that needs a `'` between double quotes.
 
-Not read yet: the changes that name no requirement, the results of a test run, and requirements kept in a tool of their own (#38).
+**In the ledger.** When `howl observe` or `howl up` writes a change's head and the repository it runs in has the settings above, it reads the requirements and the tests of that commit with the same code and writes one `trace.read` for the head: the IDs covered, the IDs only touched, the number of tests that name a requirement and a hash of the sorted list of them. It is observed, not a claim, and holds no test name: `howl trace --at <sha>` shows the names, and the hash shows that they are the list that was recorded. `howl show` prints it under each head (`requirements: R-1, R-3 covered by 2 tests`, `no test names a requirement`, or `requirements: not recorded`), the change view in the page the same, and the overview has a figure for the share of the changes merged in the last 30 days whose merged head names a requirement.
+
+Nothing is written when the commit settings do not have `howl trace`, when the commit is not on the machine (howl only reads: it never fetches, so a head of a branch that was never fetched is `not recorded`), or when its tables cannot be read. A `trace.read` that a session or a script sends is a claim and counts for nothing.
+
+Not read yet: whether the tests passed, which needs a test run, and requirements kept in a tool of their own.
 
 ## Documents
 
