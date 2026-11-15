@@ -31,6 +31,12 @@ export interface TraceSettings {
   testsIn: string[];
   /** Each finds a test; its first group is the test's name. */
   testPatterns: RegExp[];
+  /** Files of `requirementsIn` and of `testsIn` that are left out (#99). */
+  requirementsNotIn: string[];
+  testsNotIn: string[];
+  /** The words that start a covering and a touching comment, in lower case (#99). */
+  coversWords: string[];
+  touchesWords: string[];
 }
 
 /** Where the files are read from: the working tree, or one commit. */
@@ -73,6 +79,12 @@ export interface Test extends TestRef {
   /** The IDs it covers and touches, in their fixed form: upper case, with `-`. */
   covers: string[];
   touches: string[];
+  /**
+   * #99: its name is worked out when the tests run (it holds `${`) and nothing
+   * could be read from it or from a comment. Only there when true: such a test
+   * is not counted among those that name no requirement.
+   */
+  computed?: true;
 }
 
 export type Gap =
@@ -181,6 +193,12 @@ function readSettings(text: string): TraceSettings | null {
   };
   // An ID is looked for inside a name, so a ^ at the start and a $ at the end are taken off.
   const written = need("requirement_pattern", "what an ID looks like")[0]!;
+  // #99: the words a team starts its comments with. A word is put into a pattern, so it is a plain word.
+  const words = (key: string, usual: string): string[] => {
+    const set = list(key);
+    for (const word of set) if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(word)) throw new LedgerError(`${key}: ${word} is no word`);
+    return (set.length === 0 ? [usual] : set).map((word) => word.toLowerCase());
+  };
   const pattern = expression("requirement_pattern", written.replace(/^\^/, "").replace(/(?<!\\)\$$/, ""), "i");
   const [id = "ID", method, status] = list("requirement_columns");
   const columns: TraceSettings["columns"] = { id };
@@ -193,6 +211,10 @@ function readSettings(text: string): TraceSettings | null {
     byTest: method === undefined ? [] : need("requirement_by_test", `the values of ${method} that ask for a test`),
     done: status === undefined ? [] : need("requirement_done", `the values of ${status} that say a requirement is built`),
     testsIn: need("tests_in", "the files that hold tests"),
+    requirementsNotIn: list("requirements_not_in"),
+    testsNotIn: list("tests_not_in"),
+    coversWords: words("test_covers", "covers"),
+    touchesWords: words("test_touches", "touches"),
     // Over the whole text of a file: a name may stand on the line after its mark.
     testPatterns: need("test_pattern", "how a test's name is found").map((p) => expression("test_pattern", p, "gmd")),
   };
@@ -297,12 +319,38 @@ export function rowsOf(text: string, settings: TraceSettings): Row[] {
  * is written and with `_` as `-`: a team may write its IDs either way.
  */
 function idsIn(text: string, pattern: RegExp): string[] {
-  const all = new RegExp(pattern.source, "gi");
+  // As a word of its own: `SHA-256` holds no ID `HA-256`.
+  const all = new RegExp(`(?<![A-Za-z0-9])(?:${pattern.source})(?![A-Za-z0-9])`, "gi");
   return [...new Set([...(text.match(all) ?? []), ...(fixedId(text).match(all) ?? [])].map(fixedId))];
 }
 
-/** A comment line of its own that says what the next test covers or touches. */
-const SAID = /^\s*(?:\/\/+!?|#+!?|\/\*+!?|\*+|--+|;+|%+|<!--)\s*(covers|touches):\s*(.*)$/i;
+/**
+ * The IDs a text starts with, parted by spaces or commas (#99). What comes
+ * after the last of them is the team's own words and is passed over, so a
+ * word in it that looks like an ID is none.
+ */
+function leadingIds(text: string, pattern: RegExp): string[] {
+  const whole = new RegExp(`^(?:${pattern.source})$`, "i");
+  const ids: string[] = [];
+  for (const word of text.trim().split(/[\s,]+/)) {
+    const id = word.replace(/[.:]+$/, "");
+    if (!whole.test(id) && !whole.test(fixedId(id))) break;
+    ids.push(fixedId(id));
+    // `REQ-1: REQ-2 is not taken for it`: a colon or a full stop after an ID ends the IDs.
+    if (id !== word) break;
+  }
+  return [...new Set(ids)];
+}
+
+/**
+ * A comment line of its own that says what the next test covers or touches,
+ * by the words of the settings (#99): its first group is the word, its second
+ * what follows.
+ */
+function said(settings: TraceSettings): RegExp {
+  const words = [...settings.coversWords, ...settings.touchesWords].join("|");
+  return new RegExp(`^\\s*(?:\\/\\/+!?|#+!?|\\/\\*+!?|\\*+|--+|;+|%+|<!--)\\s*(${words}):\\s*(.*)$`, "i");
+}
 
 /**
  * The tests of a file: each match of a test pattern, with the IDs its name
@@ -332,8 +380,10 @@ export function testsOf(text: string, file: string, settings: TraceSettings): Te
       const name = match[1] ?? match[0];
       const place = match.indices?.[1]?.[0] ?? match.index;
       if (byPlace.has(place)) continue;
+      // #99: a name may start with several IDs, `REQ-1 REQ-2 the rise`, and covers each; else the one it starts with.
+      const run = leadingIds(name, settings.pattern);
       const first = starts.exec(name)?.[0] ?? starts.exec(fixedId(name))?.[0];
-      const covers = first === undefined ? [] : [fixedId(first)];
+      const covers = run.length > 0 ? run : first === undefined ? [] : [fixedId(first)];
       const inBrackets = [...name.matchAll(/\(([^)]*)\)/g)].flatMap((m) => idsIn(m[1]!, settings.pattern));
       byPlace.set(place, { file, line: lineAt(place), name, covers, touches: [...new Set(inBrackets)].filter((id) => !covers.includes(id)) });
     }
@@ -341,33 +391,38 @@ export function testsOf(text: string, file: string, settings: TraceSettings): Te
   const tests = [...byPlace.entries()].sort(([a], [b]) => a - b).map(([, test]) => test);
 
   // A comment counts for the next test below it.
+  const comment = said(settings);
   const lines = text.split(/\r?\n/);
   let next = 0;
   for (let i = 0; i < lines.length; i++) {
     while (next < tests.length && tests[next]!.line <= i + 1) next++;
-    const said = SAID.exec(lines[i]!);
+    const found = comment.exec(lines[i]!);
     const test = tests[next];
-    if (said === null || test === undefined) continue;
-    const ids = idsIn(said[2]!, settings.pattern);
-    if (said[1]!.toLowerCase() === "covers") {
+    if (found === null || test === undefined) continue;
+    // Each part between `;` may start with its own IDs: `REQ: R-1 the rise; R-2 the fall`.
+    const ids = [...new Set(found[2]!.split(";").flatMap((part) => leadingIds(part, settings.pattern)))];
+    if (settings.coversWords.includes(found[1]!.toLowerCase())) {
       test.covers = [...new Set([...test.covers, ...ids])];
       test.touches = test.touches.filter((id) => !test.covers.includes(id));
     } else {
       test.touches = [...new Set([...test.touches, ...ids])].filter((id) => !test.covers.includes(id));
     }
   }
+  // #99: a name worked out at run time, with nothing read from it or from a comment, is said as such.
+  for (const test of tests) if (test.name.includes("${") && test.covers.length === 0 && test.touches.length === 0) test.computed = true;
   return tests;
 }
 
 /** The requirements, the tests and the gaps of a source. Only reads. */
 export function trace(settings: TraceSettings, source: Source): TraceReport {
   const files = source.files().sort();
-  const inAny = (globs: string[]) => files.filter((file) => globs.some((glob) => matchesGlob(glob, file)));
+  const inAny = (globs: string[], not: string[] = []) =>
+    files.filter((file) => globs.some((glob) => matchesGlob(glob, file)) && !not.some((glob) => matchesGlob(glob, file)));
   const gaps: Gap[] = [];
 
-  const tables = inAny(settings.requirementsIn);
+  const tables = inAny(settings.requirementsIn, settings.requirementsNotIn);
   if (tables.length === 0) throw new LedgerError(`no file matches requirements_in: ${settings.requirementsIn.join(", ")}`);
-  const testFiles = inAny(settings.testsIn);
+  const testFiles = inAny(settings.testsIn, settings.testsNotIn);
   source.prime?.([...tables, ...testFiles]);
 
   const requirements: Requirement[] = [];
@@ -434,7 +489,7 @@ export function trace(settings: TraceSettings, source: Source): TraceReport {
     counts: {
       requirements: requirements.length,
       tests: tests.length,
-      tests_naming_none: tests.filter((t) => t.covers.length === 0 && t.touches.length === 0).length,
+      tests_naming_none: tests.filter((t) => t.covers.length === 0 && t.touches.length === 0 && !t.computed).length,
       gaps: all.length,
     },
   };
@@ -455,9 +510,14 @@ export function gapLine(gap: Gap, report: TraceReport): string {
   }
 }
 
-/** The counts in one line: `7 requirements, 9 tests (2 name no requirement)`. */
+/** The counts in one line: `7 requirements, 9 tests (2 name no requirement, 1 with a name worked out at run time)`. */
 export function countsLine(report: TraceReport): string {
   const { requirements, tests, tests_naming_none: none } = report.counts;
+  const computed = report.tests.filter((t) => t.computed).length;
   const s = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-  return `${s(requirements, "requirement")}, ${s(tests, "test")}${none === 0 ? "" : ` (${none} name${none === 1 ? "s" : ""} no requirement)`}`;
+  const apart = [
+    ...(none === 0 ? [] : [`${none} name${none === 1 ? "s" : ""} no requirement`]),
+    ...(computed === 0 ? [] : [`${computed} with a name worked out at run time`]),
+  ];
+  return `${s(requirements, "requirement")}, ${s(tests, "test")}${apart.length === 0 ? "" : ` (${apart.join(", ")})`}`;
 }
