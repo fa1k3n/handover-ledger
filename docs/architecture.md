@@ -3,7 +3,7 @@
 ## Principles
 
 - **The core records what happens, the packs say what is demanded.** What records is the core, what fetches data from another system is an adapter, what a standard or a law demands is a rule pack ([target.md](target.md)).
-- **Agents are measured one by one, people only as a team.** Traceability needs an identity, figures do not.
+- **Agents are measured one by one, people only as a team.** Traceability needs an identity, figures do not. An agent is known by an account of its own (see [Who contributes](#who-contributes)).
 - **Agents do the work, code steers the flow.** Orchestration is deterministic code. State is owned by the program, never by a model.
 - **Agents are short-lived.** Every assignment is a new session that starts cold. A review needs independence, a test author starts from the requirement and not from the code, and memory kept in a clone gathers faults.
 - **No hidden agent memory.** State per task lives in the task, the change and its comments. Lasting learning is written into the repository (instructions, role files).
@@ -12,6 +12,25 @@
 - **Role, model and effort belong to the assignment.** Any team member can take any role. The dispatcher sets role, model and effort from the task (for example its size and risk).
 - **People are full team members.** When a task is assigned to a person no session starts; the dispatcher waits for a real event. People keep working in their usual tools: a review in the code host becomes a core event.
 - **Safe defaults.** Agents never merge. High risk needs a human approver. At the highest level a deterministic program may merge on conditions; a model never does.
+
+## Who contributes
+
+Three kinds of contributor, told apart by the account the work is done under:
+
+| Kind | Account | Who is accountable | How it is known |
+|---|---|---|---|
+| Person | their own | the person | observed |
+| Person with an assistant | the person's | the person | the account is observed; the use of an AI tool is claimed |
+| Agent | its own: listed under `agents:`, or an app of the code host | its owner, under its assignment | the account is observed |
+
+- **A person's AI tool is a tool,** like a compiler or a code generator. The person answers for the work, and the question is the confidence in the tool ([standards.md](standards.md)). The tool is declared per change (#73).
+- **An agent is a team member in a role.** Independence, separation of duties and "agents never merge" apply to it. The levels of autonomy ([levels.md](levels.md)) say which roles agent accounts hold.
+- **Work under a person's account is the person's.** It is not suspect, and the ledger never shows it as an agent's.
+- **An observed account does not prove what drives it.** A person could sign in as an agent's account, or an agent use a person's token. Keys per assignment, short-lived app tokens and `howl keyd` make misuse traceable, not impossible.
+- **Model, role prompt and rule version stay claims,** also for an agent's account: the code host does not know which model ran. They are signed by the session's key where there is one.
+- **The use of an assistant is never a figure per person.** It is counted for the team only.
+
+Today `howl` still puts an agent's session behind a person's account when the two match in time (#14). That is to change (#95).
 
 ## Core concepts
 

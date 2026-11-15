@@ -35,7 +35,7 @@ Two things, and nothing else:
 - a `.howl/howl.yml` that names the project,
 - the hook lines in the agent's settings.
 
-Only the sessions of agents are recorded. A person's session leaves nothing: people are not measured one by one.
+Only the sessions of agents are recorded. A person's session leaves nothing: people are not measured one by one. An agent is a contributor with an account of its own ([architecture.md](architecture.md#who-contributes)); a session whose work reaches the code host under a person's account is that person's, with an assistant (#95).
 
 ```yaml
 # .howl/howl.yml

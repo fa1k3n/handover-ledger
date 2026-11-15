@@ -30,6 +30,8 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **A code class for every file:** declared by path in `.howl/howl.yml` and read from the file's header with a pattern the project sets; the higher of the two is in force, and `howl classes --check` names every file where they disagree. This repository is classified in both ways: `evidence`, `rules`, `recording`, `reading`, `tests`, `documents`. (2026-11-14)
 - **A local server first, as a stand-in.** `howl up` is the writer, the dashboard and the way in for a session's events over HTTP, in one process on 127.0.0.1, started by hand, on the one-file ledger (#64). It is not the central server of "The log follows the repository": that one still waits for the storage of #27, and for #32 before it. (2026-11-14)
 - **The filter is a CEL expression,** evaluated by the library `@marcbachmann/cel-js` (MIT, no dependencies of its own), howl's second runtime dependency. The event is `event`, as in `event.type`; a field it does not have is an error, as in CEL; a filter never sees a person's pseudonym. The `field=value` pairs still work. This takes up "CEL filters later" of 2026-11-13. (2026-11-14)
+- **Three kinds of contributor** ([architecture.md](architecture.md#who-contributes)): a person; a person with an assistant, an AI tool used under the person's own account; and an agent, with an account of its own. An agent is a team member in a role, and independence, separation of duties and "agents never merge" apply to it. A person's AI tool is that person's tool: the person answers for the work, and the ledger never shows it as an agent's. (2026-11-15)
+- **Accounts for agents:** the author is a machine account beside the owner's, the reviewer an app of the code host, and two rulesets on the default branch let only the owner merge (#56). (2026-11-15)
 
 ## Proposed, not yet answered
 
@@ -56,7 +58,6 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 
 - **The licence checked with a lawyer:** Apache 2.0 is chosen (see Decided); the check is still to be made, also of the contributor agreement.
 - **Name check:** GitHub, npm, the VS Code Marketplace and the domain, and a trade mark search at EUIPO and PRV. "Handover" alone is already used by other products. Check also that `howl` is free as a package name and is not the command of another program; a scoped package that installs the command `howl` solves the first.
-- **Accounts for agents:** an app of the code host (cannot be assigned tasks everywhere), one machine account per agent (check the host's terms), or one shared bot account with the name in comment and label. Separation of duties needs more than a person's own account.
 - **Own account or an organisation** for the repository. It is on the owner's own account and can be moved later.
 - **The second adapter:** GitLab seems the likely one for the first clients. The answers to the five questions in [vision.md](vision.md) decide.
 - **Which standard is mapped first.** The draft in [standards.md](standards.md) starts with ISO 26262 and ISO/SAE 21434.

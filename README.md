@@ -89,7 +89,7 @@ project: example
 activity_days: 30     # how long tool calls are kept; 30 when left out
 ```
 
-**2. Name the agent.** Only an agent's session is recorded; a person's session leaves nothing. Set `HOWL_ACTOR` in the agent's environment, or put the agent's name as the one line of `.howl/actor` and let git ignore that file:
+**2. Name the agent.** Only an agent's session is recorded; a person's session leaves nothing. An agent is a contributor with an account of its own at the code host ([docs/architecture.md](docs/architecture.md#who-contributes)); a session that works under a person's account is that person's, helped by a tool. `howl` does not yet enforce this (#95). Set `HOWL_ACTOR` in the agent's environment, or put the agent's name as the one line of `.howl/actor` and let git ignore that file:
 
 ```sh
 echo agent-1 > .howl/actor
