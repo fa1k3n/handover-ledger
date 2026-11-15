@@ -91,7 +91,8 @@ const USAGE = `usage:
             (requirements_in in .howl/howl.yml) and the tests that name them
             (tests_in, test_pattern): a line per requirement, then the gaps.
             A test covers the requirement whose ID its name starts with and
-            touches each ID in brackets. --check ends with 1 and names each
+            touches each ID in brackets; a comment line covers: or touches:
+            counts for the next test. --check ends with 1 and names each
             built requirement by test that no test covers, each test that
             names an ID no table holds, and each ID given twice. --at reads
             one commit and nothing from the working tree. Only reads
@@ -821,6 +822,10 @@ async function traceCommand(args: string[]): Promise<number> {
   const root = traceRoot(process.cwd());
   if (root === null) throw new UsageError("no requirements_in in .howl/howl.yml");
   const source = values.at === undefined ? workingTree(root) : treeAt(root, values.at);
+  if (source.at !== null && source.read(".howl/howl.yml") === null) {
+    const { LedgerError } = await import("../ledger/errors.ts");
+    throw new LedgerError(`no .howl/howl.yml at ${source.at}`);
+  }
   const settings = findTrace(root, source);
   if (settings === null) throw new UsageError("no requirements_in in .howl/howl.yml");
   const report = trace(settings, source);

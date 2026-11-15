@@ -303,3 +303,88 @@ test("#88: howl trace changes no file in the repository and none in howl's home,
   assert.equal(listing(), before);
   assert.deepEqual(readdirSync(home), [], "nothing in howl's home: no ledger, no lock");
 });
+
+// What the review of the pull request found.
+
+const ONE = "| ID | Requirement |\n|---|---|\n| R-1 | One. |\n";
+
+test("#88: covers: counts only in a comment line of its own, never in a line of code or after a test on its line", () => {
+  const inCode = report(small(ONE, 'const note = "covers: R-1";\ntest("a helper", () => {});\n', SMALL_YML));
+  assert.deepEqual(gaps(inCode, "no_test").map((g) => g.id), ["R-1"], "a string in a line of code is no comment");
+
+  const trailing = report(small(ONE, 'test("a helper", () => {}); // covers: R-1\ntest("another", () => {});\n', SMALL_YML));
+  assert.deepEqual(gaps(trailing, "no_test").map((g) => g.id), ["R-1"], "after a test on its own line: for no test");
+
+  for (const comment of ["// covers: R-1", "  /// covers: R-1", "# covers: R-1", " * covers: r_1", "-- Covers: R-1", "//! covers: R-1"]) {
+    const r = report(small(ONE, `${comment}\ntest("a helper", () => {});\n`, SMALL_YML));
+    assert.deepEqual(r.gaps, [], comment);
+  }
+});
+
+test("#88: two tests on one line are both read", () => {
+  const r = report(small(ONE, 'test("R-1 a", () => {}); test("R-999 b", () => {});\n', SMALL_YML));
+  assert.deepEqual(r.tests.map((t) => [t.name, t.line]), [["R-1 a", 1], ["R-999 b", 1]]);
+  assert.deepEqual(gaps(r, "unknown_id").map((g) => g.id), ["R-999"]);
+});
+
+test("#88: a table with no pipe at its edges is read, with CRLF too, and an ID in bold or in backticks is an ID", () => {
+  const table = "ID | Requirement\r\n---|---\r\nR-1 | One.\r\n**R-2** | Two.\r\n`R-3` | Three.\r\n\r\nA line of text with a | in it.\r\n";
+  const r = report(small(table, 'test("R-1 a (R-2, R-3)", () => {});\n', SMALL_YML));
+  assert.deepEqual(r.requirements.map((q) => [q.id, q.line]), [["R-1", 3], ["R-2", 4], ["R-3", 5]]);
+  assert.deepEqual(places(requirement(r, "R-2").touched_by), ["checks.js:1"]);
+});
+
+test("#88: requirements_in that matches no file, or files that hold no requirement, is never ok", () => {
+  const noFile = howl(["trace", "--check"], { cwd: small(ONE, 'test("R-1 a", () => {});\n', SMALL_YML.replace("[reqs.md]", "[reqs/*.md]")) });
+  assert.equal(noFile.status, 2);
+  assert.match(noFile.stderr, /^howl: no file matches requirements_in: reqs\/\*\.md\n$/);
+
+  const noRow = howl(["trace", "--check"], { cwd: small("| Nr | Text |\n|---|---|\n| R-1 | One. |\n", 'test("R-1 a", () => {});\n', SMALL_YML) });
+  assert.equal(noRow.status, 2);
+  assert.match(noRow.stderr, /^howl: no requirement in reqs\.md: /);
+  assert.equal(noRow.stderr.trim().split("\n").length, 1);
+});
+
+test("#88: an ID written with _ is covered by a test that writes it so, and a pattern with ^ and $ is read without them", () => {
+  const table = "| ID | Requirement |\n|---|---|\n| REQ_1 | One. |\n| REQ_2 | Two. |\n";
+  const tests = 'test("REQ_1 a (REQ_2)", () => {});\n// covers: REQ_2\ntest("req_2_b", () => {});\n';
+  for (const pattern of ["REQ_[0-9]+", "^REQ_[0-9]+$", "REQ[-_][0-9]+"]) {
+    const r = report(small(table, tests, SMALL_YML.replace("'R-[0-9]+'", () => `'${pattern}'`)));
+    assert.deepEqual(r.gaps, [], pattern);
+    assert.deepEqual(places(requirement(r, "REQ_1").covered_by), ["checks.js:1"], pattern);
+    assert.deepEqual(places(requirement(r, "REQ_2").covered_by), ["checks.js:3"], pattern);
+    assert.deepEqual(places(requirement(r, "REQ_2").touched_by), ["checks.js:1"], pattern);
+  }
+});
+
+test("#88: a block of four backticks is not closed by three, and a block may be of tildes", () => {
+  const table = `${ONE}\n\`\`\`\`md\n\`\`\`\n| ID | Requirement |\n|---|---|\n| R-7 | In a block. |\n\`\`\`\n\`\`\`\`\n\n~~~\n| ID | Requirement |\n|---|---|\n| R-8 | In a block. |\n~~~\n\n| ID | Requirement |\n|---|---|\n| R-2 | Two. |\n`;
+  const r = report(small(table, 'test("R-1 a", () => {});\ntest("R-2 b", () => {});\n', SMALL_YML));
+  assert.deepEqual(r.requirements.map((q) => q.id), ["R-1", "R-2"]);
+});
+
+test("#88: --at on a commit with no .howl/howl.yml says so in one line", () => {
+  const root = folder();
+  writeFileSync(join(root, "a.txt"), "a\n");
+  git(root, "init", "-q");
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "before howl");
+  mkdirSync(join(root, ".howl"));
+  writeFileSync(join(root, ".howl", "howl.yml"), SMALL_YML);
+  const run = howl(["trace", "--at", "HEAD"], { cwd: root });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /^howl: no \.howl\/howl\.yml at [0-9a-f]{40}\n$/);
+});
+
+test("#88: --at reads many files in one go, with odd names", () => {
+  const root = repo();
+  for (let i = 0; i < 300; i++) writeFileSync(join(root, "checks", `n ${i} å.spec.js`), `test("REQ-BRK-020 number ${i}", () => {});\n`);
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "many");
+  const started = Date.now();
+  const then = JSON.parse(howl(["trace", "--json", "--at", "HEAD"], { cwd: root }).stdout) as TraceReport;
+  assert.equal(then.counts.tests, 309);
+  assert.equal(requirement(then, "REQ-BRK-020").covered_by.length, 300);
+  assert.deepEqual(JSON.parse(howl(["trace", "--json"], { cwd: root }).stdout).requirements, then.requirements, "the commit and the working tree give the same");
+  assert.ok(Date.now() - started < 20_000);
+});

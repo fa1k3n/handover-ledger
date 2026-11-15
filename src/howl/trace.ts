@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { LedgerError } from "../ledger/errors.ts";
 import { matchesGlob } from "./classes.ts";
-import { commitOf, filesAt, textAt, trackedFiles } from "./git.ts";
+import { blobsAt, commitOf, textsOf, trackedFiles } from "./git.ts";
 import { topLevel } from "./project.ts";
 
 const SETTINGS = ".howl/howl.yml";
@@ -41,6 +41,8 @@ export interface Source {
   files(): string[];
   /** The text of one of them, or null when it cannot be read. */
   read(file: string): string | null;
+  /** Says which files will be read, for a source that reads many in one go. */
+  prime?(files: string[]): void;
 }
 
 /** A test, by where its name stands. */
@@ -117,14 +119,30 @@ export function workingTree(root: string): Source {
 export function treeAt(root: string, name: string): Source {
   const commit = commitOf(root, name);
   if (commit === null) throw new LedgerError(`no commit ${name}: is this a git repository, and does it have that commit?`);
+  let blobs: Map<string, string> | null = null;
+  const all = () => {
+    blobs ??= blobsAt(root, commit);
+    if (blobs === null) throw new LedgerError(`git did not list the files of ${commit}`);
+    return blobs;
+  };
+  // By the name git gives a content: two files of one content are read once.
+  const texts = new Map<string, string>();
+  const prime = (files: string[]) => {
+    const names = [...new Set(files.map((file) => all().get(file)).filter((n): n is string => n !== undefined && !texts.has(n)))];
+    const read = textsOf(root, names);
+    if (read === null) throw new LedgerError(`git did not give the files of ${commit}`);
+    for (const [n, text] of read) texts.set(n, text);
+  };
   return {
     at: commit,
-    files() {
-      const names = filesAt(root, commit);
-      if (names === null) throw new LedgerError(`git did not list the files of ${commit}`);
-      return names;
+    files: () => [...all().keys()],
+    prime,
+    read(file) {
+      const n = all().get(file);
+      if (n === undefined) return null;
+      if (!texts.has(n)) prime([file]);
+      return texts.get(n) ?? null;
     },
-    read: (file) => textAt(root, commit, file),
   };
 }
 
@@ -161,7 +179,9 @@ function readSettings(text: string): TraceSettings | null {
       throw new LedgerError(`${key} is not a regular expression: ${source}`);
     }
   };
-  const pattern = expression("requirement_pattern", need("requirement_pattern", "what an ID looks like")[0]!, "i");
+  // An ID is looked for inside a name, so a ^ at the start and a $ at the end are taken off.
+  const written = need("requirement_pattern", "what an ID looks like")[0]!;
+  const pattern = expression("requirement_pattern", written.replace(/^\^/, "").replace(/(?<!\\)\$$/, ""), "i");
   const [id = "ID", method, status] = list("requirement_columns");
   const columns: TraceSettings["columns"] = { id };
   if (method !== undefined) columns.method = method;
@@ -185,12 +205,24 @@ export function fixedId(id: string): string {
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** The cells of a table's line, trimmed, with an escaped `|` put back; null when the line is no table line. */
+/**
+ * The cells of a table's line, trimmed, with an escaped `|` put back; null
+ * when the line holds no `|`. The pipes at the two edges may be left out.
+ */
 function cells(line: string): string[] | null {
   const t = line.trim();
-  if (!t.startsWith("|")) return null;
+  if (!/(?<!\\)\|/.test(t)) return null;
   const parts = t.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
-  return parts.slice(1, parts.at(-1) === "" ? -1 : undefined);
+  return parts.slice(t.startsWith("|") ? 1 : 0, /(?<!\\)\|$/.test(t) ? -1 : undefined);
+}
+
+/** A cell without the marks of bold, italics or code around it: `**REQ-1**` is `REQ-1`. */
+function unmarked(cell: string): string {
+  for (let c = cell; ; ) {
+    const inner = /^(\*\*|__|\*|_|`)(.+)\1$/.exec(c)?.[2];
+    if (inner === undefined) return c;
+    c = inner.trim();
+  }
 }
 
 const isDashes = (row: string[]) => row.length > 0 && row.every((c) => /^:?-+:?$/.test(c));
@@ -212,18 +244,22 @@ export function rowsOf(text: string, settings: TraceSettings): Row[] {
   const whole = new RegExp(`^(?:${settings.pattern.source})$`, "i");
   const rows: Row[] = [];
   const lines = text.split(/\r?\n/);
+  // The mark that opened the block of code being passed over: its end is the same sign, at least as long.
   let fence: string | null = null;
   // The places of the columns in the table being read, or null outside one.
   let at: { id: number; method: number; status: number } | null = null;
   for (let i = 0; i < lines.length; i++) {
-    const mark = /^\s*(`{3,}|~{3,})/.exec(lines[i]!)?.[1];
-    if (mark !== undefined) {
-      if (fence === null) fence = mark[0]!;
-      else if (mark[0] === fence) fence = null;
+    const mark = /^\s*(`{3,}|~{3,})(.*)$/.exec(lines[i]!);
+    if (fence !== null) {
+      if (mark !== null && mark[1]![0] === fence[0] && mark[1]!.length >= fence.length && mark[2]!.trim() === "") fence = null;
+      continue;
+    }
+    if (mark !== null) {
+      fence = mark[1]!;
       at = null;
       continue;
     }
-    const row = fence === null ? cells(lines[i]!) : null;
+    const row = cells(lines[i]!);
     if (row === null) {
       at = null;
       continue;
@@ -240,7 +276,7 @@ export function rowsOf(text: string, settings: TraceSettings): Row[] {
       continue;
     }
     if (at.id < 0) continue;
-    const id = row[at.id] ?? "";
+    const id = unmarked(row[at.id] ?? "");
     if (!whole.test(id)) continue;
     const found: Row = {
       id,
@@ -256,45 +292,60 @@ export function rowsOf(text: string, settings: TraceSettings): Row[] {
   return rows;
 }
 
-/** The IDs in a text, in their fixed form, each once, in the order they stand. */
+/**
+ * The IDs in a text, in their fixed form, each once. The text is read as it
+ * is written and with `_` as `-`: a team may write its IDs either way.
+ */
 function idsIn(text: string, pattern: RegExp): string[] {
-  const found = fixedId(text).match(new RegExp(pattern.source, "gi")) ?? [];
-  return [...new Set(found.map(fixedId))];
+  const all = new RegExp(pattern.source, "gi");
+  return [...new Set([...(text.match(all) ?? []), ...(fixedId(text).match(all) ?? [])].map(fixedId))];
 }
+
+/** A comment line of its own that says what the next test covers or touches. */
+const SAID = /^\s*(?:\/\/+!?|#+!?|\/\*+!?|\*+|--+|;+|%+|<!--)\s*(covers|touches):\s*(.*)$/i;
 
 /**
  * The tests of a file: each match of a test pattern, with the IDs its name
  * covers (the one it starts with) and touches (those in round brackets), and
- * those of the `covers:` and `touches:` comments between it and the test above.
+ * those of the `covers:` and `touches:` comment lines between it and the test
+ * above. A line of code that holds such a word is no comment.
  */
 export function testsOf(text: string, file: string, settings: TraceSettings): Test[] {
+  // Where each line starts, to find the line of a place quickly.
+  const lineStarts = [0];
+  for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) lineStarts.push(i + 1);
   const lineAt = (index: number) => {
-    let line = 1;
-    for (let i = text.indexOf("\n"); i >= 0 && i < index; i = text.indexOf("\n", i + 1)) line++;
-    return line;
+    let low = 0;
+    let high = lineStarts.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (lineStarts[middle]! <= index) low = middle;
+      else high = middle - 1;
+    }
+    return low + 1;
   };
-  const byLine = new Map<number, Test>();
+  // By where the name stands: two tests on one line are two, and one found by two patterns is one.
+  const byPlace = new Map<number, Test>();
   const starts = new RegExp(`^(?:${settings.pattern.source})(?![A-Za-z0-9])`, "i");
   for (const pattern of settings.testPatterns) {
     for (const match of text.matchAll(pattern)) {
       const name = match[1] ?? match[0];
-      const line = lineAt(match.indices?.[1]?.[0] ?? match.index);
-      if (byLine.has(line)) continue;
-      const fixed = fixedId(name);
-      const first = starts.exec(fixed)?.[0];
-      const inBrackets = [...fixed.matchAll(/\(([^)]*)\)/g)].flatMap((m) => idsIn(m[1]!, settings.pattern));
+      const place = match.indices?.[1]?.[0] ?? match.index;
+      if (byPlace.has(place)) continue;
+      const first = starts.exec(name)?.[0] ?? starts.exec(fixedId(name))?.[0];
       const covers = first === undefined ? [] : [fixedId(first)];
-      byLine.set(line, { file, line, name, covers, touches: [...new Set(inBrackets)].filter((id) => !covers.includes(id)) });
+      const inBrackets = [...name.matchAll(/\(([^)]*)\)/g)].flatMap((m) => idsIn(m[1]!, settings.pattern));
+      byPlace.set(place, { file, line: lineAt(place), name, covers, touches: [...new Set(inBrackets)].filter((id) => !covers.includes(id)) });
     }
   }
-  const tests = [...byLine.values()].sort((a, b) => a.line - b.line);
+  const tests = [...byPlace.entries()].sort(([a], [b]) => a - b).map(([, test]) => test);
 
   // A comment counts for the next test below it.
   const lines = text.split(/\r?\n/);
   let next = 0;
   for (let i = 0; i < lines.length; i++) {
     while (next < tests.length && tests[next]!.line <= i + 1) next++;
-    const said = /\b(covers|touches):\s*(.*)$/i.exec(lines[i]!);
+    const said = SAID.exec(lines[i]!);
     const test = tests[next];
     if (said === null || test === undefined) continue;
     const ids = idsIn(said[2]!, settings.pattern);
@@ -314,9 +365,14 @@ export function trace(settings: TraceSettings, source: Source): TraceReport {
   const inAny = (globs: string[]) => files.filter((file) => globs.some((glob) => matchesGlob(glob, file)));
   const gaps: Gap[] = [];
 
+  const tables = inAny(settings.requirementsIn);
+  if (tables.length === 0) throw new LedgerError(`no file matches requirements_in: ${settings.requirementsIn.join(", ")}`);
+  const testFiles = inAny(settings.testsIn);
+  source.prime?.([...tables, ...testFiles]);
+
   const requirements: Requirement[] = [];
   const byId = new Map<string, Requirement>();
-  for (const file of inAny(settings.requirementsIn)) {
+  for (const file of tables) {
     for (const row of rowsOf(source.read(file) ?? "", settings)) {
       const first = byId.get(fixedId(row.id));
       if (first !== undefined) {
@@ -340,9 +396,16 @@ export function trace(settings: TraceSettings, source: Source): TraceReport {
     }
   }
 
+  // No requirement at all is a table that was not understood, never a trace with no gap.
+  if (requirements.length === 0) {
+    throw new LedgerError(
+      `no requirement in ${tables.join(", ")}: a table needs the heading ${settings.columns.id} with a row of dashes below it, and IDs that match requirement_pattern`,
+    );
+  }
+
   const tests: Test[] = [];
   const unknown: Gap[] = [];
-  for (const file of inAny(settings.testsIn)) {
+  for (const file of testFiles) {
     for (const test of testsOf(source.read(file) ?? "", file, settings)) {
       tests.push(test);
       const ref: TestRef = { file: test.file, line: test.line, name: test.name };

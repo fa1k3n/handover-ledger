@@ -57,13 +57,46 @@ export function commitOf(dir: string, name: string): string | null {
   return git(dir, "rev-parse", "--verify", "--quiet", "--end-of-options", `${name}^{commit}`);
 }
 
-/** The files of a commit below `dir`, named from `dir` as `trackedFiles` names them, or null when git fails. */
-export function filesAt(dir: string, commit: string): string[] | null {
-  const listed = gitLong(dir, "ls-tree", "-r", "-z", "--name-only", commit);
-  return listed === null ? null : listed.split("\0").filter((name) => name !== "");
+/**
+ * The files of a commit below `dir`, named from `dir` as `trackedFiles` names
+ * them, each with the name git gives its content. Null when git fails.
+ */
+export function blobsAt(dir: string, commit: string): Map<string, string> | null {
+  const listed = gitLong(dir, "ls-tree", "-r", "-z", commit);
+  if (listed === null) return null;
+  const blobs = new Map<string, string>();
+  for (const entry of listed.split("\0")) {
+    // <mode> <type> <name of the content>\t<path>
+    const match = /^\S+ blob (\S+)\t(.+)$/s.exec(entry);
+    if (match) blobs.set(match[2]!, match[1]!);
+  }
+  return blobs;
 }
 
-/** The text of a file of a commit, named from `dir`, or null when the commit has no such file. */
-export function textAt(dir: string, commit: string, file: string): string | null {
-  return gitLong(dir, "show", `${commit}:./${file}`);
+/** The text of each content named, read in one call to git. Null when git fails; a content git does not have is left out. */
+export function textsOf(dir: string, names: string[]): Map<string, string> | null {
+  const texts = new Map<string, string>();
+  if (names.length === 0) return texts;
+  const result = spawnSync("git", ["cat-file", "--batch"], {
+    cwd: dir,
+    input: `${names.join("\n")}\n`,
+    timeout: 60_000,
+    maxBuffer: 1024 * 1024 * 1024,
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  if (result.status !== 0) return null;
+  const out = result.stdout as Buffer;
+  // Each answer: `<name> <type> <size>\n<content>\n`, or `<name> missing\n`.
+  for (let at = 0; at < out.length; ) {
+    const end = out.indexOf(10, at);
+    if (end < 0) break;
+    const [name, , size] = out.toString("utf8", at, end).split(" ");
+    if (size === undefined || !/^[0-9]+$/.test(size)) {
+      at = end + 1;
+      continue;
+    }
+    texts.set(name!, out.toString("utf8", end + 1, end + 1 + Number(size)));
+    at = end + 1 + Number(size) + 1;
+  }
+  return texts;
 }

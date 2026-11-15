@@ -357,13 +357,13 @@ test_pattern:                                # each finds a test; the first grou
   - '\btest\(\s*"([^"]+)"'
 ```
 
-A table counts when its heading row holds the ID's heading, and each row whose ID cell is an ID is a requirement. A table inside a block of code is an example and is passed over. `requirement_columns` may name the ID's heading alone: every requirement then asks for a test and is taken as built. With a method or a status heading, `requirement_by_test` or `requirement_done` says which values count. Headings and values are compared ignoring case.
+A table counts when its heading row holds the ID's heading, and each row whose ID cell is an ID is a requirement. The pipes at the edges of a row may be left out, and an ID may stand in bold or in backticks. A table inside a block of code is an example and is passed over. When no file matches `requirements_in`, or the files hold no requirement, the command says so and ends with 2: it is never taken as a trace with no gap. `requirement_columns` may name the ID's heading alone: every requirement then asks for a test and is taken as built. With a method or a status heading, `requirement_by_test` or `requirement_done` says which values count. Headings and values are compared ignoring case.
 
-A test is each match of a `test_pattern` in a file of `tests_in`. A pattern is matched over the whole text of a file, so a name may stand on the line after its mark. A test's name is read ignoring case and with `_` as `-`, since a function's name cannot hold `-`:
+A test is each match of a `test_pattern` in a file of `tests_in`. A pattern is matched over the whole text of a file, so a name may stand on the line after its mark. A test's name is read ignoring case, as it is written and with `_` as `-`, since a function's name cannot hold `-`. `requirement_pattern` is looked for inside a name, so a `^` at its start and a `$` at its end are taken off. For names that must start with a word, as `def test_req_brk_012_…` in Python, put the group after it: `'def\s+test_(\w+)'`.
 
 - it **covers** the requirement whose ID its name starts with: `test("REQ-BRK-012 a rise is limited", …)`, `fn req_brk_012_a_rise_is_limited()`;
 - it **touches** each ID in round brackets in its name: `test("REQ-BRK-012 a rise is limited (REQ-BRK-013)", …)`;
-- a comment `covers: REQ-BRK-011, REQ-BRK-012` or `touches: REQ-BRK-013` counts for the next test below it in the file.
+- a comment line of its own, `// covers: REQ-BRK-011, REQ-BRK-012` or `/// touches: REQ-BRK-013`, counts for the next test below it in the file. The line must start with a comment's mark (`//`, `#`, `*`, `--`, `;`, `%`); the words in a line of code, or after a test on its own line, count for nothing.
 
 The gaps are: a requirement that asks for a test, is built, and has no test that covers it (a test that only touches it does not close the gap); a test that names an ID no table holds; an ID given in two rows. Tests that name no requirement are counted and are no gap.
 
@@ -380,7 +380,7 @@ src/diag/mod.rs:43 req_brk_051_a_fault_is_counted_once: names REQ-BRK-051, which
 
 `howl trace --check` prints only the gaps and ends with 1 when there is one. `--json` gives the requirements with their tests, the tests and the gaps, and never the text of a requirement. Each requirement has a version, the SHA-256 of its row with the cells trimmed and the status left out: it holds when a table is lined up again or a requirement is marked built, and changes with the text. `--at <commit>` reads the files and the settings of that commit and nothing from the working tree; without it the files git tracks are read as they stand.
 
-In `howl.yml` a `#` after white space starts a comment, also inside quotes, and a list in square brackets is split at every comma. A pattern with a comma goes on a line of its own under the key, as above.
+In `howl.yml` a `#` after white space starts a comment, also inside quotes, and a list in square brackets is split at every comma. A pattern with a comma goes on a line of its own under the key, as above. A quote inside a quoted value is taken as it stands: `''` is two quotes and not one, so write a pattern that needs a `'` between double quotes.
 
 Not read yet: the changes that name no requirement, the results of a test run, and requirements kept in a tool of their own (#38).
 
