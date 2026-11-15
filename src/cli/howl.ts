@@ -59,9 +59,12 @@ const USAGE = `usage:
             no Node on the developer's side. Its token is the file token in
             the project's folder, made once and kept
   watch     print the events of the ledger, then follow them. --activity adds
-            the tool calls of the activity file; a filter on type=tool.used
-            does too. A field and a value filter: type=review.*, actor=agent-1,
-            kind=claimed, change=12. Colour unless NO_COLOR is set. Times
+            the tool calls of the activity file; a filter that names
+            tool.used does too. A filter is a CEL expression over event:
+            'event.type.startsWith("review.") && event.project == "a"';
+            has(event.change) tests for a field. A field and a value still
+            filter: type=review.*, actor=agent-1, kind=claimed, change=12.
+            Colour unless NO_COLOR is set. Times
             in the local time zone (TZ), --utc as stored; --since without
             an offset is local time
   show      the timeline of one assignment, from the hand-over to the merge:
@@ -745,6 +748,7 @@ async function watchCommand(args: string[]): Promise<number> {
         colour,
       },
       (line) => process.stdout.write(`${line}\n`),
+      (line) => console.error(`howl: ${line}`),
     );
   } catch (e) {
     if (e instanceof LedgerError) throw new UsageError(e.message);

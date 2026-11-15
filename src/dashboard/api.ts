@@ -51,7 +51,8 @@ export const agents = () => get<Agents>("/api/agents");
 export const ledger = () => get<LedgerState>("/api/ledger");
 export const overview = () => get<{ now: number; figures: KeyFigures; handovers: Handover[] }>("/api/overview");
 
-export function events(filters: string[], activity: boolean, limit = 200): Promise<{ now: number; events: Item[] }> {
+/** #82: `failed` is there when a filter could not be worked out for some events: how many, and why. */
+export function events(filters: string[], activity: boolean, limit = 200): Promise<{ now: number; events: Item[]; failed?: { events: number; reason: string } }> {
   const q = new URLSearchParams();
   for (const f of filters) q.append("filter", f);
   if (activity) q.set("activity", "1");
