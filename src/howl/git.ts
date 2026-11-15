@@ -39,3 +39,31 @@ export function repoName(url: string | null): string | null {
   const match = /[:/]([^/:]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url);
   return match ? `${match[1]}/${match[2]}` : null;
 }
+
+/** Runs git in `dir` for a longer answer than `git` allows, with no trimming. Null when git fails or is not there. */
+function gitLong(dir: string, ...args: string[]): string | null {
+  const result = spawnSync("git", args, {
+    cwd: dir,
+    encoding: "utf8",
+    timeout: 60_000,
+    maxBuffer: 1024 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  return result.status === 0 ? result.stdout : null;
+}
+
+/** The full name of a commit as git reads `name`, or null when it names none. */
+export function commitOf(dir: string, name: string): string | null {
+  return git(dir, "rev-parse", "--verify", "--quiet", "--end-of-options", `${name}^{commit}`);
+}
+
+/** The files of a commit below `dir`, named from `dir` as `trackedFiles` names them, or null when git fails. */
+export function filesAt(dir: string, commit: string): string[] | null {
+  const listed = gitLong(dir, "ls-tree", "-r", "-z", "--name-only", commit);
+  return listed === null ? null : listed.split("\0").filter((name) => name !== "");
+}
+
+/** The text of a file of a commit, named from `dir`, or null when the commit has no such file. */
+export function textAt(dir: string, commit: string, file: string): string | null {
+  return gitLong(dir, "show", `${commit}:./${file}`);
+}

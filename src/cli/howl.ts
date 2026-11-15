@@ -23,6 +23,7 @@ const USAGE = `usage:
   howl status [--follow] [--json]
   howl serve [--port <n>]
   howl classes [--check] [--json]
+  howl trace [--at <commit>] [--check] [--json]
 
   verify    check every line of the ledger and the chain between the lines,
             then every signed claim against the key issued for it
@@ -86,6 +87,14 @@ const USAGE = `usage:
             --check ends with 1 and names each file with no class by path,
             no header where one is needed, a header that names no class, or
             a header that differs from its path's class. Only reads
+  trace     the requirements in the repository's Markdown tables
+            (requirements_in in .howl/howl.yml) and the tests that name them
+            (tests_in, test_pattern): a line per requirement, then the gaps.
+            A test covers the requirement whose ID its name starts with and
+            touches each ID in brackets. --check ends with 1 and names each
+            built requirement by test that no test covers, each test that
+            names an ID no table holds, and each ID given twice. --at reads
+            one commit and nothing from the working tree. Only reads
 
 watch, show, status, serve and verify also take --project <name> or --ledger <path>. They
 only read: they take no lock and run while the writer appends.
@@ -145,6 +154,8 @@ async function main(argv: string[]): Promise<number> {
         return await serveCommand(rest);
       case "classes":
         return await classesCommand(rest);
+      case "trace":
+        return await traceCommand(rest);
       case "-h":
       case "--help":
       case "help":
@@ -802,6 +813,40 @@ async function classesCommand(args: string[]): Promise<number> {
     }
   }
   return values.check && report.problems.length > 0 ? 1 : 0;
+}
+
+async function traceCommand(args: string[]): Promise<number> {
+  const { values } = parse(args, { at: { type: "string" }, check: { type: "boolean" }, json: { type: "boolean" } });
+  const { countsLine, findTrace, gapLine, trace, traceRoot, treeAt, workingTree } = await import("../howl/trace.ts");
+  const root = traceRoot(process.cwd());
+  if (root === null) throw new UsageError("no requirements_in in .howl/howl.yml");
+  const source = values.at === undefined ? workingTree(root) : treeAt(root, values.at);
+  const settings = findTrace(root, source);
+  if (settings === null) throw new UsageError("no requirements_in in .howl/howl.yml");
+  const report = trace(settings, source);
+  const gaps = report.gaps.map((gap) => gapLine(gap, report));
+  if (values.json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else if (values.check) {
+    for (const gap of gaps) console.log(gap);
+    if (gaps.length === 0) console.log(`ok: ${countsLine(report)}`);
+  } else {
+    const width = (texts: string[]) => Math.max(0, ...texts.map((t) => t.length));
+    const ids = width(report.requirements.map((r) => r.id));
+    const methods = width(report.requirements.map((r) => r.method ?? ""));
+    const statuses = width(report.requirements.map((r) => r.status ?? ""));
+    for (const r of report.requirements) {
+      const n = r.covered_by.length;
+      const tests = !r.by_test ? "-" : n === 0 ? "no test" : `${n} test${n === 1 ? "" : "s"}`;
+      const columns = [r.id.padEnd(ids), ...(methods > 0 ? [(r.method ?? "").padEnd(methods)] : []), ...(statuses > 0 ? [(r.status ?? "").padEnd(statuses)] : []), tests];
+      console.log(columns.join("  "));
+    }
+    const n = gaps.length;
+    console.log(`\n${countsLine(report)}, ${n === 0 ? "no gap" : `${n} gap${n === 1 ? "" : "s"}`}, ${report.at === null ? "in the working tree" : `at ${report.at.slice(0, 12)}`}`);
+    if (n > 0) console.log("");
+    for (const gap of gaps) console.log(gap);
+  }
+  return values.check && gaps.length > 0 ? 1 : 0;
 }
 
 async function serveCommand(args: string[]): Promise<number> {
