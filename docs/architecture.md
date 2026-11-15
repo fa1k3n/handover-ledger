@@ -8,6 +8,7 @@
 - **Agents are short-lived.** Every assignment is a new session that starts cold. A review needs independence, a test author starts from the requirement and not from the code, and memory kept in a clone gathers faults.
 - **No hidden agent memory.** State per task lives in the task, the change and its comments. Lasting learning is written into the repository (instructions, role files).
 - **Observed before claimed.** Events come from adapters that read what happened in the team's tools. An event an agent sends about itself is marked as a claim.
+- **The evidence does not depend on how a team is set up.** An assessor can do the same work on a team of people, of people with AI tools, or of agents (see [Who contributes](#who-contributes)).
 - **Identity and memory are separate.** A named agent is a lasting identity; each assignment is a new session. Its "memory" is its history in the team's tools.
 - **Role, model and effort belong to the assignment.** Any team member can take any role. The dispatcher sets role, model and effort from the task (for example its size and risk).
 - **People are full team members.** When a task is assigned to a person no session starts; the dispatcher waits for a real event. People keep working in their usual tools: a review in the code host becomes a core event.
@@ -29,8 +30,25 @@ Three kinds of contributor, told apart by the account the work is done under:
 - **An observed account does not prove what drives it.** A person could sign in as an agent's account, or an agent use a person's token. Keys per assignment, short-lived app tokens and `howl keyd` make misuse traceable, not impossible.
 - **Model, role prompt and rule version stay claims,** also for an agent's account: the code host does not know which model ran. They are signed by the session's key where there is one.
 - **The use of an assistant is never a figure per person.** It is counted for the team only.
+- **An agent that works through a person's account is not a fourth kind.** The account's holder answers for the work, and the ledger says that independence is not shown. It is not called an agent's work, and not a person's careful use of a tool either.
 
-Today `howl` still puts an agent's session behind a person's account when the two match in time (#14). That is to change (#95).
+### The same questions for every change
+
+An assessor asks the same of every change, whatever the team. Only the answers differ:
+
+| Question | Person | Person with an assistant | Agent |
+|---|---|---|---|
+| Who answers for it? | the account, observed | the account, observed | the agent's account, observed; its owner |
+| Was an AI tool used, and which? | "none", declared on the change | the tool, declared on the change (#73) | the account says so; the model is claimed |
+| Who verified it, and how independently? | the reviews, observed | the reviews, observed | the reviews, observed |
+| Which requirement, which test? | the trace | the trace | the trace |
+| Is the record whole? | the chain | the chain | the chain |
+
+- **No answer rests on a session.** A session is always a claim, and it serves the team: who is working, and who waits for whom. What an assessor reads is what the code host showed.
+- **A missing answer is said as a fact:** "not declared", "independence not shown". Never left out.
+- **A team with no agent's account is a full case,** not a lesser one. Its lasting record of AI tools is the declaration on each change.
+
+Today `howl` records a session whenever an agent is named, under any account, and matches it to what a person's account did at the code host (#14). What becomes of both is #95.
 
 ## Core concepts
 

@@ -1,0 +1,10 @@
+project: example
+requirements_in: ['requirements/*.md']
+requirement_pattern: 'REQ-[A-Z]+-[0-9]+'
+requirement_columns: [ID, Ver, Status]
+requirement_by_test: [T]
+requirement_done: [Implemented, Verified]
+tests_in: ['src/**/*.rs', 'checks/*.spec.js']
+test_pattern:
+  - '#\[test\]\s*(?:#\[[^\]]*\]\s*)*fn\s+(\w+)'
+  - '\btest\(\s*"([^"]+)"'

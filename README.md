@@ -89,7 +89,7 @@ project: example
 activity_days: 30     # how long tool calls are kept; 30 when left out
 ```
 
-**2. Name the agent.** Only an agent's session is recorded; a person's session leaves nothing. An agent is a contributor with an account of its own at the code host ([docs/architecture.md](docs/architecture.md#who-contributes)); a session that works under a person's account is that person's, helped by a tool. `howl` does not yet enforce this (#95). Set `HOWL_ACTOR` in the agent's environment, or put the agent's name as the one line of `.howl/actor` and let git ignore that file:
+**2. Name the agent.** Only an agent's session is recorded; a person's session leaves nothing. An agent is a contributor with an account of its own at the code host ([docs/architecture.md](docs/architecture.md#who-contributes)); a session that works under a person's account is that person's, helped by a tool. Today `howl` records a session whenever an agent is named; what it does with one under a person's account is #95. Set `HOWL_ACTOR` in the agent's environment, or put the agent's name as the one line of `.howl/actor` and let git ignore that file:
 
 ```sh
 echo agent-1 > .howl/actor
@@ -340,6 +340,49 @@ A team that already writes its safety class in a file header sets the pattern to
 is read with `class_header: '@safety_class\s+(ASIL[- _]?[A-D]|QM)'` and the classes `asil-d`, `asil-c`, `asil-b`, `asil-a` and `qm`, in that order.
 
 `howl classes` prints each file git tracks with its class. `howl classes --check` ends with 1 and names each file that has no class by path, lacks a header where `class_header_in` asks for one, has a header that names no class, or has a header that differs from its path's class. With `--json` both give JSON. The command only reads.
+
+## Requirements
+
+`howl trace` reads the requirements a team keeps as Markdown tables in its repository and the tests that name them, and prints the trace matrix and its gaps. It reads the repository alone: no event is written, and the ledger is not needed.
+
+```yaml
+requirements_in: ['requirements/*.md']       # the files that hold the tables
+requirement_pattern: 'REQ-[A-Z]+-[0-9]+'     # what an ID looks like
+requirement_columns: [ID, Ver, Status]       # the headings of the ID, the method and the status
+requirement_by_test: [T]                     # the methods that ask for a test
+requirement_done: [Implemented, Verified]    # the statuses that say it is built
+tests_in: ['src/**/*.rs', 'test/**/*.test.ts']
+test_pattern:                                # each finds a test; the first group is its name
+  - '#\[test\]\s*(?:#\[[^\]]*\]\s*)*fn\s+(\w+)'
+  - '\btest\(\s*"([^"]+)"'
+```
+
+A table counts when its heading row holds the ID's heading, and each row whose ID cell is an ID is a requirement. The pipes at the edges of a row may be left out, and an ID may stand in bold or in backticks. A table inside a block of code is an example and is passed over. When no file matches `requirements_in`, or the files hold no requirement, the command says so and ends with 2: it is never taken as a trace with no gap. `requirement_columns` may name the ID's heading alone: every requirement then asks for a test and is taken as built. With a method or a status heading, `requirement_by_test` or `requirement_done` says which values count. Headings and values are compared ignoring case.
+
+A test is each match of a `test_pattern` in a file of `tests_in`. A pattern is matched over the whole text of a file, so a name may stand on the line after its mark. A test's name is read ignoring case, as it is written and with `_` as `-`, since a function's name cannot hold `-`. `requirement_pattern` is looked for inside a name, so a `^` at its start and a `$` at its end are taken off. For names that must start with a word, as `def test_req_brk_012_…` in Python, put the group after it: `'def\s+test_(\w+)'`.
+
+- it **covers** the requirement whose ID its name starts with: `test("REQ-BRK-012 a rise is limited", …)`, `fn req_brk_012_a_rise_is_limited()`;
+- it **touches** each ID in round brackets in its name: `test("REQ-BRK-012 a rise is limited (REQ-BRK-013)", …)`;
+- a comment line of its own, `// covers: REQ-BRK-011, REQ-BRK-012` or `/// touches: REQ-BRK-013`, counts for the next test below it in the file. The line must start with a comment's mark (`//`, `#`, `*`, `--`, `;`, `%`); the words in a line of code, or after a test on its own line, count for nothing.
+
+The gaps are: a requirement that asks for a test, is built, and has no test that covers it (a test that only touches it does not close the gap); a test that names an ID no table holds; an ID given in two rows. Tests that name no requirement are counted and are no gap.
+
+```
+REQ-BRK-012  T  Verified     2 tests
+REQ-BRK-020  T  Implemented  no test
+REQ-BRK-021  I  Implemented  -
+
+3 requirements, 4 tests (1 names no requirement), 2 gaps, in the working tree
+
+requirements/brake.md:9 REQ-BRK-020: built and by test, and no test covers it
+src/diag/mod.rs:43 req_brk_051_a_fault_is_counted_once: names REQ-BRK-051, which no table holds
+```
+
+`howl trace --check` prints only the gaps and ends with 1 when there is one. `--json` gives the requirements with their tests, the tests and the gaps, and never the text of a requirement. Each requirement has a version, the SHA-256 of its row with the cells trimmed and the status left out: it holds when a table is lined up again or a requirement is marked built, and changes with the text. `--at <commit>` reads the files and the settings of that commit and nothing from the working tree; without it the files git tracks are read as they stand.
+
+In `howl.yml` a `#` after white space starts a comment, also inside quotes, and a list in square brackets is split at every comma. A pattern with a comma goes on a line of its own under the key, as above. A quote inside a quoted value is taken as it stands: `''` is two quotes and not one, so write a pattern that needs a `'` between double quotes.
+
+Not read yet: the changes that name no requirement, the results of a test run, and requirements kept in a tool of their own (#38).
 
 ## Documents
 
