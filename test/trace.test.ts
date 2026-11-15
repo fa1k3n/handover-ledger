@@ -388,3 +388,130 @@ test("#88: --at reads many files in one go, with odd names", () => {
   assert.deepEqual(JSON.parse(howl(["trace", "--json"], { cwd: root }).stdout).requirements, then.requirements, "the commit and the working tree give the same");
   assert.ok(Date.now() - started < 20_000);
 });
+
+// #99: a team's own comment word, files left out, and names worked out at run time.
+
+const TWO = "| ID | Requirement |\n|---|---|\n| R-1 | One. |\n| R-2 | Two. |\n";
+/** The settings of the small repository with a line added, and a test pattern that also reads a template. */
+const withLines = (lines: string) => SMALL_YML.replace(/test_pattern.*\n/, "test_pattern: ['\\btest\\(\\s*[\"`]([^\"`]+)']\n") + lines;
+
+test("#99: a word set in test_covers makes a comment line cover what it names; without the setting the line counts for nothing", () => {
+  const tests = '// REQ: R-1 R-2 some words about them\ntest("a helper", () => {});\n';
+  const set = report(small(TWO, tests, withLines("test_covers: [covers, REQ]\n")));
+  assert.deepEqual(set.gaps, []);
+  assert.deepEqual(set.tests[0]!.covers, ["R-1", "R-2"], "IDs parted by spaces, and the words after them passed over");
+
+  const unset = report(small(TWO, tests, withLines("")));
+  assert.deepEqual(gaps(unset, "no_test").map((g) => g.id), ["R-1", "R-2"]);
+
+  const lower = report(small(TWO, '// req: R-1, R-2\ntest("a helper", () => {});\n', withLines("test_covers: [covers, REQ]\n")));
+  assert.deepEqual(lower.gaps, [], "the word is compared ignoring case");
+  const still = report(small(TWO, '// covers: R-1\n// REQ: R-2\ntest("a helper", () => {});\n', withLines("test_covers: [covers, REQ]\n")));
+  assert.deepEqual(still.gaps, [], "covers: is still a word when the setting names it");
+
+  const only = report(small(TWO, '// covers: R-1, R-2\ntest("a helper", () => {});\n', withLines("test_covers: [REQ]\n")));
+  assert.deepEqual(gaps(only, "no_test").map((g) => g.id), ["R-1", "R-2"], "the setting replaces the default word");
+  const inCode = report(small(TWO, 'const REQ = "REQ: R-1 R-2";\ntest("a helper", () => {});\n', withLines("test_covers: [REQ]\n")));
+  assert.deepEqual(gaps(inCode, "no_test").map((g) => g.id), ["R-1", "R-2"], "still only a comment line of its own");
+});
+
+test("#99: a word set in test_touches touches and does not cover", () => {
+  const r = report(small(TWO, '// SEE: R-2\ntest("R-1 a", () => {});\n', withLines("test_touches: [touches, SEE]\n")));
+  assert.deepEqual({ covers: r.tests[0]!.covers, touches: r.tests[0]!.touches }, { covers: ["R-1"], touches: ["R-2"] });
+  assert.deepEqual(gaps(r, "no_test").map((g) => g.id), ["R-2"]);
+});
+
+test("#99: a word of the settings that is no plain word is refused", () => {
+  const run = howl(["trace"], { cwd: small(TWO, 'test("R-1 a", () => {});\n', withLines("test_covers: ['a|b']\n")) });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /^howl: test_covers: a\|b is no word/);
+});
+
+test("#99: a file in tests_in and in tests_not_in is not read, and a table in requirements_not_in is not read", () => {
+  const root = small(TWO, 'test("R-1 a", () => {});\ntest("R-2 b", () => {});\n', withLines("tests_in: ['*.js', 'data/**']\ntests_not_in: ['data/**', 'made-up.js']\nrequirements_in: ['*.md']\nrequirements_not_in: ['old*.md']\n").replace("tests_in: [checks.js]\n", "").replace("requirements_in: [reqs.md]\n", ""));
+  mkdirSync(join(root, "data"));
+  writeFileSync(join(root, "data", "strings.js"), 'const text = `test("R-777 in a string", () => {});`;\n');
+  writeFileSync(join(root, "made-up.js"), 'test("R-888 a made-up one", () => {});\n');
+  writeFileSync(join(root, "old-reqs.md"), "| ID | Requirement |\n|---|---|\n| R-9 | An old one, with no test. |\n");
+  git(root, "add", "-A");
+  const r = report(root);
+  assert.deepEqual(r.gaps, [], "no unknown ID from the files left out, and no requirement from the table left out");
+  assert.deepEqual(r.counts, { requirements: 2, tests: 2, tests_naming_none: 0, gaps: 0 });
+
+  const noTable = howl(["trace"], { cwd: small(TWO, 'test("R-1 a", () => {});\n', withLines("requirements_not_in: ['*.md']\n")) });
+  assert.equal(noTable.status, 2, "every table left out is no table");
+  assert.match(noTable.stderr, /requirements_not_in leaves out every file/);
+});
+
+test("#99: a test whose name is worked out at run time is counted apart, and is not among those that name none", () => {
+  const tests = ["test(`${f.id} the page`, () => {});", "test(`${f.id} the list`, () => {});", "test(`a plain template`, () => {});", "test(`R-1 with ${n} rows`, () => {});", "// covers: R-2", "test(`${f.id} with a comment`, () => {});", 'test("a helper", () => {});', ""].join("\n");
+  const root = small(TWO, tests, withLines(""));
+  const r = report(root);
+  assert.deepEqual(
+    r.tests.map((t) => [t.name, t.computed === true]),
+    [
+      ["${f.id} the page", true],
+      ["${f.id} the list", true],
+      ["a plain template", false],
+      ["R-1 with ${n} rows", false],
+      ["${f.id} with a comment", false],
+      ["a helper", false],
+    ],
+    "computed only when nothing can be read from the name or a comment",
+  );
+  assert.deepEqual(r.gaps, [], "what can be read still counts: the ID a name starts with, and a comment above it");
+  assert.equal(r.counts.tests_naming_none, 2, "the plain template and the helper");
+  assert.equal("computed" in r.tests[2]!, false, "the field is there only when it is true");
+
+  const plain = howl(["trace", "--check"], { cwd: root });
+  assert.equal(plain.stdout.trim(), "ok: 2 requirements, 6 tests (2 name no requirement, 2 with a name worked out at run time)");
+  const json = JSON.parse(howl(["trace", "--json"], { cwd: root }).stdout) as TraceReport;
+  assert.deepEqual(json.tests.filter((t) => t.computed).map((t) => [t.file, t.line]), [["checks.js", 1], ["checks.js", 2]]);
+
+  const one = howl(["trace", "--check"], { cwd: small(TWO, 'test("R-1 a", () => {});\ntest("R-2 b", () => {});\ntest(`${x}`, () => {});\n', withLines("")) });
+  assert.equal(one.stdout.trim(), "ok: 2 requirements, 3 tests (1 with a name worked out at run time)");
+});
+
+test("#99: an ID is a word of its own: the words after a comment's IDs, and a longer word in brackets, name none", () => {
+  const yml = withLines("test_covers: [covers, REQ]\n");
+  const after = report(small(TWO, '// REQ: R-1, R-2 hashed with SHA-256, as R-9 was before\ntest("a helper", () => {});\n', yml));
+  assert.deepEqual(after.tests[0]!.covers, ["R-1", "R-2"], "R-9 stands after the words began");
+  assert.deepEqual(after.gaps, []);
+
+  const inBrackets = report(small(TWO, 'test("R-1 hashed (PR-256, R-2)", () => {});\ntest("R-2 b", () => {});\n', yml));
+  assert.deepEqual(inBrackets.tests[0]!.touches, ["R-2"], "PR-256 holds no R-256");
+  assert.deepEqual(inBrackets.gaps, []);
+});
+
+test("#99: a name that starts with several IDs covers each, and each part of a comment between ; may start with its own", () => {
+  const three = "| ID | Requirement |\n|---|---|\n| R-1 | One. |\n| R-2 | Two. |\n| R-3 | Three. |\n";
+  const yml = withLines("test_covers: [covers, REQ]\n");
+  const name = report(small(three, 'test("R-1 R-2, R-3 the three together (R-1)", () => {});\n', yml));
+  assert.deepEqual({ covers: name.tests[0]!.covers, touches: name.tests[0]!.touches }, { covers: ["R-1", "R-2", "R-3"], touches: [] });
+
+  const colon = report(small(three, 'test("R-1: R-2 is not taken for R-3", () => {});\n', yml));
+  assert.deepEqual(colon.tests[0]!.covers, ["R-1"], "a colon after an ID ends the IDs");
+
+  const parts = report(small(three, '// REQ: R-1 from a mail; R-2 from a pasted text; and then R-3\ntest("a helper", () => {});\n', yml));
+  assert.deepEqual(parts.tests[0]!.covers, ["R-1", "R-2"], "a part that starts with words names nothing");
+  assert.deepEqual(gaps(parts, "no_test").map((g) => g.id), ["R-3"]);
+});
+
+// What the review of the pull request found.
+
+test("#99: a comment's IDs may stand in brackets or marks, and a word is in one of the two lists only", () => {
+  for (const comment of ["// covers: [R-1, R-2]", "// covers: `R-1`, (R-2)", "// covers: , R-1 R-2", "// covers: **R-1**, R-2.", "// covers: (R-1, R-2): the two"]) {
+    const r = report(small(TWO, `${comment}\ntest("a helper", () => {});\n`, withLines("")));
+    assert.deepEqual(r.tests[0]!.covers, ["R-1", "R-2"], comment);
+  }
+  const and = report(small(TWO, '// covers: R-1 and R-2\ntest("a helper", () => {});\n', withLines("")));
+  assert.deepEqual(and.tests[0]!.covers, ["R-1"], "after a word the IDs have ended: the README says so");
+
+  const both = howl(["trace"], { cwd: small(TWO, 'test("R-1 a", () => {});\n', withLines("test_covers: [covers, see]\ntest_touches: [See]\n")) });
+  assert.equal(both.status, 2);
+  assert.match(both.stderr, /^howl: see is in test_covers and in test_touches/);
+
+  const all = howl(["trace"], { cwd: small(TWO, 'test("R-1 a", () => {});\n', withLines("requirements_not_in: [reqs.md]\n")) });
+  assert.equal(all.status, 2);
+  assert.match(all.stderr, /^howl: requirements_not_in leaves out every file of requirements_in: reqs\.md/);
+});
