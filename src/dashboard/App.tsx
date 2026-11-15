@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, DEFAULT_FILTER, detail, filterTexts, filterWith, hashFor, oneAtATime, resetFilter, itemKey, menuShown, needsInputHref, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
+import { concerns, decodedFields, detail, filterTexts, filterWith, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, STREAM_START, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -435,16 +435,17 @@ const ROW_TINT = { warn: "bg-warn-pale", error: "bg-error-pale" };
  */
 function Stream({ onError, project, served }: { onError: (e: unknown) => void; project: string; served: number }) {
   const [paused, setPaused] = useState(false);
-  // #82: every event is asked for, the tool calls too; the filter line says what is left out, and starts with them.
-  const [draft, setDraft] = useState(DEFAULT_FILTER);
-  const [filters, setFilters] = useState<string[]>(() => filterTexts(DEFAULT_FILTER));
+  // #89: the tool calls are asked for with the box ticked; the filter line starts empty and holds what the reader wrote.
+  const [tools, setTools] = useState<boolean>(STREAM_START.tools);
+  const [draft, setDraft] = useState<string>(STREAM_START.filter);
+  const [filters, setFilters] = useState<string[]>(() => filterTexts(STREAM_START.filter));
   const [filterError, setFilterError] = useState<string | null>(null);
   const [failed, setFailed] = useState<{ events: number; reason: string } | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [picked, setPicked] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    return api.events(filters, true).then(
+    return api.events(filters, tools).then(
       (r) => {
         setItems([...r.events].reverse());
         setFilterError(null);
@@ -452,7 +453,7 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
       },
       (e: Error) => (filters.length > 0 ? setFilterError(e.message) : onError(e)),
     );
-  }, [filters, onError]);
+  }, [filters, tools, onError]);
   usePoll(load, POLL_MS, !paused);
 
   const selected = useMemo(() => items.find((i) => itemKey(i) === picked) ?? items[0] ?? null, [items, picked]);
@@ -486,6 +487,11 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
           <button type="button" onClick={() => setPaused(!paused)} className={`${button} border border-pale bg-white text-ink`}>
             {paused ? texts.stream.resume : texts.stream.pause}
           </button>
+          <div className="flex-1" />
+          <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-sm">
+            <input type="checkbox" checked={tools} onChange={(e) => setTools(e.target.checked)} className="m-0 h-5 w-5 accent-ink" />
+            {texts.stream.showTools}
+          </label>
         </div>
 
         <form
@@ -513,14 +519,13 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
           <button
             type="button"
             onClick={() => {
-              // Back to the default, not to nothing: the tool calls stay out until the reader takes the clause away.
-              const next = resetFilter();
-              setDraft(next);
-              setFilters(filterTexts(next));
+              // The line only: the box stays as the reader set it.
+              setDraft("");
+              setFilters([]);
             }}
             className={`${button} border border-pale bg-white text-ink`}
           >
-            {texts.stream.reset}
+            {texts.stream.clear}
           </button>
           <span className={`basis-full text-[13px] ${filterError ? "text-error-ink" : "text-mute"}`} role={filterError ? "alert" : undefined}>
             {filterError ?? texts.stream.filterHint}
