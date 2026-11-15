@@ -47,8 +47,18 @@ export const texts = {
     count: (n: number) => `Showing the latest ${n} events that match`,
     empty: "No events match.",
   },
-  decoded: { heading: (n: string) => n, sub: "decoded", tool: "Tool call", line: (n: number) => `Line ${n}`, none: "Pick an event in the stream." },
-  raw: { heading: "Raw line", sub: "as stored, indented" },
+  decoded: { sub: "decoded", tool: "Tool call", line: (n: number) => `Line ${n}` },
+  raw: { heading: "Raw line", sub: "as stored, with line breaks and indents added" },
+  /** #110: the dialog of one event of the event log. */
+  dialog: {
+    close: "Close",
+    copy: "Copy line",
+    copied: "Copied",
+    copyHint: "Copies the line exactly as it is stored, not the indented form",
+    newer: "Newer",
+    older: "Older",
+    only: "Show only this",
+  },
   overview: {
     title: "Overview",
     subtitle: "From the ledger alone · times in local time",
