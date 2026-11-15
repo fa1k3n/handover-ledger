@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, detail, filterTexts, filterWith, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, STREAM_START, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
+import { concerns, decodedFields, detail, filterTexts, filterWith, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, STREAM_START, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -42,8 +42,10 @@ export function App() {
   const [projects, setProjects] = useState<api.Projects | null>(null);
   usePoll(
     useCallback(() => api.projects().then(setProjects, fail), [fail]),
-    30_000,
+    // #102: often enough to say soon that nobody writes a project.
+    LEDGER_POLL_MS,
   );
+  const unwritten = writingLines(projects);
   const project = projects === null ? null : (projects.projects.find((p) => p.name === route.project)?.name ?? projects.default);
   api.setProject(project);
 
@@ -77,7 +79,7 @@ export function App() {
 
   return (
     <div className="min-h-screen">
-      <Header view={view} project={project} projects={projects} />
+      <Header view={view} project={project} projects={projects} unwritten={unwritten.map((u) => u.project)} />
       <main key={project ?? ""} className="mx-auto flex max-w-[1360px] flex-col gap-5 px-4 py-6 sm:px-8">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <div className="flex flex-col gap-1">
@@ -98,6 +100,12 @@ export function App() {
             {texts.error(error)}
           </p>
         )}
+        {unwritten.map((u) => (
+          // #102: a ledger that is shown and not written looks alive and is not.
+          <p key={u.project} role="status" className="m-0 rounded-xl border border-line bg-warn-pale px-4 py-3 text-warn-ink">
+            {u.line}
+          </p>
+        ))}
         {project === null ? null : view === "overview" ? (
           // #81: the team right now first, then the figures of the period: both are of the project picked.
           <>
@@ -107,14 +115,14 @@ export function App() {
         ) : view === "change" ? (
           <ChangeView what={route.what ?? null} project={project} onError={fail} />
         ) : (
-          <Stream onError={fail} project={project} served={projects?.projects.length ?? 1} />
+          <Stream onError={fail} project={project} served={projects?.projects.length ?? 1} unwritten={unwritten.map((u) => u.project)} />
         )}
       </main>
     </div>
   );
 }
 
-function Header({ view, project, projects }: { view: View; project: string | null; projects: api.Projects | null }) {
+function Header({ view, project, projects, unwritten }: { view: View; project: string | null; projects: api.Projects | null; unwritten: string[] }) {
   const tab = (active: boolean) =>
     `rounded-lg px-3.5 py-2.5 no-underline ${active ? "bg-white/10 font-medium text-white" : "text-pale hover:text-white"}`;
   return (
@@ -159,6 +167,7 @@ function Header({ view, project, projects }: { view: View; project: string | nul
               {projects.projects.map((p) => (
                 <option key={p.name} value={p.name}>
                   {p.name}
+                  {unwritten.includes(p.name) ? texts.unwritten : ""}
                 </option>
               ))}
             </select>
@@ -433,7 +442,7 @@ const ROW_TINT = { warn: "bg-warn-pale", error: "bg-error-pale" };
  * the filter. `project` is the one picked in the menu: only for the link of a
  * row that names no project of its own.
  */
-function Stream({ onError, project, served }: { onError: (e: unknown) => void; project: string; served: number }) {
+function Stream({ onError, project, served, unwritten }: { onError: (e: unknown) => void; project: string; served: number; unwritten: string[] }) {
   const [paused, setPaused] = useState(false);
   // #89: the tool calls are asked for with the box ticked; the filter line starts empty and holds what the reader wrote.
   const [tools, setTools] = useState<boolean>(STREAM_START.tools);
@@ -568,6 +577,7 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
                           {item.project !== undefined ? (
                             <button type="button" onClick={() => narrow("project", item.project!)} aria-label={texts.stream.narrow("project", item.project)} className={cellButton}>
                               {item.project}
+                              {unwritten.includes(item.project) ? texts.unwritten : ""}
                             </button>
                           ) : (
                             "–"

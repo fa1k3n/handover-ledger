@@ -695,6 +695,26 @@ async function upCommand(args: string[]): Promise<number> {
     throw e;
   }
   console.log(`howl up: ${server.url} (the writer of ${o.project}; every project in ${howlHome()} is shown, read-only)`);
+  // #102: the other projects are shown and not written by this process: say which of them has events waiting.
+  {
+    const { readdirSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { LEDGER_FILE } = await import("../ledger/names.ts");
+    const { isProjectName } = await import("../ledger/place.ts");
+    const { writingLine, writingOf } = await import("../read/writing.ts");
+    let names: string[] = [];
+    try {
+      names = readdirSync(howlHome()).sort();
+    } catch {
+      // No home yet: nothing to say.
+    }
+    for (const name of names) {
+      const ledger = join(howlHome(), name, LEDGER_FILE);
+      if (name === o.project || !isProjectName(name) || !existsSync(ledger)) continue;
+      const line = writingLine(name, writingOf(ledger), Date.now());
+      if (line !== null) console.log(line);
+    }
+  }
   if (!existsSync(`${root}/index.html`)) {
     console.error("howl: the page is not built (npm run build:dashboard): the writer and the API run without it");
   }
@@ -920,8 +940,14 @@ async function statusCommand(args: string[]): Promise<number> {
     console.log(JSON.stringify(rows(), null, 2));
     return 0;
   }
+  // #102: said when events wait in the project's inbox and nothing writes them.
+  const { writingLine, writingOf } = await import("../read/writing.ts");
+  const { basename, dirname } = await import("node:path");
+  const unwritten = () => writingLine(basename(dirname(ledger)), writingOf(ledger), Date.now());
   if (!values.follow) {
     console.log(renderStatus(rows(), Date.now()));
+    const line = unwritten();
+    if (line !== null) console.log(`\n${line}`);
     return 0;
   }
   const clear = process.stdout.isTTY ? "\u001b[H\u001b[2J" : "";

@@ -7,6 +7,7 @@ import { duration } from "../read/overview.ts";
 import type { Claim, Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
+import { writingLine, type Writing } from "../read/writing-text.ts";
 
 /** The filter text as field=value pairs, split on white space. */
 export function filterPairs(text: string): string[] {
@@ -261,4 +262,18 @@ export function sessionText(s: Session): string {
     .map(([tool, n]) => `${tool} ${n}`)
     .join(", ");
   return [s.actor?.id ?? "someone", s.role, span, tools || null].filter(Boolean).join(" · ");
+}
+
+/**
+ * #102: what the page says under its header, one line for each project that
+ * has events waiting and no writer, or a writer that is slow. Empty when all
+ * is well, and for a server of one ledger file.
+ */
+export function writingLines(projects: { projects: ({ name: string } & Partial<Writing>)[]; now?: number } | null, now = Date.now()): { project: string; line: string }[] {
+  if (projects === null) return [];
+  return projects.projects.flatMap((p) => {
+    if (p.writer === undefined || p.waiting === undefined) return [];
+    const line = writingLine(p.name, { writer: p.writer, waiting: p.waiting, oldest: p.oldest ?? null }, projects.now ?? now);
+    return line === null ? [] : [{ project: p.name, line }];
+  });
 }

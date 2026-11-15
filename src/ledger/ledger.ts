@@ -211,6 +211,21 @@ function lock(path: string): () => void {
   return () => unlinkSync(lockPath);
 }
 
+/**
+ * Whether a process is writing to the ledger now, by its lock (#102). Only
+ * reads: the lock is not taken. A lock left by a process that no longer runs
+ * is no writer; one that cannot be read, or holds no number yet, is being taken.
+ */
+export function hasWriter(path: string): boolean {
+  let holder: string;
+  try {
+    holder = readFileSync(`${path}.lock`, "utf8").trim();
+  } catch (e) {
+    return !isCode(e, "ENOENT");
+  }
+  return !/^\d+$/.test(holder) || isRunning(Number(holder));
+}
+
 function isRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);

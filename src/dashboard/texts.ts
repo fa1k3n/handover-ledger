@@ -5,6 +5,8 @@ export const texts = {
   brandSub: "Ledger",
   nav: { label: "Main menu", overview: "Overview", stream: "Events", change: "Change" },
   project: "Project",
+  /** #102: after the name of a project whose events wait and are not written. */
+  unwritten: " (not written)",
   via: (account: string) => `via ${account}`,
   matched: "(matched)",
   title: "Events",

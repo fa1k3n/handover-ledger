@@ -6,7 +6,7 @@
 // in the same millisecond sort by chance.
 // @code_class recording
 import { randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { fixedForm } from "../ledger/fixed.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
@@ -30,6 +30,22 @@ export function leave(inbox: string, event: LedgerEvent): string {
   const path = join(inbox, name);
   renameSync(temporary, path);
   return path;
+}
+
+/**
+ * How many events wait in an inbox, and when the oldest was left, by its
+ * name (#102). Only reads. No inbox is nothing waiting.
+ */
+export function waitingIn(inbox: string): { waiting: number; oldest: number | null } {
+  let names: string[];
+  try {
+    names = readdirSync(inbox);
+  } catch {
+    return { waiting: 0, oldest: null };
+  }
+  const ready = names.filter(isReady).sort();
+  const left = Number(/^(\d{15})-/.exec(ready[0] ?? "")?.[1]);
+  return { waiting: ready.length, oldest: ready.length > 0 && Number.isFinite(left) ? left : null };
 }
 
 /** Whether a name in the inbox is an event that is ready to be taken in. */
