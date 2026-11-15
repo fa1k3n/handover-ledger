@@ -3,6 +3,7 @@
 import type { Handover, KeyFigures } from "../read/overview.ts";
 import type { AgentRow } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
+import { eventsQuery } from "./format.ts";
 
 export interface Agents {
   now: number;
@@ -52,10 +53,6 @@ export const ledger = () => get<LedgerState>("/api/ledger");
 export const overview = () => get<{ now: number; figures: KeyFigures; handovers: Handover[] }>("/api/overview");
 
 /** #82: `failed` is there when a filter could not be worked out for some events: how many, and why. */
-export function events(filters: string[], activity: boolean, limit = 200): Promise<{ now: number; events: Item[]; failed?: { events: number; reason: string } }> {
-  const q = new URLSearchParams();
-  for (const f of filters) q.append("filter", f);
-  if (activity) q.set("activity", "1");
-  q.set("limit", String(limit));
-  return get(`/api/events?${q}`);
+export function events(filters: string[], tools: boolean, limit = 200): Promise<{ now: number; events: Item[]; failed?: { events: number; reason: string } }> {
+  return get(`/api/events?${eventsQuery(filters, tools, limit)}`);
 }
