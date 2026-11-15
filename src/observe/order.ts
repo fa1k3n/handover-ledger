@@ -37,7 +37,7 @@ function place(type: string): number {
 }
 
 /** The instant a time means, so that `…:10Z`, `…:10.000Z` and `…:10+00:00` are one; a text that is no time is compared as text. */
-function byTime(a: string, b: string): number {
+function instants(a: string, b: string): number {
   const x = Date.parse(a);
   const y = Date.parse(b);
   return Number.isNaN(x) || Number.isNaN(y) ? a.localeCompare(b) : x - y;
@@ -62,5 +62,5 @@ function byId(a: string, b: string): number {
 
 /** For `sort`: negative when `a` is written before `b`. */
 export function happensBefore(a: { time: string; type: string; id: string }, b: { time: string; type: string; id: string }): number {
-  return byTime(a.time, b.time) || place(a.type) - place(b.type) || byId(a.id, b.id);
+  return instants(a.time, b.time) || place(a.type) - place(b.type) || byId(a.id, b.id);
 }
