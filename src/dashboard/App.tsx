@@ -219,7 +219,7 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
               {
                 label: texts.overview.named,
                 value: texts.overview.namedValue(f.requirementsNamed.named, f.requirementsNamed.merged - f.requirementsNamed.unrecorded),
-                note: texts.overview.namedNote(f.periodDays, f.requirementsNamed.without.length, f.requirementsNamed.unrecorded),
+                note: texts.overview.namedNote(f.periodDays, f.requirementsNamed.without, f.requirementsNamed.unrecorded),
               },
             ]
           : []),

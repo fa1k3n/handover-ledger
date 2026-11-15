@@ -95,6 +95,11 @@ export interface Field {
   v: string;
 }
 
+/** An array of IDs for the decoded view: `R-1, R-2`, or `none`. */
+function listText(value: unknown): string {
+  return Array.isArray(value) && value.length > 0 ? value.map(String).join(", ") : "none";
+}
+
 /** The fields of an event for the decoded view; a field the event does not have is left out. */
 export function decodedFields(item: Item, timeZone?: string): Field[] {
   const e = item.event;
@@ -143,6 +148,11 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
       : null,
     e.prompt !== undefined ? { k: "Role prompt", v: `${e.prompt.file} · ${e.prompt.sha256.slice(0, 12)}` } : null,
     e.type === "tool.used" ? { k: "Tool", v: [d.tool, d.target, d.outcome].filter((x) => typeof x === "string").join(" ") } : null,
+    // #38: what the tests of a head name, as the repository showed it.
+    e.type === "trace.read" ? { k: "Covered", v: listText(d.covered) } : null,
+    e.type === "trace.read" ? { k: "Touched only", v: listText(d.touched) } : null,
+    e.type === "trace.read" ? { k: "Tests naming one", v: `${String(d.tests ?? "?")}, ${String(d.covering ?? "?")} of them covering` } : null,
+    e.type === "trace.read" && typeof d.list === "string" ? { k: "List hash", v: d.list } : null,
   ];
   return fields.filter((f): f is Field => f !== null);
 }

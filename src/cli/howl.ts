@@ -866,16 +866,25 @@ async function traceCommand(args: string[]): Promise<number> {
   return values.check && gaps.length > 0 ? 1 : 0;
 }
 
-/** #38: what the tests of a commit name, for the observer; null when the repository has no settings for it. */
+/**
+ * #38: the reading of a commit's tests for the observer, in a process of its own with a time limit. The settings of
+ * the working tree only say whether to read at all, and are looked at for each head: a team that adds them while
+ * `howl up` runs is read from the next head. A fault in them is said once.
+ */
 async function traceReader(root: string) {
-  const { findTrace, summaryAt } = await import("../howl/trace.ts");
-  let settings;
-  try {
-    settings = findTrace(root);
-  } catch {
-    return undefined;
-  }
-  return settings === null ? undefined : (sha: string) => summaryAt(root, settings, sha);
+  const { findTrace } = await import("../howl/trace.ts");
+  const { readTrace } = await import("../howl/trace-read.ts");
+  let said = false;
+  return (sha: string): import("../howl/trace-read.ts").TraceResult => {
+    try {
+      if (findTrace(root) === null) return { state: "never", why: "no settings", quiet: true };
+    } catch (e) {
+      if (!said) console.error(`howl: the settings of howl trace in .howl/howl.yml cannot be read, so no head is read against a requirement: ${(e as Error).message}`);
+      said = true;
+      return { state: "never", why: "settings", quiet: true };
+    }
+    return readTrace(root, sha);
+  };
 }
 
 async function serveCommand(args: string[]): Promise<number> {

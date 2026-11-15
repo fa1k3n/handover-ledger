@@ -242,9 +242,9 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
       }
       // #38: only what was read from the repository counts, never a claim of a session.
       const read = seen.find((e) => e.type === "trace.read" && e.sha === head.sha);
-      const data = read?.data as { covered?: unknown; touched?: unknown; tests?: unknown } | undefined;
+      const data = read?.data as { covered?: unknown; touched?: unknown; tests?: unknown; covering?: unknown } | undefined;
       if (data !== undefined && Array.isArray(data.covered) && Array.isArray(data.touched) && typeof data.tests === "number") {
-        head.trace = { covered: data.covered.map(String), touched: data.touched.map(String), tests: data.tests };
+        head.trace = defined({ covered: data.covered.map(String), touched: data.touched.map(String), tests: data.tests, covering: typeof data.covering === "number" ? data.covering : undefined });
       }
     }
     parts.push(
