@@ -18,6 +18,7 @@ import { events as ledgerEvents, type LedgerWriter } from "../ledger/ledger.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import type { People } from "./people.ts";
 import type { Account, Change, ChecksState, CodeHost, Task } from "./port.ts";
+import { happensBefore } from "./order.ts";
 
 export interface ObserveSettings {
   project: string;
@@ -176,7 +177,8 @@ export class Observer {
     }
 
     let appended = 0;
-    found.sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
+    // #112: by time, and at the same time by what can happen first: opened before assigned.
+    found.sort(happensBefore);
     for (const e of found) {
       if (this.writer.has(e.id)) continue;
       this.writer.append(e);
