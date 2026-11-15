@@ -49,6 +49,16 @@ export const texts = {
   },
   decoded: { heading: (n: string) => n, sub: "decoded", tool: "Tool call", line: (n: number) => `Line ${n}`, none: "Pick an event in the stream." },
   raw: { heading: "Raw line", sub: "as stored, indented" },
+  /** #110: the dialog of one event of the event log. */
+  dialog: {
+    close: "Close",
+    copy: "Copy line",
+    copied: "Copied",
+    copyHint: "Copies the line exactly as it is stored, not the indented form",
+    newer: "Newer",
+    older: "Older",
+    only: "Show only this",
+  },
   overview: {
     title: "Overview",
     subtitle: "From the ledger alone · times in local time",

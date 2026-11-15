@@ -290,3 +290,36 @@ export function writingLines(
 export function stepText(h: { step: string; n?: number }): string {
   return h.n !== undefined && h.n > 1 ? `${h.step} ×${h.n}` : h.step;
 }
+
+/**
+ * #110: the field a decoded row can narrow the event log by, or null. The
+ * project and the repository, as a click on their cells did since #79.
+ */
+export function narrowOf(f: Field, item: Item): { field: "project" | "repo"; value: string } | null {
+  if (f.k === "Project" && item.project !== undefined) return { field: "project", value: item.project };
+  if (f.k === "Repository" && item.event.repo !== undefined) return { field: "repo", value: item.event.repo };
+  return null;
+}
+
+/**
+ * #110: the events beside one in the list as the page holds it, newest first:
+ * what "Newer" and "Older" of the dialog step to. None at an end of the list,
+ * and none for an event that is no longer in it.
+ */
+export function neighbours(items: Item[], key: string): { newer: string | null; older: string | null } {
+  const at = items.findIndex((i) => itemKey(i) === key);
+  if (at < 0) return { newer: null, older: null };
+  const of = (i: Item | undefined) => (i === undefined ? null : itemKey(i));
+  return { newer: at === 0 ? null : of(items[at - 1]), older: of(items[at + 1]) };
+}
+
+/** #110: what "Copy line" copies: the line as it is stored, byte for byte. The hash is over these bytes, not over an indented form. */
+export function lineToCopy(item: Item): string {
+  return item.raw;
+}
+
+/** #110: the heading of the dialog of an event: its line and its project, or that it is a tool call. */
+export function dialogHeading(item: Item): string {
+  const what = item.from === "ledger" ? `Line ${item.n ?? 0}` : "Tool call";
+  return item.project !== undefined ? `${what} · ${item.project}` : what;
+}
