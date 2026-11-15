@@ -26,11 +26,11 @@ Three kinds of contributor, told apart by the account the work is done under:
 
 - **A person's AI tool is a tool,** like a compiler or a code generator. The person answers for the work, and the question is the confidence in the tool ([standards.md](standards.md)). The tool is declared per change (#73).
 - **An agent is a team member in a role.** Independence, separation of duties and "agents never merge" apply to it. The levels of autonomy ([levels.md](levels.md)) say which roles agent accounts hold.
-- **Work under a person's account is the person's.** It is not suspect, and the ledger never shows it as an agent's.
+- **Work under a person's account is the person's.** It is not suspect, and the ledger must not show it as an agent's.
 - **An observed account does not prove what drives it.** A person could sign in as an agent's account, or an agent use a person's token. Keys per assignment, short-lived app tokens and `howl keyd` make misuse traceable, not impossible.
 - **Model, role prompt and rule version stay claims,** also for an agent's account: the code host does not know which model ran. They are signed by the session's key where there is one.
 - **The use of an assistant is never a figure per person.** It is counted for the team only.
-- **An agent that works through a person's account is not a fourth kind.** The account's holder answers for the work, and the ledger says that independence is not shown. It is not called an agent's work, and not a person's careful use of a tool either.
+- **An agent that works through a person's account is not a fourth kind.** The account's holder answers for the work, and the ledger is to say that independence is not shown (#95).
 
 ### The same questions for every change
 
@@ -45,10 +45,10 @@ An assessor asks the same of every change, whatever the team. Only the answers d
 | Is the record whole? | the chain | the chain | the chain |
 
 - **No answer rests on a session.** A session is always a claim, and it serves the team: who is working, and who waits for whom. What an assessor reads is what the code host showed.
-- **A missing answer is said as a fact:** "not declared", "independence not shown". Never left out.
+- **A missing answer is to be said as a fact:** "not declared", "independence not shown". Never left out.
 - **A team with no agent's account is a full case,** not a lesser one. Its lasting record of AI tools is the declaration on each change.
 
-Today `howl` records a session whenever an agent is named, under any account, and matches it to what a person's account did at the code host (#14). What becomes of both is #95.
+Today `howl` does not hold to this yet: it records a session whenever an actor is named, as an agent's and under any account, and puts that agent on what a person's account did at the code host (#14). #95 changes both. The lines for an AI tool and for independence come with #73 and #95.
 
 ## Core concepts
 

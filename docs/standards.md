@@ -18,7 +18,7 @@ Consequences for the platform:
 - "A change in safety-classed code needs a human verifier" is logic of the core, not a project's choice.
 - The argument is delivered as a ready evidence package: for each change, the verification that covered the agent's output.
 - The same reasoning exists in DO-330 (tool qualification for DO-178C) and IEC 61508-3 (tool classes T1–T3).
-- **A person's AI tool**, used under the person's own account, is that person's tool in the sense of this clause, as an agent is not: the person answers for the output, and the review is the detection. It is declared per change (#73) and is never counted per person ([architecture.md](architecture.md#who-contributes)).
+- **A person's AI tool**, used under the person's own account, is classed by the same reasoning as an agent that writes code: it can introduce a fault, and the review is the detection. What differs is who answers: the person whose account it is. It is declared per change (#73) and is never counted per person ([architecture.md](architecture.md#who-contributes)).
 
 ## Independence
 
