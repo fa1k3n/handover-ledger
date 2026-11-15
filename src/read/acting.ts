@@ -25,7 +25,10 @@ export interface Acting {
  */
 export function actingAgents(events: LedgerEvent[]): Map<string, Acting> {
   // A session's own events. A claimed review or change is no session at the change (#51).
-  const own = events.filter((e) => e.source.kind === "claimed" && e.actor?.kind === "agent" && !claimOfHost(e));
+  // Each with its time read once (#85): the match below looks at every one of them for every observed event.
+  const own = events
+    .filter((e) => e.source.kind === "claimed" && e.actor?.kind === "agent" && !claimOfHost(e))
+    .map((e) => ({ t: Date.parse(e.time), agent: e.actor!.id, branch: e.branch, change: e.change }));
   const found = new Map<string, Acting>();
   for (const e of events) {
     if (e.source.kind !== "observed" || e.change === undefined) continue;
@@ -40,11 +43,11 @@ export function actingAgents(events: LedgerEvent[]): Map<string, Acting> {
     const agents = new Set(
       own
         .filter((s) => {
-          const d = Date.parse(s.time) - t;
+          const d = s.t - t;
           if (d < -BEFORE_MS || d > AFTER_MS) return false;
           return isChange ? s.branch === e.branch && (s.change === undefined || s.change === e.change) : s.change === e.change;
         })
-        .map((s) => s.actor!.id),
+        .map((s) => s.agent),
     );
     if (agents.size === 1) found.set(e.id, throughPerson ? { agent: [...agents][0]!, via: e.actor!.id } : { agent: [...agents][0]! });
   }

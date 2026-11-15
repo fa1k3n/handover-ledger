@@ -211,6 +211,26 @@ export function menuShown(view: View, projects: { single: boolean } | null): boo
   return view !== "stream" && projects !== null && !projects.single;
 }
 
+/**
+ * #85: a call for a poll that is not made again while its last answer is still
+ * on its way. The page asks every two seconds; a server that needs longer than
+ * that would otherwise never catch up. A call that gives no promise is made at
+ * every round.
+ */
+export function oneAtATime(call: () => Promise<unknown> | void): () => void {
+  let waiting = false;
+  return () => {
+    if (waiting) return;
+    const answer = call();
+    if (answer === undefined) return;
+    waiting = true;
+    const done = () => {
+      waiting = false;
+    };
+    answer.then(done, done);
+  };
+}
+
 /** #81: where "needs input" leads: the overview, which starts with the team. */
 export function needsInputHref(project: string | null): string {
   return hashFor("overview", project);

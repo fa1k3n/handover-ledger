@@ -7,18 +7,22 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, DEFAULT_FILTER, detail, filterTexts, filterWith, hashFor, resetFilter, itemKey, menuShown, needsInputHref, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
+import { concerns, decodedFields, DEFAULT_FILTER, detail, filterTexts, filterWith, hashFor, oneAtATime, resetFilter, itemKey, menuShown, needsInputHref, parseHash, standsOut, streamColumns, tabTitle, whenShort, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
 const LEDGER_POLL_MS = 10_000;
 
-/** Calls `fn` now and every `ms` while `active`. */
-function usePoll(fn: () => void, ms: number, active = true) {
+/**
+ * Calls `fn` now and every `ms` while `active`. A call that gives its promise
+ * is not made again while its last answer is still on its way (#85).
+ */
+function usePoll(fn: () => Promise<unknown> | void, ms: number, active = true) {
   useEffect(() => {
     if (!active) return;
-    fn();
-    const id = setInterval(fn, ms);
+    const call = oneAtATime(fn);
+    call();
+    const id = setInterval(call, ms);
     return () => clearInterval(id);
   }, [fn, ms, active]);
 }
@@ -37,9 +41,7 @@ export function App() {
   // The projects: the one in the address when it is there, else the server's default.
   const [projects, setProjects] = useState<api.Projects | null>(null);
   usePoll(
-    useCallback(() => {
-      api.projects().then(setProjects, fail);
-    }, [fail]),
+    useCallback(() => api.projects().then(setProjects, fail), [fail]),
     30_000,
   );
   const project = projects === null ? null : (projects.projects.find((p) => p.name === route.project)?.name ?? projects.default);
@@ -48,7 +50,7 @@ export function App() {
   const [agents, setAgents] = useState<api.Agents | null>(null);
   usePoll(
     useCallback(() => {
-      if (project !== null) api.agents().then((a) => (setAgents(a), setError(null)), fail);
+      if (project !== null) return api.agents().then((a) => (setAgents(a), setError(null)), fail);
     }, [fail, project]),
     POLL_MS,
   );
@@ -68,7 +70,7 @@ export function App() {
   const [ledger, setLedger] = useState<api.LedgerState | null>(null);
   usePoll(
     useCallback(() => {
-      if (project !== null) api.ledger().then(setLedger, fail);
+      if (project !== null) return api.ledger().then(setLedger, fail);
     }, [fail, project]),
     LEDGER_POLL_MS,
   );
@@ -189,9 +191,7 @@ function LedgerBadge({ ledger }: { ledger: api.LedgerState | null }) {
 function Overview({ onError, project }: { onError: (e: unknown) => void; project: string }) {
   const [data, setData] = useState<{ figures: KeyFigures; handovers: Handover[] } | null>(null);
   usePoll(
-    useCallback(() => {
-      api.overview().then(setData, onError);
-    }, [onError]),
+    useCallback(() => api.overview().then(setData, onError), [onError]),
     LEDGER_POLL_MS,
   );
   const f = data?.figures;
@@ -444,7 +444,7 @@ function Stream({ onError, project, served }: { onError: (e: unknown) => void; p
   const [picked, setPicked] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.events(filters, true).then(
+    return api.events(filters, true).then(
       (r) => {
         setItems([...r.events].reverse());
         setFilterError(null);
