@@ -27,6 +27,10 @@ For each link the ledger says who or what performed the step (a person, or an ag
 
 An event that an agent sends about itself is the agent's claim. An event that an adapter reads from the code host, the tracker or the CI is evidence. The ledger prefers the second and marks every event with which of the two it is. See [architecture.md](architecture.md).
 
+## What is read today
+
+`howl trace` reads one link from the repository alone: the requirements in Markdown tables, and the tests that name them. It gives the matrix of requirements and tests and three gaps: a built requirement by test that no test covers, a test that names an ID no table holds, and an ID given twice. Nothing of it is in the ledger yet: the changes, the results of a test run and the reviewers come with the steps that record them.
+
 ## The evidence package
 
 Per release, and per control of a standard, the platform exports:
