@@ -8,6 +8,7 @@ import type { Claim, Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
 import { writingLine, type Writing } from "../read/writing-text.ts";
+import { texts } from "./texts.ts";
 
 /** The filter text as field=value pairs, split on white space. */
 export function filterPairs(text: string): string[] {
@@ -289,4 +290,77 @@ export function writingLines(
 /** #108: the step of a handover row, with the count when the row is of several events: `Implementation → review ×16`. */
 export function stepText(h: { step: string; n?: number }): string {
   return h.n !== undefined && h.n > 1 ? `${h.step} ×${h.n}` : h.step;
+}
+
+/**
+ * #110: the field a decoded row can narrow the event log by, or null. The
+ * project and the repository, as a click on their cells did since #79.
+ */
+export function narrowOf(f: Field, item: Item): { field: "project" | "repo"; value: string } | null {
+  if (f.k === "Project" && item.project !== undefined) return { field: "project", value: item.project };
+  if (f.k === "Repository" && item.event.repo !== undefined) return { field: "repo", value: item.event.repo };
+  return null;
+}
+
+/**
+ * #110: the events beside one in the list as the page holds it, newest first:
+ * what "Newer" and "Older" of the dialog step to. None at an end of the list,
+ * and none for an event that is no longer in it.
+ */
+export function neighbours(items: Item[], key: string): { newer: string | null; older: string | null } {
+  const at = items.findIndex((i) => itemKey(i) === key);
+  if (at < 0) return { newer: null, older: null };
+  const of = (i: Item | undefined) => (i === undefined ? null : itemKey(i));
+  return { newer: at === 0 ? null : of(items[at - 1]), older: of(items[at + 1]) };
+}
+
+/** #110: what "Copy line" copies: the line as it is stored, byte for byte. The hash is over these bytes, not over an indented form. */
+export function lineToCopy(item: Item): string {
+  return item.raw;
+}
+
+/** #110: the heading of the dialog of an event: its line and its project, or that it is a tool call. */
+export function dialogHeading(item: Item): string {
+  const what = item.from === "ledger" ? texts.decoded.line(item.n ?? 0) : texts.decoded.tool;
+  return item.project !== undefined ? `${what} · ${item.project}` : what;
+}
+
+/**
+ * #110: a stored line with line breaks and indents put between its parts, and
+ * nothing else changed: every name, value and escape stands as it is stored.
+ * Reading the line and writing it again would turn an escape as `\u00e5` into
+ * its letter, and the panel would no longer show what the hash is over.
+ */
+export function indentStored(raw: string): string {
+  let out = "";
+  let depth = 0;
+  let inText = false;
+  const pad = () => `\n${"  ".repeat(depth)}`;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i]!;
+    if (inText) {
+      out += c;
+      // An escaped character is taken with its backslash, so an escaped quote ends nothing.
+      if (c === "\\") out += raw[++i] ?? "";
+      else if (c === '"') inText = false;
+      continue;
+    }
+    if (c === '"') {
+      inText = true;
+      out += c;
+    } else if (c === "{" || c === "[") {
+      const empty = raw[i + 1] === (c === "{" ? "}" : "]");
+      if (empty) out += c + raw[++i];
+      else {
+        depth++;
+        out += c + pad();
+      }
+    } else if (c === "}" || c === "]") {
+      depth = Math.max(0, depth - 1);
+      out += pad() + c;
+    } else if (c === ",") out += c + pad();
+    else if (c === ":") out += ": ";
+    else if (!/\s/.test(c)) out += c;
+  }
+  return out;
 }
