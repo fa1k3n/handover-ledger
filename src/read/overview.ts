@@ -38,8 +38,8 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
   const authorVia = new Map<string, string>();
   const task = new Map<string, string>();
   const rows: Handover[] = [];
-  // #108: the last row of each change. A row that only repeats it is counted there, not written again:
-  // a review recorded as sixteen comments is one handover, not sixteen.
+  // #108: the last row of each change on its head. A row that only repeats it is counted there, not written
+  // again: a review recorded as sixteen comments is one handover, not sixteen.
   const lastOf = new Map<string, Handover>();
   const add = (row: Handover) => {
     const last = lastOf.get(row.change);
@@ -59,6 +59,11 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     if (e.type === "change.opened" && actor !== undefined) {
       author.set(e.change, actor);
       if (matched?.via) authorVia.set(e.change, matched.via);
+      continue;
+    }
+    // A new head starts a new round, as in `howl show`: what is reviewed after it is another handover.
+    if (e.type === "change.updated") {
+      lastOf.delete(e.change);
       continue;
     }
     const by = author.get(e.change);

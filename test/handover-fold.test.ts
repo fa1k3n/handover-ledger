@@ -50,7 +50,7 @@ test("#108: a row of one event has no count, and two reviewers give two rows", (
   );
 });
 
-test("#108: a review, a request for changes and a second review are three rows, none folded", () => {
+test("#108: a review, a request for changes and the reviews after it are rows of their own, and so is the merge", () => {
   assert.deepEqual(
     rows([
       seen("change.opened", at(0), "agent-a"),
@@ -89,4 +89,22 @@ test("#108: the step's cell says the count of a folded row", () => {
   assert.equal(stepText({ step: "Implementation → review", n: 16 }), "Implementation → review ×16");
   assert.equal(stepText({ step: "Implementation → review" }), "Implementation → review");
   assert.equal(stepText({ step: "Review → merge", n: 1 }), "Review → merge");
+});
+
+test("#108: a new head ends the run, as it starts a new round in howl show", () => {
+  assert.deepEqual(
+    rows([
+      seen("change.opened", at(0), "agent-a"),
+      seen("review.commented", at(5), "agent-b"),
+      seen("review.commented", at(5, 1), "agent-b"),
+      seen("change.updated", at(7), "agent-a"),
+      seen("review.commented", at(9), "agent-b"),
+      seen("review.approved", at(10), "agent-b"),
+    ]),
+    [
+      ["Implementation → review", "agent-a", "agent-b", 2],
+      ["Implementation → review", "agent-a", "agent-b", 2],
+    ],
+    "the reviews of the first head and those of the second are two handovers",
+  );
 });
