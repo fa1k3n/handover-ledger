@@ -4,32 +4,63 @@
 // approved. By the time first; at the same time by what can happen first, so
 // that a task is never given away before it exists; then by the id, so that
 // the order is the same in every round.
+//
+// It orders one round. An event that a later round finds, as the checks of a
+// commit that had not finished, is written after what is already there: the
+// ledger is append-only.
 // @code_class recording
 
-/** What can happen in one moment, in the order it happens in. A type that is not here comes after these. */
-const ORDER = [
-  "task.opened",
-  "task.assigned",
-  "change.opened",
-  "change.updated",
-  "checks.passed",
-  "checks.failed",
-  "change.commented",
-  "review.commented",
-  "review.changes_requested",
-  "review.approved",
-  "change.merged",
-  "change.closed",
-  "task.closed",
+/**
+ * What can happen in one moment, in the order it happens in; the types of one
+ * line share a place. A type that is not here comes after these.
+ */
+const ORDER: string[][] = [
+  ["task.opened"],
+  ["task.assigned"],
+  ["change.opened"],
+  ["change.updated"],
+  // What a head holds is told with the head, before what is done to it.
+  ["config.changed"],
+  // A commit has one of the two.
+  ["checks.passed", "checks.failed"],
+  ["change.commented"],
+  // The reviews of one moment come by the host's own ids, whatever their outcome: the host numbered them as they came.
+  ["review.commented", "review.changes_requested", "review.approved"],
+  ["change.merged"],
+  ["change.closed"],
+  ["task.closed"],
 ];
 
-/** The place of a type in a moment. The two outcomes of the checks share one: a commit has one of them. */
 function place(type: string): number {
-  const at = ORDER.indexOf(type === "checks.failed" ? "checks.passed" : type);
+  const at = ORDER.findIndex((types) => types.includes(type));
   return at < 0 ? ORDER.length : at;
+}
+
+/** The instant a time means, so that `…:10Z`, `…:10.000Z` and `…:10+00:00` are one; a text that is no time is compared as text. */
+function byTime(a: string, b: string): number {
+  const x = Date.parse(a);
+  const y = Date.parse(b);
+  return Number.isNaN(x) || Number.isNaN(y) ? a.localeCompare(b) : x - y;
+}
+
+/** Ids as text, with a number in them read as a number: `review:9` before `review:10`. */
+function byId(a: string, b: string): number {
+  const parts = (s: string) => s.match(/\d+|\D+/g) ?? [];
+  const x = parts(a);
+  const y = parts(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const p = x[i]!;
+    const q = y[i]!;
+    if (p === q) continue;
+    const numbers = /^\d+$/.test(p) && /^\d+$/.test(q);
+    // Numbers of the same value and another writing (`07`, `7`) fall to the text, so no two ids are equal.
+    const d = numbers ? Number(p) - Number(q) || p.localeCompare(q) : p < q ? -1 : 1;
+    if (d !== 0) return d;
+  }
+  return x.length - y.length;
 }
 
 /** For `sort`: negative when `a` is written before `b`. */
 export function happensBefore(a: { time: string; type: string; id: string }, b: { time: string; type: string; id: string }): number {
-  return a.time.localeCompare(b.time) || place(a.type) - place(b.type) || a.id.localeCompare(b.id);
+  return byTime(a.time, b.time) || place(a.type) - place(b.type) || byId(a.id, b.id);
 }
