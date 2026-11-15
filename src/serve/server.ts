@@ -14,9 +14,10 @@ import { LedgerError } from "../ledger/errors.ts";
 import { LEDGER_FILE } from "../ledger/names.ts";
 import { isProjectName } from "../ledger/place.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
-import { activityFrom, activityLines, byTime, ledgerLines, lineCount, readAll, type Read } from "../read/reader.ts";
+import { activityBeside, activityFrom, activityLines, byTime, ledgerLines, lineCount, readAll, type Read } from "../read/reader.ts";
 import { checkSignatures } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
+import { Kept } from "./kept.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
 import { parseAsked, show } from "../read/show.ts";
 import { agentStates } from "../read/state.ts";
@@ -96,6 +97,9 @@ export async function startServer(options: ServeOptions): Promise<Served> {
     return value;
   };
 
+  // #85: the lines of each ledger and each activity file as the event log gives them, kept until the file changes.
+  const lines: Lines = { ledger: new Kept<Item[]>(), activity: new Kept<Item[]>() };
+
   const server = createServer((req, res) => {
     try {
       if (options.write !== undefined && req.method === "POST") {
@@ -103,7 +107,7 @@ export async function startServer(options: ServeOptions): Promise<Served> {
         if (path === "/api/events") return receive(req, res, options.write);
         if (path === "/api/hook") return receiveHook(req, res, options.write);
       }
-      handle(req, res, options, ledgerVerdict);
+      handle(req, res, options, ledgerVerdict, lines);
     } catch (e) {
       const status = e instanceof LedgerError ? 400 : 500;
       json(res, status, { error: (e as Error).message });
@@ -165,7 +169,7 @@ function projectFor(params: URLSearchParams, options: ServeOptions): Project {
   return found;
 }
 
-function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions, ledgerVerdict: (ledger: string) => Verdict): void {
+function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions, ledgerVerdict: (ledger: string) => Verdict, lines: Lines): void {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   // /api/hook is a POST only, and only on a server that writes: that one never comes here.
   if (url.pathname === "/api/hook") {
@@ -189,7 +193,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     // #79: with no project named, every project the server serves; else the one named.
     const served = url.searchParams.has("project") ? [projectFor(url.searchParams, options)] : projectsOf(options);
     if (served.length === 0) throw new LedgerError("no project with a ledger");
-    const found = events(served, url.searchParams, options.ledger === undefined);
+    const found = events(served, url.searchParams, options.ledger === undefined, lines);
     // #82: what a filter could not work out is said only when there is something to say.
     json(res, 200, found.failed === null ? { now: Date.now(), events: found.events } : { now: Date.now(), events: found.events, failed: found.failed });
     return;
@@ -245,7 +249,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
  *
  * `after` is a line of one ledger: over several projects it is refused.
  */
-function events(projects: Project[], params: URLSearchParams, named: boolean): { events: Item[]; failed: Failed | null } {
+function events(projects: Project[], params: URLSearchParams, named: boolean, lines: Lines): { events: Item[]; failed: Failed | null } {
   const pairs = params.getAll("filter");
   const filters = readFilters(pairs);
   const after = Number(params.get("after") ?? 0) || 0;
@@ -253,29 +257,48 @@ function events(projects: Project[], params: URLSearchParams, named: boolean): {
   const limit = Math.max(1, Math.min(5000, Number(params.get("limit") ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
   const activity = params.get("activity") === "1" || wantsActivity(pairs);
 
-  const found = byTime(projects.flatMap((project) => itemsOf(project, after, activity, named)))
+  const found = byTime(projects.flatMap((project) => itemsOf(project, after, activity, named, lines)))
     .filter((item) => filters.test(item.event))
     .slice(-limit);
   return { events: found, failed: filters.failed() };
 }
 
-/** The ledger lines of one project after `after` (all when 0), then the lines of its activity file when asked for. */
-function itemsOf(project: Project, after: number, activity: boolean, named: boolean): Item[] {
-  // Numbered by their place in the file, so a line howl cannot read still counts.
-  const all = ledgerLines(project.ledger);
-  const items: Item[] = all.filter((r) => r.n! > after);
-  // Matched over the whole ledger, so a session before `after` still counts.
-  const acting = actingAgents(all.map((i) => i.event));
-  const signatures = checkSignatures(all.map((i) => ({ n: i.n ?? 0, event: i.event }))).byEvent;
-  for (const item of items) {
-    const by = acting.get(item.event.id)?.agent;
-    if (by !== undefined) item.by = by;
-    const signed = signatures.get(item.event.id);
-    if (signed !== undefined) item.signed = signed;
-  }
-  if (activity) items.push(...activityLines(project.ledger));
-  if (named) for (const item of items) item.project = project.name;
-  return items;
+/** What the event log has read of the files, kept until a file changes (#85). */
+interface Lines {
+  ledger: Kept<Item[]>;
+  activity: Kept<Item[]>;
+}
+
+/**
+ * The ledger lines of one project after `after` (all when 0), then the lines of
+ * its activity file when asked for. The items are those kept for the files as
+ * they stand: they are shared by every answer and never changed.
+ */
+function itemsOf(project: Project, after: number, activity: boolean, named: boolean, lines: Lines): Item[] {
+  const name = named ? project.name : undefined;
+  const ledger = lines.ledger.of(project.ledger, () => {
+    // Numbered by their place in the file, so a line howl cannot read still counts.
+    const all: Item[] = ledgerLines(project.ledger);
+    // Matched over the whole ledger, so a session before `after` still counts.
+    const acting = actingAgents(all.map((i) => i.event));
+    const signatures = checkSignatures(all.map((i) => ({ n: i.n ?? 0, event: i.event }))).byEvent;
+    for (const item of all) {
+      const by = acting.get(item.event.id)?.agent;
+      if (by !== undefined) item.by = by;
+      const signed = signatures.get(item.event.id);
+      if (signed !== undefined) item.signed = signed;
+      if (name !== undefined) item.project = name;
+    }
+    return all;
+  });
+  const items = after > 0 ? ledger.filter((r) => r.n! > after) : ledger;
+  if (!activity) return items;
+  const tools = lines.activity.of(activityBeside(project.ledger), () => {
+    const read: Item[] = activityLines(project.ledger);
+    if (name !== undefined) for (const item of read) item.project = name;
+    return read;
+  });
+  return [...items, ...tools];
 }
 
 function file(res: ServerResponse, root: string, pathname: string): void {
