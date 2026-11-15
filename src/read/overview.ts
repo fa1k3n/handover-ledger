@@ -24,7 +24,10 @@ export interface Handover {
   /** The agent's model and effort at the time, when an agent hands over. */
   model?: string;
   effort?: string;
+  /** The hash of the event, of the first one when the row is of several. */
   hash?: string;
+  /** #108: how many events the row is of, when more than one: a reviewer's reviews in a row on one change. */
+  n?: number;
 }
 
 /** The handovers, newest first, from observed events (#51). A review by the author of the change is none. */
@@ -35,6 +38,18 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
   const authorVia = new Map<string, string>();
   const task = new Map<string, string>();
   const rows: Handover[] = [];
+  // #108: the last row of each change. A row that only repeats it is counted there, not written again:
+  // a review recorded as sixteen comments is one handover, not sixteen.
+  const lastOf = new Map<string, Handover>();
+  const add = (row: Handover) => {
+    const last = lastOf.get(row.change);
+    if (last !== undefined && last.step === row.step && last.from === row.from && last.to === row.to && last.via === row.via) {
+      last.n = (last.n ?? 1) + 1;
+      return;
+    }
+    rows.push(row);
+    lastOf.set(row.change, row);
+  };
   for (const { event: e, hash } of sorted) {
     // #51: what a session or a script claims of a change is no handover, and does not say which task it has.
     if (e.change === undefined || !observed(e)) continue;
@@ -50,13 +65,13 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     const via = matched?.via ?? authorVia.get(e.change);
     const base = { time: e.time, change: e.change, task: e.task ?? task.get(e.change), hash, ...(via !== undefined && e.type.startsWith("review.") ? { via } : {}) };
     if (e.type.startsWith("review.") && actor !== undefined && by !== undefined && actor !== by) {
-      rows.push(
+      add(
         e.type === "review.changes_requested"
           ? { ...base, from: actor, to: by, step: "Review → fix" }
           : { ...base, from: by, to: actor, step: "Implementation → review" },
       );
     } else if (e.type === "change.merged") {
-      rows.push({ ...base, from: actor ?? by ?? "-", to: "merged", step: "Review → merge" });
+      add({ ...base, from: actor ?? by ?? "-", to: "merged", step: "Review → merge" });
     }
   }
   // The model of the agent who hands over, as its own sessions last said before the handover.
