@@ -3,7 +3,7 @@
 // @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decodedFields, dialogHeading, itemKey, lineToCopy, narrowOf, neighbours } from "../src/dashboard/format.ts";
+import { decodedFields, dialogHeading, indentStored, itemKey, lineToCopy, narrowOf, neighbours } from "../src/dashboard/format.ts";
 import type { Item } from "../src/serve/server.ts";
 import { event } from "./helpers.ts";
 
@@ -61,4 +61,17 @@ test("#110: the dialog's heading names the line and its project, or says it is a
   assert.equal(dialogHeading({ ...item(), n: 12 }), "Line 12");
   assert.equal(dialogHeading(item({ tool: true, type: "tool.used", project: "example" })), "Tool call · example");
   assert.equal(dialogHeading(item({ tool: true, type: "tool.used" })), "Tool call");
+});
+
+test("#110: the stored line is shown with breaks and indents added and nothing else changed", () => {
+  const raw = '{"event":{"data":{"text":"a\\u00e5  b, {c}: \\"d\\"","empty":{},"none":[],"list":[1,"x",null]},"type":"tool.used"},"hash":"x"}';
+  const shown = indentStored(raw);
+  assert.ok(shown.includes("\\u00e5"), "an escape stays an escape: the letter is not put in its place");
+  assert.ok(shown.includes('"a\\u00e5  b, {c}: \\"d\\""'), "what stands inside a text is not touched: two spaces, a comma, braces, a colon and an escaped quote");
+  assert.deepEqual(JSON.parse(shown), JSON.parse(raw), "it is the same value");
+  // Taking the added breaks and indents away gives the stored line back, byte for byte.
+  const back = shown.replace(/\n\s*/g, "").replace(/(?<="): (?=["\[{0-9a-z-])/g, ":");
+  assert.equal(back, raw);
+  assert.equal(indentStored('{"a":{},"b":[]}'), '{\n  "a": {},\n  "b": []\n}');
+  assert.equal(indentStored("{}"), "{}");
 });

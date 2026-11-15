@@ -8,6 +8,7 @@ import type { Claim, Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
 import { writingLine, type Writing } from "../read/writing-text.ts";
+import { texts } from "./texts.ts";
 
 /** The filter text as field=value pairs, split on white space. */
 export function filterPairs(text: string): string[] {
@@ -320,6 +321,46 @@ export function lineToCopy(item: Item): string {
 
 /** #110: the heading of the dialog of an event: its line and its project, or that it is a tool call. */
 export function dialogHeading(item: Item): string {
-  const what = item.from === "ledger" ? `Line ${item.n ?? 0}` : "Tool call";
+  const what = item.from === "ledger" ? texts.decoded.line(item.n ?? 0) : texts.decoded.tool;
   return item.project !== undefined ? `${what} · ${item.project}` : what;
+}
+
+/**
+ * #110: a stored line with line breaks and indents put between its parts, and
+ * nothing else changed: every name, value and escape stands as it is stored.
+ * Reading the line and writing it again would turn an escape as `\u00e5` into
+ * its letter, and the panel would no longer show what the hash is over.
+ */
+export function indentStored(raw: string): string {
+  let out = "";
+  let depth = 0;
+  let inText = false;
+  const pad = () => `\n${"  ".repeat(depth)}`;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i]!;
+    if (inText) {
+      out += c;
+      // An escaped character is taken with its backslash, so an escaped quote ends nothing.
+      if (c === "\\") out += raw[++i] ?? "";
+      else if (c === '"') inText = false;
+      continue;
+    }
+    if (c === '"') {
+      inText = true;
+      out += c;
+    } else if (c === "{" || c === "[") {
+      const empty = raw[i + 1] === (c === "{" ? "}" : "]");
+      if (empty) out += c + raw[++i];
+      else {
+        depth++;
+        out += c + pad();
+      }
+    } else if (c === "}" || c === "]") {
+      depth = Math.max(0, depth - 1);
+      out += pad() + c;
+    } else if (c === ",") out += c + pad();
+    else if (c === ":") out += ": ";
+    else if (!/\s/.test(c)) out += c;
+  }
+  return out;
 }

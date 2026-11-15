@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, detail, dialogHeading, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
+import { concerns, decodedFields, detail, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -453,6 +453,7 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
   const [items, setItems] = useState<Item[]>([]);
   // #110: the event open in the dialog, kept as it was picked: the list moves on under it.
   const [picked, setPicked] = useState<Item | null>(null);
+  const filterLine = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     return api.events(filters, tools).then(
@@ -513,6 +514,7 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
             {texts.stream.filterLabel}
             <input
               type="text"
+              ref={filterLine}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder={'event.type.startsWith("review.") && event.project == "…"'}
@@ -593,6 +595,7 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
                           type="button"
                           aria-label={texts.stream.showEvent(item.from === "ledger" ? label : item.event.type)}
                           aria-haspopup="dialog"
+                          data-event={itemKey(item)}
                           className="min-h-10 w-full cursor-pointer border-0 bg-transparent px-3 text-left font-[inherit] text-inherit"
                         >
                           {label}
@@ -644,8 +647,17 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
           onNarrow={(field, value) => {
             setPicked(null);
             narrow(field, value);
+            // The list is another one now: the focus goes to the line that says why.
+            requestAnimationFrame(() => filterLine.current?.focus());
           }}
-          onClose={() => setPicked(null)}
+          onClose={() => {
+            // Back to the row of the event that was shown last, when it is still in the list.
+            const key = itemKey(picked);
+            setPicked(null);
+            requestAnimationFrame(() => {
+              for (const b of document.querySelectorAll<HTMLButtonElement>("button[data-event]")) if (b.dataset.event === key) return b.focus();
+            });
+          }}
         />
       )}
     </>
@@ -672,14 +684,31 @@ function EventDialog({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const close = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     const dialog = ref.current;
     if (dialog && !dialog.open) dialog.showModal();
+    // The focus starts on Close, which is never off: a button that goes off under the focus would lose it.
+    close.current?.focus();
   }, []);
   useEffect(() => setCopied(false), [item]);
+  // The arrow keys are heard on the window, wherever the focus is inside the dialog.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault();
+      const to = e.key === "ArrowUp" ? beside.newer : beside.older;
+      if (to !== null) onStep(to);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [beside.newer, beside.older, onStep]);
+  // A click beside the dialog closes it only when it began there: a text marked from inside and let go outside does not.
+  const pressedBeside = useRef(false);
   // Two whole sets of classes: a colour given twice is decided by the stylesheet's order, not by this line's.
-  const shape = "min-h-11 cursor-pointer rounded-lg px-4 text-sm font-medium disabled:cursor-default disabled:opacity-40";
+  // A step that cannot be taken is marked off and keeps the focus: `disabled` would drop it to the page behind.
+  const shape = "min-h-11 cursor-pointer rounded-lg px-4 text-sm font-medium aria-disabled:cursor-default aria-disabled:opacity-40";
   const button = `${shape} border border-pale bg-white text-ink`;
   const closeButton = `${shape} border-0 bg-ink text-white`;
   return (
@@ -687,13 +716,12 @@ function EventDialog({
       ref={ref}
       aria-labelledby="event-h"
       onClose={onClose}
-      // A click on the dialog itself, not on what it holds, is a click beside its content.
-      onClick={(e) => {
-        if (e.target === ref.current) ref.current.close();
+      // A press and a release on the dialog itself, not on what it holds, is a click beside its content.
+      onMouseDown={(e) => {
+        pressedBeside.current = e.target === ref.current;
       }}
-      onKeyDown={(e) => {
-        if (e.key === "ArrowUp" && beside.newer !== null) (e.preventDefault(), onStep(beside.newer));
-        if (e.key === "ArrowDown" && beside.older !== null) (e.preventDefault(), onStep(beside.older));
+      onClick={(e) => {
+        if (e.target === ref.current && pressedBeside.current) ref.current.close();
       }}
       className="m-auto w-[min(1200px,calc(100vw-32px))] max-w-none rounded-xl border border-line bg-white p-0 text-ink backdrop:bg-black/40"
     >
@@ -704,13 +732,13 @@ function EventDialog({
           </h2>
           <span className="font-mono text-[13px] text-mute">{item.event.type}</span>
           <div className="flex-1" />
-          <button type="button" disabled={beside.newer === null} onClick={() => beside.newer !== null && onStep(beside.newer)} className={button}>
+          <button type="button" aria-disabled={beside.newer === null} onClick={() => beside.newer !== null && onStep(beside.newer)} className={button}>
             {texts.dialog.newer}
           </button>
-          <button type="button" disabled={beside.older === null} onClick={() => beside.older !== null && onStep(beside.older)} className={button}>
+          <button type="button" aria-disabled={beside.older === null} onClick={() => beside.older !== null && onStep(beside.older)} className={button}>
             {texts.dialog.older}
           </button>
-          <button type="button" onClick={() => ref.current?.close()} className={closeButton}>
+          <button type="button" ref={close} onClick={() => ref.current?.close()} className={closeButton}>
             {texts.dialog.close}
           </button>
         </div>
@@ -759,7 +787,7 @@ function EventDialog({
                 {copied ? texts.dialog.copied : texts.dialog.copy}
               </button>
             </div>
-            <pre className="m-0 overflow-auto font-mono text-xs leading-relaxed">{JSON.stringify(JSON.parse(item.raw), null, 2)}</pre>
+            <pre className="m-0 overflow-auto font-mono text-xs leading-relaxed">{indentStored(item.raw)}</pre>
           </section>
         </div>
       </div>
