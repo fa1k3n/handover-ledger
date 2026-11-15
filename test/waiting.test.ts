@@ -188,8 +188,9 @@ test("#102: howl up says at its start which other project has events waiting, an
   leave(join(setup.ws.home, "unstarted", "inbox"), event({ project: "unstarted" }));
   const run = await up(setup);
   try {
-    // The lines come right after the line of its start, a moment after its server file is there.
-    await until(() => /^other: /m.test(run.output()), 10_000, "the line of the other project");
+    // The lines come right after the line of its start, a moment after its server file is there, one after
+    // the other by name: the last of them is waited for, as they can reach the test in two pieces (#106).
+    await until(() => /^unstarted: /m.test(run.output()), 10_000, "the line of the last project");
     assert.match(run.output(), /^other: 1 event waits and nothing writes it\. Start howl up in its repository\.$/m);
     assert.match(run.output(), /^unstarted: 1 event waits and nothing writes it\./m, "also a project with no ledger yet");
     assert.doesNotMatch(run.output(), /^quiet:/m);
