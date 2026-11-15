@@ -3,6 +3,7 @@
 import type { Handover, KeyFigures } from "../read/overview.ts";
 import type { AgentRow } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
+import type { Writing } from "../read/writing-text.ts";
 import { eventsQuery } from "./format.ts";
 
 export interface Agents {
@@ -34,7 +35,11 @@ export interface Projects {
   /** One ledger only (--ledger): no menu. */
   single: boolean;
   default: string | null;
-  projects: { name: string; lines: number }[];
+  /** #102: `writer`, `waiting` and `oldest` are there when the server serves howl's home, not one ledger file. */
+  projects: ({ name: string; lines: number } & Partial<Writing>)[];
+  now?: number;
+  /** #102: projects with events waiting and no ledger yet. */
+  unstarted?: { name: string; waiting: number; oldest: number | null }[];
 }
 
 export const projects = () => get<Projects>("/api/projects");

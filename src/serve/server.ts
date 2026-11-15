@@ -18,6 +18,7 @@ import { activityBeside, activityFrom, activityLines, byTime, ledgerLines, lineC
 import { checkSignatures } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
 import { Kept } from "./kept.ts";
+import { projectsWriting, writingOf } from "../read/writing.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
 import { parseAsked, show } from "../read/show.ts";
 import { agentStates } from "../read/state.ts";
@@ -182,7 +183,16 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   }
   if (url.pathname === "/api/projects") {
     const projects = projectsOf(options);
-    json(res, 200, { single: options.ledger !== undefined, default: defaultOf(projects, options)?.name ?? null, projects: projects.map((p) => ({ name: p.name, lines: lineCount(p.ledger) })) });
+    // #102: whether each project is being written and what waits for its writer. Not for a server of one ledger file: that file need not lie in a project's folder.
+    const one = options.ledger !== undefined;
+    json(res, 200, {
+      now: Date.now(),
+      single: one,
+      default: defaultOf(projects, options)?.name ?? null,
+      projects: projects.map((p) => ({ name: p.name, lines: lineCount(p.ledger), ...(one ? {} : writingOf(p.ledger)) })),
+      // A project with events waiting and no ledger yet is in no list above: nothing has written it, ever.
+      ...(one ? {} : { unstarted: projectsWriting(options.home!).filter((p) => !p.ledger).map(({ name, waiting, oldest }) => ({ name, waiting, oldest })) }),
+    });
     return;
   }
   if (!url.pathname.startsWith("/api/")) {

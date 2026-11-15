@@ -211,6 +211,22 @@ function lock(path: string): () => void {
   return () => unlinkSync(lockPath);
 }
 
+/**
+ * The lock of a ledger as it stands (#102): `held` by a process that writes
+ * now, `left` by one that no longer runs, or `none`. Only reads: the lock is
+ * not taken. A lock that cannot be read, or holds no number yet, is being
+ * taken and counts as held, as `openLedger` would refuse it.
+ */
+export function lockOf(path: string): "none" | "held" | "left" {
+  let holder: string;
+  try {
+    holder = readFileSync(`${path}.lock`, "utf8").trim();
+  } catch (e) {
+    return isCode(e, "ENOENT") ? "none" : "held";
+  }
+  return !/^\d+$/.test(holder) || isRunning(Number(holder)) ? "held" : "left";
+}
+
 function isRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
