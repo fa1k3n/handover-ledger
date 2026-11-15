@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, detail, filterTexts, filterWith, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
+import { concerns, decodedFields, detail, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -451,7 +451,9 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
   const [filterError, setFilterError] = useState<string | null>(null);
   const [failed, setFailed] = useState<{ events: number; reason: string } | null>(null);
   const [items, setItems] = useState<Item[]>([]);
-  const [picked, setPicked] = useState<string | null>(null);
+  // #110: the event open in the dialog, kept as it was picked: the list moves on under it.
+  const [picked, setPicked] = useState<Item | null>(null);
+  const filterLine = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     return api.events(filters, tools).then(
@@ -465,7 +467,6 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
   }, [filters, tools, onError]);
   usePoll(load, POLL_MS, !paused);
 
-  const selected = useMemo(() => items.find((i) => itemKey(i) === picked) ?? items[0] ?? null, [items, picked]);
   const cols = useMemo(() => streamColumns(items, served), [items, served]);
   // A click on a project or a repository in a row narrows the list to it.
   const narrow = (field: string, value: string) => {
@@ -473,7 +474,6 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
     setDraft(next);
     setFilters(filterTexts(next));
   };
-  const cellButton = "cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-inherit underline decoration-pale underline-offset-2";
   const button = "min-h-11 cursor-pointer rounded-lg px-4 text-sm font-medium";
   const th = "px-3 py-2.5 font-medium";
 
@@ -514,6 +514,7 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
             {texts.stream.filterLabel}
             <input
               type="text"
+              ref={filterLine}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder={'event.type.startsWith("review.") && event.project == "…"'}
@@ -564,43 +565,37 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
               </thead>
               <tbody>
                 {items.map((item) => {
-                  const isPicked = selected !== null && itemKey(item) === itemKey(selected);
+                  const isPicked = picked !== null && itemKey(item) === itemKey(picked);
                   // The change and the task of a row are those of its own project.
                   const of = item.project ?? project;
                   const tint = standsOut(item);
                   const bg = isPicked ? "bg-picked font-medium outline-[1.5px] -outline-offset-[1.5px] outline-ink outline" : tint ? ROW_TINT[tint] : item.from === "activity" ? "bg-[#fafbfc] text-mute" : "bg-white";
                   const label = item.from === "ledger" ? String(item.n) : "·";
                   return (
-                    <tr key={itemKey(item)} className={`border-t border-line ${bg}`}>
+                    <tr
+                      key={itemKey(item)}
+                      // #110: a click anywhere on the row opens the event; a link in it goes where it leads.
+                      onClick={(e) => {
+                        if (!(e.target as HTMLElement).closest("a")) setPicked(item);
+                      }}
+                      className={`cursor-pointer border-t border-line hover:bg-picked ${bg}`}
+                    >
                       {cols.project && (
                         <td className="px-3 py-2 whitespace-nowrap">
-                          {item.project !== undefined ? (
-                            <button type="button" onClick={() => narrow("project", item.project!)} aria-label={texts.stream.narrow("project", item.project)} className={cellButton}>
-                              {item.project}
-                              {unwritten.includes(item.project) ? texts.unwritten : ""}
-                            </button>
-                          ) : (
-                            "–"
-                          )}
+                          {item.project !== undefined ? `${item.project}${unwritten.includes(item.project) ? texts.unwritten : ""}` : "–"}
                         </td>
                       )}
                       {cols.repo && (
                         <td className="px-3 py-2 whitespace-nowrap">
-                          {item.event.repo !== undefined ? (
-                            <button type="button" onClick={() => narrow("repo", item.event.repo!)} aria-label={texts.stream.narrow("repo", item.event.repo)} className={cellButton}>
-                              {item.event.repo}
-                            </button>
-                          ) : (
-                            "–"
-                          )}
+                          {item.event.repo ?? "–"}
                         </td>
                       )}
                       <td className="p-0">
                         <button
                           type="button"
-                          onClick={() => setPicked(itemKey(item))}
                           aria-label={texts.stream.showEvent(item.from === "ledger" ? label : item.event.type)}
-                          aria-pressed={isPicked}
+                          aria-haspopup="dialog"
+                          data-event={itemKey(item)}
                           className="min-h-10 w-full cursor-pointer border-0 bg-transparent px-3 text-left font-[inherit] text-inherit"
                         >
                           {label}
@@ -644,39 +639,158 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-4">
-        <section aria-label={texts.decoded.sub} className="flex min-w-0 flex-[1_1_420px] flex-col gap-2.5 rounded-xl border border-line bg-white px-5 py-[18px]">
-          {selected ? (
-            <>
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
-                <h2 className="m-0 text-base font-semibold">{selected.from === "ledger" ? texts.decoded.line(selected.n ?? 0) : texts.decoded.tool}</h2>
-                <span className="text-[13px] text-mute">{texts.decoded.sub}</span>
-              </div>
-              <dl className="m-0 grid grid-cols-[minmax(120px,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[13px]">
-                {decodedFields(selected).map((f) => (
+      {picked !== null && (
+        <EventDialog
+          item={picked}
+          beside={neighbours(items, itemKey(picked))}
+          onStep={(key) => setPicked(items.find((i) => itemKey(i) === key) ?? picked)}
+          onNarrow={(field, value) => {
+            setPicked(null);
+            narrow(field, value);
+            // The list is another one now: the focus goes to the line that says why.
+            requestAnimationFrame(() => filterLine.current?.focus());
+          }}
+          onClose={() => {
+            // Back to the row of the event that was shown last, when it is still in the list.
+            const key = itemKey(picked);
+            setPicked(null);
+            requestAnimationFrame(() => {
+              for (const b of document.querySelectorAll<HTMLButtonElement>("button[data-event]")) if (b.dataset.event === key) return b.focus();
+            });
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * #110: one event of the event log in a dialog: what the page reads of it on
+ * the left, the line as it is stored on the right, to be held against each
+ * other. The browser's own dialog, opened modal: Escape and a click beside it
+ * close it.
+ */
+function EventDialog({
+  item,
+  beside,
+  onStep,
+  onNarrow,
+  onClose,
+}: {
+  item: Item;
+  beside: { newer: string | null; older: string | null };
+  onStep: (key: string) => void;
+  onNarrow: (field: "project" | "repo", value: string) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const close = useRef<HTMLButtonElement>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    // The focus starts on Close, which is never off: a button that goes off under the focus would lose it.
+    close.current?.focus();
+  }, []);
+  useEffect(() => setCopied(false), [item]);
+  // The arrow keys are heard on the window, wherever the focus is inside the dialog.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault();
+      const to = e.key === "ArrowUp" ? beside.newer : beside.older;
+      if (to !== null) onStep(to);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [beside.newer, beside.older, onStep]);
+  // A click beside the dialog closes it only when it began there: a text marked from inside and let go outside does not.
+  const pressedBeside = useRef(false);
+  // Two whole sets of classes: a colour given twice is decided by the stylesheet's order, not by this line's.
+  // A step that cannot be taken is marked off and keeps the focus: `disabled` would drop it to the page behind.
+  const shape = "min-h-11 cursor-pointer rounded-lg px-4 text-sm font-medium aria-disabled:cursor-default aria-disabled:opacity-40";
+  const button = `${shape} border border-pale bg-white text-ink`;
+  const closeButton = `${shape} border-0 bg-ink text-white`;
+  return (
+    <dialog
+      ref={ref}
+      aria-labelledby="event-h"
+      onClose={onClose}
+      // A press and a release on the dialog itself, not on what it holds, is a click beside its content.
+      onMouseDown={(e) => {
+        pressedBeside.current = e.target === ref.current;
+      }}
+      onClick={(e) => {
+        if (e.target === ref.current && pressedBeside.current) ref.current.close();
+      }}
+      className="m-auto w-[min(1200px,calc(100vw-32px))] max-w-none rounded-xl border border-line bg-white p-0 text-ink backdrop:bg-black/40"
+    >
+      <div className="flex max-h-[calc(100vh-48px)] flex-col">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-5 py-3.5">
+          <h2 id="event-h" className="m-0 text-base font-semibold">
+            {dialogHeading(item)}
+          </h2>
+          <span className="font-mono text-[13px] text-mute">{item.event.type}</span>
+          <div className="flex-1" />
+          <button type="button" aria-disabled={beside.newer === null} onClick={() => beside.newer !== null && onStep(beside.newer)} className={button}>
+            {texts.dialog.newer}
+          </button>
+          <button type="button" aria-disabled={beside.older === null} onClick={() => beside.older !== null && onStep(beside.older)} className={button}>
+            {texts.dialog.older}
+          </button>
+          <button type="button" ref={close} onClick={() => ref.current?.close()} className={closeButton}>
+            {texts.dialog.close}
+          </button>
+        </div>
+        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto md:grid-cols-2">
+          <section aria-label={texts.decoded.sub} className="flex min-w-0 flex-col gap-2.5 px-5 py-[18px]">
+            <span className="text-[13px] text-mute">{texts.decoded.sub}</span>
+            <dl className="m-0 grid grid-cols-[minmax(110px,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[13px]">
+              {decodedFields(item).map((f) => {
+                const by = narrowOf(f, item);
+                return (
                   <div key={f.k} className="contents">
                     <dt className="text-mute">{f.k}</dt>
-                    <dd className="m-0 font-mono [overflow-wrap:anywhere]">{f.v}</dd>
+                    <dd className="m-0 font-mono [overflow-wrap:anywhere]">
+                      {f.v}
+                      {by !== null && (
+                        <button
+                          type="button"
+                          onClick={() => onNarrow(by.field, by.value)}
+                          aria-label={texts.stream.narrow(by.field, by.value)}
+                          className="ml-3 cursor-pointer border-0 bg-transparent p-0 font-sans text-[13px] text-ink underline decoration-pale underline-offset-2"
+                        >
+                          {texts.dialog.only}
+                        </button>
+                      )}
+                    </dd>
                   </div>
-                ))}
-              </dl>
-            </>
-          ) : (
-            <p className="m-0 text-mute">{texts.decoded.none}</p>
-          )}
-        </section>
-        <section aria-labelledby="raw-h" className="flex min-w-0 flex-[1_1_420px] flex-col gap-2.5 rounded-xl bg-ink px-5 py-[18px] text-gray-200">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
-            <h2 id="raw-h" className="m-0 text-base font-semibold text-white">
-              {texts.raw.heading}
-            </h2>
-            <span className="text-[13px] text-pale">{texts.raw.sub}</span>
-          </div>
-          <pre className="m-0 max-h-[420px] overflow-auto font-mono text-xs leading-relaxed">
-            {selected ? JSON.stringify(JSON.parse(selected.raw), null, 2) : ""}
-          </pre>
-        </section>
+                );
+              })}
+            </dl>
+          </section>
+          <section aria-labelledby="raw-h" className="flex min-w-0 flex-col gap-2.5 bg-ink px-5 py-[18px] text-gray-200">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <h3 id="raw-h" className="m-0 text-base font-semibold text-white">
+                {texts.raw.heading}
+              </h3>
+              <span className="text-[13px] text-pale">{texts.raw.sub}</span>
+              <div className="flex-1" />
+              <button
+                type="button"
+                title={texts.dialog.copyHint}
+                onClick={() => {
+                  void navigator.clipboard?.writeText(lineToCopy(item)).then(() => setCopied(true), () => setCopied(false));
+                }}
+                className="min-h-9 cursor-pointer rounded-lg border border-pale bg-transparent px-3 text-[13px] font-medium text-white"
+              >
+                {copied ? texts.dialog.copied : texts.dialog.copy}
+              </button>
+            </div>
+            <pre className="m-0 overflow-auto font-mono text-xs leading-relaxed">{indentStored(item.raw)}</pre>
+          </section>
+        </div>
       </div>
-    </>
+    </dialog>
   );
 }
