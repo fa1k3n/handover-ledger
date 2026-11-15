@@ -15,7 +15,7 @@ It is also the cheapest way to try the platform: nothing in the team's flow chan
 | Hooks of the coding agent (Claude Code first) | Session start, every tool call, waiting for a person, the end, per agent | `howl hook`, called from the agent's settings |
 | The code host | Task given to a team member, change opened, checks, review, rounds, merge | `howl observe` reads the repository every minute |
 
-The hooks are needed for a second reason. Where the agents act through one person's account, the code host cannot tell one agent from another. The hook knows which agent it runs for.
+The hooks are needed for a second reason. The code host sees accounts, not sessions: it cannot tell which model worked, in which role, or that a session waited for a person. The hook records the name a session was given, as the session's claim. Where sessions act through a person's account, the code host sees that person, and by the three kinds of contributor the work is the person's ([architecture.md](architecture.md#who-contributes)); the name is then a claim about a tool, not an agent the host knows.
 
 An event from a hook is a claim by the agent's own session; an event read from the code host is observed. Each event is marked with which it is ([traceability.md](traceability.md)).
 
@@ -35,7 +35,7 @@ Two things, and nothing else:
 - a `.howl/howl.yml` that names the project,
 - the hook lines in the agent's settings.
 
-Only the sessions of agents are recorded. A person's session leaves nothing: people are not measured one by one. An agent is a contributor with an account of its own ([architecture.md](architecture.md#who-contributes)); a session whose work reaches the code host under a person's account is that person's, with an assistant (#95).
+A session with no actor named leaves nothing: people are not measured one by one. The rule is that only the sessions of agents are recorded, and an agent is a contributor with an account of its own ([architecture.md](architecture.md#who-contributes)); a session whose work reaches the code host under a person's account is that person's, with an assistant. Today `howl` does not hold to this yet: it records a session whenever an actor is named, as an agent's and under any account, and puts that agent on what a person's account did at the code host (#14). #95 changes both.
 
 ```yaml
 # .howl/howl.yml
