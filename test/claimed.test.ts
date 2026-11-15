@@ -168,7 +168,11 @@ test("a claimed review does not start a round or end one, beside observed review
     ["commented", "approved"],
   );
   assert.equal(shown.reviews[0]!.followedBy, null);
-  assert.equal(handovers(items(events)).length, 2);
+  // #108: the two observed reviews of agent-b follow each other and are one row of two; the claims add none.
+  assert.deepEqual(
+    handovers(items(events)).map((h) => [h.from, h.to, h.n]),
+    [["agent-a", "agent-b", 2]],
+  );
 });
 
 test("a change that only a claim names does not keep the assignment open", () => {

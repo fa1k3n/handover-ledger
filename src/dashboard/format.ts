@@ -285,3 +285,8 @@ export function writingLines(
     return line === null ? [] : [{ project: name, line, written: w.writer }];
   });
 }
+
+/** #108: the step of a handover row, with the count when the row is of several events: `Implementation → review ×16`. */
+export function stepText(h: { step: string; n?: number }): string {
+  return h.n !== undefined && h.n > 1 ? `${h.step} ×${h.n}` : h.step;
+}

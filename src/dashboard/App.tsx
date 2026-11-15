@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, detail, filterTexts, filterWith, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, STREAM_START, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
+import { concerns, decodedFields, detail, filterTexts, filterWith, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -285,7 +285,7 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
               </thead>
               <tbody>
                 {(data?.handovers ?? []).map((h) => (
-                  <tr key={`${h.time}-${h.change}-${h.step}-${h.from}`} className="border-t border-line">
+                  <tr key={`${h.time}-${h.change}-${h.step}-${h.from}-${h.to}-${h.hash ?? ""}`} className="border-t border-line">
                     <td className="py-3 pr-3 font-mono text-[13px] whitespace-nowrap">{whenShort(h.time, Date.now())}</td>
                     <td className="p-3">
                       <a href={hashFor("change", project, `change:${h.change}`)} className="font-medium text-ink">
@@ -297,7 +297,7 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
                       {h.from} → {h.to === "merged" ? texts.overview.merged : h.to}
                       {h.via && <span className="text-mute"> {texts.via(h.via)}</span>}
                     </td>
-                    <td className="p-3">{h.step}</td>
+                    <td className="p-3">{stepText(h)}</td>
                     <td className="p-3 font-mono text-[13px]">{[h.model, h.effort].filter(Boolean).join(" · ") || "–"}</td>
                     <td className="py-3 pl-3 font-mono text-[13px] text-mute" title={h.hash}>
                       {h.hash ? `${h.hash.slice(0, 4)}…${h.hash.slice(-4)}` : "–"}
