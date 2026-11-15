@@ -357,17 +357,21 @@ tests_in: ['src/**/*.rs', 'test/**/*.test.ts']
 test_pattern:                                # each finds a test; the first group is its name
   - '#\[test\]\s*(?:#\[[^\]]*\]\s*)*fn\s+(\w+)'
   - '\btest\(\s*"([^"]+)"'
+test_covers: [covers, REQ]                   # the words of a covering comment; covers when left out
+test_touches: [touches]                      # the words of a touching comment; touches when left out
+tests_not_in: ['test/fixtures/**']           # files of tests_in that are not read
+requirements_not_in: ['requirements/old-*.md']
 ```
 
 A table counts when its heading row holds the ID's heading, and each row whose ID cell is an ID is a requirement. The pipes at the edges of a row may be left out, and an ID may stand in bold or in backticks. A table inside a block of code is an example and is passed over. When no file matches `requirements_in`, or the files hold no requirement, the command says so and ends with 2: it is never taken as a trace with no gap. `requirement_columns` may name the ID's heading alone: every requirement then asks for a test and is taken as built. With a method or a status heading, `requirement_by_test` or `requirement_done` says which values count. Headings and values are compared ignoring case.
 
 A test is each match of a `test_pattern` in a file of `tests_in`. A pattern is matched over the whole text of a file, so a name may stand on the line after its mark. A test's name is read ignoring case, as it is written and with `_` as `-`, since a function's name cannot hold `-`. `requirement_pattern` is looked for inside a name, so a `^` at its start and a `$` at its end are taken off. For names that must start with a word, as `def test_req_brk_012_…` in Python, put the group after it: `'def\s+test_(\w+)'`.
 
-- it **covers** the requirement whose ID its name starts with: `test("REQ-BRK-012 a rise is limited", …)`, `fn req_brk_012_a_rise_is_limited()`;
+- it **covers** the requirement whose ID its name starts with, or each of several IDs it starts with (`REQ-BRK-012 REQ-BRK-013 the rise and the fall`): `test("REQ-BRK-012 a rise is limited", …)`, `fn req_brk_012_a_rise_is_limited()`;
 - it **touches** each ID in round brackets in its name: `test("REQ-BRK-012 a rise is limited (REQ-BRK-013)", …)`;
-- a comment line of its own, `// covers: REQ-BRK-011, REQ-BRK-012` or `/// touches: REQ-BRK-013`, counts for the next test below it in the file. The line must start with a comment's mark (`//`, `#`, `*`, `--`, `;`, `%`); the words in a line of code, or after a test on its own line, count for nothing.
+- a comment line of its own, `// covers: REQ-BRK-011, REQ-BRK-012` or `/// touches: REQ-BRK-013`, counts for the next test below it in the file. A team that writes another word sets it: with `test_covers: [covers, REQ]`, `// REQ: REQ-BRK-012 REQ-BRK-013 the rise and the fall` covers both. The IDs stand first, parted by spaces or commas, and the words after them are passed over, also a word that looks like an ID (a colon or a full stop after an ID ends the IDs, and `covers: R-1 and R-2` covers `R-1` only); brackets, backticks and asterisks around the IDs are passed over; a part after a `;` may start with IDs of its own (`REQ: REQ-BRK-012 the rise; REQ-BRK-013 the fall`). The word is compared ignoring case. The line must start with a comment's mark (`//`, `#`, `*`, `--`, `;`, `%`); the words in a line of code, or after a test on its own line, count for nothing.
 
-The gaps are: a requirement that asks for a test, is built, and has no test that covers it (a test that only touches it does not close the gap); a test that names an ID no table holds; an ID given in two rows. Tests that name no requirement are counted and are no gap.
+The gaps are: a requirement that asks for a test, is built, and has no test that covers it (a test that only touches it does not close the gap); a test that names an ID no table holds; an ID given in two rows. Tests that name no requirement are counted and are no gap. A test whose name is worked out when the tests run, as ``test(`${row.id} the page`, …)``, cannot be read: when nothing is read from its name or from a comment above it, it is counted apart (a `test_pattern` must find it first: the one above reads a name in double quotes only, and needs a backtick beside the quote to read a template), `5 with a name worked out at run time`, and marked `computed` in `--json`. Reading those needs a test run (#38).
 
 ```
 REQ-BRK-012  T  Verified     2 tests
