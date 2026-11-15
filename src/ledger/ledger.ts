@@ -212,18 +212,19 @@ function lock(path: string): () => void {
 }
 
 /**
- * Whether a process is writing to the ledger now, by its lock (#102). Only
- * reads: the lock is not taken. A lock left by a process that no longer runs
- * is no writer; one that cannot be read, or holds no number yet, is being taken.
+ * The lock of a ledger as it stands (#102): `held` by a process that writes
+ * now, `left` by one that no longer runs, or `none`. Only reads: the lock is
+ * not taken. A lock that cannot be read, or holds no number yet, is being
+ * taken and counts as held, as `openLedger` would refuse it.
  */
-export function hasWriter(path: string): boolean {
+export function lockOf(path: string): "none" | "held" | "left" {
   let holder: string;
   try {
     holder = readFileSync(`${path}.lock`, "utf8").trim();
   } catch (e) {
-    return !isCode(e, "ENOENT");
+    return isCode(e, "ENOENT") ? "none" : "held";
   }
-  return !/^\d+$/.test(holder) || isRunning(Number(holder));
+  return !/^\d+$/.test(holder) || isRunning(Number(holder)) ? "held" : "left";
 }
 
 function isRunning(pid: number): boolean {

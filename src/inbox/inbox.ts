@@ -37,15 +37,17 @@ export function leave(inbox: string, event: LedgerEvent): string {
  * name (#102). Only reads. No inbox is nothing waiting.
  */
 export function waitingIn(inbox: string): { waiting: number; oldest: number | null } {
-  let names: string[];
+  let ready: string[];
   try {
-    names = readdirSync(inbox);
+    ready = readdirSync(inbox, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && isReady(entry.name))
+      .map((entry) => entry.name);
   } catch {
     return { waiting: 0, oldest: null };
   }
-  const ready = names.filter(isReady).sort();
-  const left = Number(/^(\d{15})-/.exec(ready[0] ?? "")?.[1]);
-  return { waiting: ready.length, oldest: ready.length > 0 && Number.isFinite(left) ? left : null };
+  // A name that starts with no time is counted and tells no age: it must not hide the age of the others.
+  const times = ready.map((name) => Number(/^(\d{15})-/.exec(name)?.[1])).filter((t) => Number.isFinite(t));
+  return { waiting: ready.length, oldest: times.length > 0 ? Math.min(...times) : null };
 }
 
 /** Whether a name in the inbox is an event that is ready to be taken in. */

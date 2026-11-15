@@ -79,7 +79,7 @@ export function App() {
 
   return (
     <div className="min-h-screen">
-      <Header view={view} project={project} projects={projects} unwritten={unwritten.map((u) => u.project)} />
+      <Header view={view} project={project} projects={projects} unwritten={unwritten.filter((u) => !u.written).map((u) => u.project)} />
       <main key={project ?? ""} className="mx-auto flex max-w-[1360px] flex-col gap-5 px-4 py-6 sm:px-8">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <div className="flex flex-col gap-1">
@@ -115,7 +115,7 @@ export function App() {
         ) : view === "change" ? (
           <ChangeView what={route.what ?? null} project={project} onError={fail} />
         ) : (
-          <Stream onError={fail} project={project} served={projects?.projects.length ?? 1} unwritten={unwritten.map((u) => u.project)} />
+          <Stream onError={fail} project={project} served={projects?.projects.length ?? 1} unwritten={unwritten.filter((u) => !u.written).map((u) => u.project)} />
         )}
       </main>
     </div>

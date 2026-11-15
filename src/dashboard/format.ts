@@ -266,14 +266,22 @@ export function sessionText(s: Session): string {
 
 /**
  * #102: what the page says under its header, one line for each project that
- * has events waiting and no writer, or a writer that is slow. Empty when all
- * is well, and for a server of one ledger file.
+ * has events waiting and no writer, or a writer that is slow. `written` is
+ * false for a project nothing writes: only that one is marked in the menu
+ * and the event log. Empty when all is well, and for a server of one ledger file.
  */
-export function writingLines(projects: { projects: ({ name: string } & Partial<Writing>)[]; now?: number } | null, now = Date.now()): { project: string; line: string }[] {
+export function writingLines(
+  projects: { projects: ({ name: string } & Partial<Writing>)[]; unstarted?: { name: string; waiting: number; oldest: number | null }[]; now?: number } | null,
+  now = Date.now(),
+): { project: string; line: string; written: boolean }[] {
   if (projects === null) return [];
-  return projects.projects.flatMap((p) => {
-    if (p.writer === undefined || p.waiting === undefined) return [];
-    const line = writingLine(p.name, { writer: p.writer, waiting: p.waiting, oldest: p.oldest ?? null }, projects.now ?? now);
-    return line === null ? [] : [{ project: p.name, line }];
+  const at = projects.now ?? now;
+  const all = [
+    ...projects.projects.flatMap((p) => (p.writer === undefined || p.waiting === undefined ? [] : [{ name: p.name, w: { writer: p.writer, waiting: p.waiting, oldest: p.oldest ?? null, ...(p.left ? { left: true as const } : {}) } }])),
+    ...(projects.unstarted ?? []).map((p) => ({ name: p.name, w: { writer: false, waiting: p.waiting, oldest: p.oldest } })),
+  ];
+  return all.flatMap(({ name, w }) => {
+    const line = writingLine(name, w, at);
+    return line === null ? [] : [{ project: name, line, written: w.writer }];
   });
 }

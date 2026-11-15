@@ -38,6 +38,8 @@ export interface Projects {
   /** #102: `writer`, `waiting` and `oldest` are there when the server serves howl's home, not one ledger file. */
   projects: ({ name: string; lines: number } & Partial<Writing>)[];
   now?: number;
+  /** #102: projects with events waiting and no ledger yet. */
+  unstarted?: { name: string; waiting: number; oldest: number | null }[];
 }
 
 export const projects = () => get<Projects>("/api/projects");

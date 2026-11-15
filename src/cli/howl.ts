@@ -695,23 +695,13 @@ async function upCommand(args: string[]): Promise<number> {
     throw e;
   }
   console.log(`howl up: ${server.url} (the writer of ${o.project}; every project in ${howlHome()} is shown, read-only)`);
-  // #102: the other projects are shown and not written by this process: say which of them has events waiting.
+  // #102: the other projects are shown and not written by this process: say which of them has events waiting,
+  // also one that has no ledger yet.
   {
-    const { readdirSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const { LEDGER_FILE } = await import("../ledger/names.ts");
-    const { isProjectName } = await import("../ledger/place.ts");
-    const { writingLine, writingOf } = await import("../read/writing.ts");
-    let names: string[] = [];
-    try {
-      names = readdirSync(howlHome()).sort();
-    } catch {
-      // No home yet: nothing to say.
-    }
-    for (const name of names) {
-      const ledger = join(howlHome(), name, LEDGER_FILE);
-      if (name === o.project || !isProjectName(name) || !existsSync(ledger)) continue;
-      const line = writingLine(name, writingOf(ledger), Date.now());
+    const { projectsWriting, writingLine } = await import("../read/writing.ts");
+    for (const p of projectsWriting(howlHome())) {
+      if (p.name === o.project) continue;
+      const line = writingLine(p.name, p, Date.now());
       if (line !== null) console.log(line);
     }
   }
@@ -952,7 +942,8 @@ async function statusCommand(args: string[]): Promise<number> {
   }
   const clear = process.stdout.isTTY ? "\u001b[H\u001b[2J" : "";
   return await repeat(1, () => {
-    process.stdout.write(`${clear}${renderStatus(rows(), Date.now())}\n`);
+    const line = unwritten();
+    process.stdout.write(`${clear}${renderStatus(rows(), Date.now())}\n${line === null ? "" : `\n${line}\n`}`);
   }, () => {});
 }
 
