@@ -14,19 +14,23 @@ export function filterPairs(text: string): string[] {
 }
 
 /**
- * #82: what the event log's filter line starts with. Every event is in the
- * list, the tool calls too; this takes them out, and says so where the reader
- * can change it.
+ * #89: how the event log starts: an empty filter line, and the box "Show tool
+ * calls" not ticked. Whether tool calls are in the list is a switch the reader
+ * sees, and the line holds only what the reader wrote.
  */
-export const DEFAULT_FILTER = 'event.type != "tool.used"';
+export const STREAM_START = { filter: "", tools: false } as const;
 
 /**
- * #82: what the filter line holds after its button. The default, never
- * nothing: tool calls are many, and they do not come into the list by
- * themselves. Whoever wants them takes the clause out of the line.
+ * #89: what the page asks the event log: the filter texts, the tool calls only
+ * with the box ticked, and how many of the newest. A filter that names
+ * `tool.used` gets them ticked or not: that is the server's rule.
  */
-export function resetFilter(): string {
-  return DEFAULT_FILTER;
+export function eventsQuery(filters: string[], tools: boolean, limit = 200): string {
+  const q = new URLSearchParams();
+  for (const f of filters) q.append("filter", f);
+  if (tools) q.set("activity", "1");
+  q.set("limit", String(limit));
+  return q.toString();
 }
 
 /**

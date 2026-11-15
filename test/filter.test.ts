@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { DEFAULT_FILTER, filterTexts, filterWith, resetFilter } from "../src/dashboard/format.ts";
+import { filterTexts, filterWith } from "../src/dashboard/format.ts";
 import { isPair } from "../src/read/filter-text.ts";
 import { readFilters, wantsActivity } from "../src/read/filter.ts";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
@@ -185,22 +185,17 @@ test("#82: the page sends pairs one by one as before, and an expression whole", 
   assert.deepEqual(filterTexts('event.type=="x"'), ['event.type=="x"']);
 });
 
-test("#82: the event log starts with the tool calls filtered out, said in the filter line; a click on a value adds to an expression", () => {
-  assert.equal(DEFAULT_FILTER, 'event.type != "tool.used"');
-  assert.deepEqual(kept(DEFAULT_FILTER).types, ["review.approved", "review.changes_requested", "checks.failed", "observe.started"]);
-  assert.equal(filterWith(DEFAULT_FILTER, "project", "body"), '(event.type != "tool.used") && event.project == "body"');
+// #89: the filter line starts empty and the tool calls have their box again; what a click adds to an expression holds.
+test("#82: a click on a value adds to an expression", () => {
+  const noTools = 'event.type != "tool.used"';
+  assert.deepEqual(kept(noTools).types, ["review.approved", "review.changes_requested", "checks.failed", "observe.started"]);
+  assert.equal(filterWith(noTools, "project", "body"), '(event.type != "tool.used") && event.project == "body"');
   assert.equal(filterWith('(event.type != "tool.used") && event.project == "body"', "project", "body"), '(event.type != "tool.used") && event.project == "body"', "not twice");
   assert.equal(filterWith('event.project == "a"', "repo", "x/y"), '(event.project == "a") && has(event.repo) && event.repo == "x/y"', "not every event has a repository");
-  assert.deepEqual(kept(filterWith(DEFAULT_FILTER, "project", "body")).types, ["review.changes_requested", "checks.failed", "observe.started"]);
+  assert.deepEqual(kept(filterWith(noTools, "project", "body")).types, ["review.changes_requested", "checks.failed", "observe.started"]);
   // On pairs, and on nothing, it stays a pair, as before.
   assert.equal(filterWith("actor=agent-1", "project", "a"), "actor=agent-1 project=a");
   assert.equal(filterWith("", "project", "a"), "project=a");
-});
-
-test("#82: the button under the filter line puts the default back, never nothing: tool calls do not come by themselves", () => {
-  assert.equal(resetFilter(), DEFAULT_FILTER);
-  assert.ok(!kept(resetFilter()).types.includes("tool.used"));
-  assert.deepEqual(filterTexts(resetFilter()), [DEFAULT_FILTER]);
 });
 
 test("#82: the library is howl's second runtime dependency, at an exact version, and the page does not load it", () => {
