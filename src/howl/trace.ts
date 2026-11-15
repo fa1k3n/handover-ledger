@@ -199,6 +199,10 @@ function readSettings(text: string): TraceSettings | null {
     for (const word of set) if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(word)) throw new LedgerError(`${key}: ${word} is no word`);
     return (set.length === 0 ? [usual] : set).map((word) => word.toLowerCase());
   };
+  const coversWords = words("test_covers", "covers");
+  const touchesWords = words("test_touches", "touches");
+  const both = coversWords.find((word) => touchesWords.includes(word));
+  if (both !== undefined) throw new LedgerError(`${both} is in test_covers and in test_touches: a word says one of the two`);
   const pattern = expression("requirement_pattern", written.replace(/^\^/, "").replace(/(?<!\\)\$$/, ""), "i");
   const [id = "ID", method, status] = list("requirement_columns");
   const columns: TraceSettings["columns"] = { id };
@@ -213,8 +217,8 @@ function readSettings(text: string): TraceSettings | null {
     testsIn: need("tests_in", "the files that hold tests"),
     requirementsNotIn: list("requirements_not_in"),
     testsNotIn: list("tests_not_in"),
-    coversWords: words("test_covers", "covers"),
-    touchesWords: words("test_touches", "touches"),
+    coversWords,
+    touchesWords,
     // Over the whole text of a file: a name may stand on the line after its mark.
     testPatterns: need("test_pattern", "how a test's name is found").map((p) => expression("test_pattern", p, "gmd")),
   };
@@ -332,7 +336,10 @@ function idsIn(text: string, pattern: RegExp): string[] {
 function leadingIds(text: string, pattern: RegExp): string[] {
   const whole = new RegExp(`^(?:${pattern.source})$`, "i");
   const ids: string[] = [];
-  for (const word of text.trim().split(/[\s,]+/)) {
+  // A list may be written with brackets or marks around it or its IDs: `[R-1, R-2]`, `(R-1)`, a backtick. They are no words.
+  for (const written of text.trim().split(/[\s,]+/).filter((w) => w !== "")) {
+    const word = written.replace(/^[\[(`*]+/, "").replace(/[\])`*]+(?=[.:]*$)/, "");
+    if (word === "") continue;
     const id = word.replace(/[.:]+$/, "");
     if (!whole.test(id) && !whole.test(fixedId(id))) break;
     ids.push(fixedId(id));
@@ -421,7 +428,14 @@ export function trace(settings: TraceSettings, source: Source): TraceReport {
   const gaps: Gap[] = [];
 
   const tables = inAny(settings.requirementsIn, settings.requirementsNotIn);
-  if (tables.length === 0) throw new LedgerError(`no file matches requirements_in: ${settings.requirementsIn.join(", ")}`);
+  if (tables.length === 0) {
+    const leftOut = inAny(settings.requirementsIn).length > 0;
+    throw new LedgerError(
+      leftOut
+        ? `requirements_not_in leaves out every file of requirements_in: ${settings.requirementsNotIn.join(", ")}`
+        : `no file matches requirements_in: ${settings.requirementsIn.join(", ")}`,
+    );
+  }
   const testFiles = inAny(settings.testsIn, settings.testsNotIn);
   source.prime?.([...tables, ...testFiles]);
 

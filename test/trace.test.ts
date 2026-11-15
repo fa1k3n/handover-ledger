@@ -440,7 +440,7 @@ test("#99: a file in tests_in and in tests_not_in is not read, and a table in re
 
   const noTable = howl(["trace"], { cwd: small(TWO, 'test("R-1 a", () => {});\n', withLines("requirements_not_in: ['*.md']\n")) });
   assert.equal(noTable.status, 2, "every table left out is no table");
-  assert.match(noTable.stderr, /no file matches requirements_in/);
+  assert.match(noTable.stderr, /requirements_not_in leaves out every file/);
 });
 
 test("#99: a test whose name is worked out at run time is counted apart, and is not among those that name none", () => {
@@ -495,4 +495,23 @@ test("#99: a name that starts with several IDs covers each, and each part of a c
   const parts = report(small(three, '// REQ: R-1 from a mail; R-2 from a pasted text; and then R-3\ntest("a helper", () => {});\n', yml));
   assert.deepEqual(parts.tests[0]!.covers, ["R-1", "R-2"], "a part that starts with words names nothing");
   assert.deepEqual(gaps(parts, "no_test").map((g) => g.id), ["R-3"]);
+});
+
+// What the review of the pull request found.
+
+test("#99: a comment's IDs may stand in brackets or marks, and a word is in one of the two lists only", () => {
+  for (const comment of ["// covers: [R-1, R-2]", "// covers: `R-1`, (R-2)", "// covers: , R-1 R-2", "// covers: **R-1**, R-2.", "// covers: (R-1, R-2): the two"]) {
+    const r = report(small(TWO, `${comment}\ntest("a helper", () => {});\n`, withLines("")));
+    assert.deepEqual(r.tests[0]!.covers, ["R-1", "R-2"], comment);
+  }
+  const and = report(small(TWO, '// covers: R-1 and R-2\ntest("a helper", () => {});\n', withLines("")));
+  assert.deepEqual(and.tests[0]!.covers, ["R-1"], "after a word the IDs have ended: the README says so");
+
+  const both = howl(["trace"], { cwd: small(TWO, 'test("R-1 a", () => {});\n', withLines("test_covers: [covers, see]\ntest_touches: [See]\n")) });
+  assert.equal(both.status, 2);
+  assert.match(both.stderr, /^howl: see is in test_covers and in test_touches/);
+
+  const all = howl(["trace"], { cwd: small(TWO, 'test("R-1 a", () => {});\n', withLines("requirements_not_in: [reqs.md]\n")) });
+  assert.equal(all.status, 2);
+  assert.match(all.stderr, /^howl: requirements_not_in leaves out every file of requirements_in: reqs\.md/);
 });
