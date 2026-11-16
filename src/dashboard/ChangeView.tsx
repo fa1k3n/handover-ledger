@@ -5,10 +5,17 @@ import { duration } from "../read/overview.ts";
 import { roundText } from "../read/rounds.ts";
 import type { Shown } from "../read/show.ts";
 import * as api from "./api.ts";
-import { claimText, hashFor, headText, traceText, sessionText, whenShort } from "./format.ts";
+import { claimText, hashFor, headText, otherChangeLinks, traceText, sessionText, whenShort } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const t = texts.change;
+
+/** `Task 12`, or for a change that was asked for `Change 65 of task 40`, or `Change 65` where no task is known. */
+function title(shown: Shown): string {
+  const change = shown.changes[0]?.change ?? "";
+  if (shown.asked === "task" && shown.task !== undefined) return t.task(shown.task);
+  return shown.task !== undefined ? t.changeOfTask(change, shown.task) : t.changeTitle(change);
+}
 
 export function ChangeView({ what, project, onError }: { what: string | null; project: string; onError: (e: unknown) => void }) {
   const [draft, setDraft] = useState(what ?? "");
@@ -65,8 +72,27 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
         <>
           <section aria-labelledby="ch-title" className={card}>
             <h2 id="ch-title" className="m-0 text-lg font-semibold">
-              {shown.task !== undefined ? t.task(shown.task) : t.changeTitle(shown.changes[0]?.change ?? "")} · {t.end[shown.end.state]}
+              {title(shown)} · {t.end[shown.end.state]}
             </h2>
+            {shown.task !== undefined && shown.otherChanges.length > 0 && (
+              <p className="m-0 text-[13px]">
+                {(() => {
+                  const line = otherChangeLinks(shown.task, shown.otherChanges, project);
+                  return (
+                    <>
+                      <a href={line.task.href}>{line.task.label}</a>
+                      {t.otherChanges(line.changes.length)}
+                      {line.changes.map((c, i) => (
+                        <span key={c.label}>
+                          {i > 0 && ", "}
+                          <a href={c.href}>{c.label}</a>
+                        </span>
+                      ))}
+                    </>
+                  );
+                })()}
+              </p>
+            )}
             <p className="m-0 text-[13px] text-mute">
               {t.summary(
                 duration(shown.summary.seconds * 1000),
@@ -118,6 +144,12 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
                 </div>
               ))}
               {c.comments > 0 && <div className={`${row} text-mute`}>{t.comments(c.comments)}</div>}
+              {shown.changes.length > 1 && (
+                <div className={row}>
+                  <span className="text-mute">{c.end.state === "open" ? "" : whenShort(c.end.time, now)}</span>
+                  {t.end[c.end.state]}
+                </div>
+              )}
             </section>
           ))}
 
@@ -126,12 +158,16 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
               {t.reviews}
             </h2>
             {shown.reviews.length === 0 && <p className="m-0 text-mute">{t.noReviews}</p>}
-            {shown.reviews.map((r, i) => (
-              <div key={i} className={row}>
-                <span className="font-sans font-medium">{t.round(i + 1)}</span>
-                {roundText(r.reviews)}
-              </div>
-            ))}
+            {shown.reviews.map((r, i) => {
+              // #117: where the view has more than one change, a round says which change it is of.
+              const number = shown.reviews.slice(0, i + 1).filter((x) => x.change === r.change).length;
+              return (
+                <div key={i} className={row}>
+                  <span className="font-sans font-medium">{shown.changes.length > 1 && r.change !== undefined ? t.roundOf(number, r.change) : t.round(number)}</span>
+                  {roundText(r.reviews)}
+                </div>
+              );
+            })}
           </section>
 
           {shown.claimed.length > 0 && (

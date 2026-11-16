@@ -94,7 +94,7 @@ test("howl show prints the claims under a heading of their own, and the change a
   const run = howl(["show", "change:30", "--ledger", ledgerOf(story("claimed")), "--utc"]);
   assert.equal(run.status, 0, run.stderr);
   const lines = run.stdout.split("\n");
-  assert.equal(lines[0], "Task 12: open");
+  assert.equal(lines[0], "Change 30 of task 12: open");
   assert.equal(lines[lines.indexOf("Reviews") + 1], "  none");
   assert.equal(lines[lines.indexOf("End") + 1], "  open");
   const heading = lines.indexOf("Claimed, not seen at the code host");
@@ -279,11 +279,14 @@ test("a claim of a change or a review links no change to a task; a session's own
   const claim = event("claimed", "review.commented", 5, "agent-z", { change: "40", task: "12" });
   const shown = show([opening(), ...other, claim].sort((a, b) => a.time.localeCompare(b.time)), { kind: "change", id: "30" }, null)!;
   assert.deepEqual(shown.changes.map((c) => c.change), ["30"]);
+  assert.deepEqual(shown.otherChanges, [], "a claim names no other change of the task");
   assert.deepEqual(shown.end, { state: "open" });
 
   const session = event("claimed", "session.started", 5, "agent-a", { change: "40", task: "12", session: "s1" });
   const linked = show([opening(), ...other, session].sort((a, b) => a.time.localeCompare(b.time)), { kind: "change", id: "30" }, null)!;
-  assert.deepEqual(linked.changes.map((c) => c.change), ["30", "40"]);
+  // #117: the change that is asked for is shown alone; the one a session's own event links is named.
+  assert.deepEqual(linked.changes.map((c) => c.change), ["30"]);
+  assert.deepEqual(linked.otherChanges, ["40"]);
 
   // The task of a change that is asked for: never from a claim of a change or a review.
   const fifty = event("observed", "change.opened", 0, "agent-a", { change: "50", sha: SHA.a });

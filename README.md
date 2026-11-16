@@ -209,7 +209,7 @@ review_comment_pattern: '^\[review\]'   # a comment whose first line matches cou
 
 **Keeping the head elsewhere.** A hash chain shows a changed line, but not a ledger cut back or rewritten whole with a new chain. `howl anchor` writes a checkpoint (the number of lines and the hash of the last) as a commit on `refs/howl/checkpoints` of the repository and pushes it to `origin`, touching no branch; `--to file:<path>` or `--to -` keeps it elsewhere, and `--sign <ssh key>` signs it. `howl observe --anchor-every 60` anchors after rounds that wrote lines, at most once an hour. `howl verify --checkpoint git` (or a file) then checks that the ledger still holds the line the checkpoint names, and with `--signers <allowed signers>` its signature.
 
-**An evidence bundle.** `howl export --change 30` (or `--task 12`, or `--since … --until …`) writes one `.tar.gz` for an auditor: the ledger up to its head, the numbers of the lines selected (by the rules of `howl show`), the timeline, the checkpoints on `refs/howl/checkpoints` that cover the head, a manifest with the SHA-256 of every file, and a README. The activity file and `people.json` never go in. `howl verify --bundle <file>` checks it offline, with nothing but the bundle: every file against the manifest, the chain, that each selected line is in the ledger, and the head against the checkpoints (`--signers` for their signatures). A hash chain proves a line only with every line before it, so the bundle carries the ledger up to its head.
+**An evidence bundle.** `howl export --change 30` (or `--task 12`, or `--since … --until …`) writes one `.tar.gz` for an auditor: the ledger up to its head, the numbers of the lines selected (by the rules of `howl show`: for a change, that change alone), the timeline, the checkpoints on `refs/howl/checkpoints` that cover the head, a manifest with the SHA-256 of every file, and a README. The activity file and `people.json` never go in. `howl verify --bundle <file>` checks it offline, with nothing but the bundle: every file against the manifest, the chain, that each selected line is in the ledger, and the head against the checkpoints (`--signers` for their signatures). A hash chain proves a line only with every line before it, so the bundle carries the ledger up to its head.
 
 **Starting at a date.** On a repository with a long history the first round reads all of it. `howl observe --since 2026-11-01` (or `--since now`) starts the first round at that date instead, and records an `observe.started` event saying so, so a reader knows nothing before it was looked at. It is refused once `observe.json` exists: the cursor says where to go on.
 
@@ -271,7 +271,7 @@ howl watch --filter 'has(event.change) && (event.source.kind == "claimed" || eve
 
 `--filter` can be given more than once, and all must match. `--since <time>` passes over what came before (without an offset it is local time); `--json` prints the lines as they stand in the files; `--no-follow` stops after what is there. A wait for a person, failed checks and a review that asks for changes stand out in colour; not when the output is not a terminal, or when `NO_COLOR` is set.
 
-**`howl show <task or change>`** gives the timeline of one assignment: `12`, `task:12` or `change:30`. It gathers what names the task, its changes, the hook events on their branches and commits, and the rest of those sessions; never what names another task.
+**`howl show <task or change>`** gives the timeline of one assignment: `12`, `task:12` or `change:30`. Asked for a task, it gathers what names the task, its changes, the hook events on their branches and commits, and the rest of those sessions; never what names another task. Where the task has more than one change, each review round and each end says which change it is of.
 
 ```
 $ howl show 12 --utc
@@ -312,6 +312,12 @@ Summary
 ```
 
 The summary divides the time from the hand-over to the merge so that every second is in one part, by the state after the last event before it: an agent working is *work*; an agent that stands still until a person answers, and an approved change not yet merged, is *waiting for a person*; a change whose head waits for its checks or for a review is *waiting for checks* or *waiting for review*; an agent that is done and waits for its next instruction is *waiting for instructions*. A person is shown by the pseudonym of `howl observe`, and no figure is given per person. `--json` gives the parts and the summary as one JSON document.
+
+Asked for a change (`change:30`, or a number that names no task), it gives that change alone: what names it, what sits on its commits, its sessions, and the task's opening and giving as the hand-over. The other changes of the task are named in one line, `Task 40 has another change: 63`, and not mixed in. The heading is `Change 65 of task 40: merged`. The end is the change's own, and the task's closing stands with the task's opening.
+
+Where one branch holds two changes, an event of a session that does not name a change is placed by its time. It is of the change whose life holds that time. Its commit does not decide against the time: a checkout still holds the head of a change after that change is merged, so a commit places an event only inside that change's life. The life of a change runs from the end of the change before it on that branch (from the beginning, for the first) to its own end. A session that works on across the end of one change is in both views, each with its own part, and says `also under change 65`. An event after the last change of the branch has ended is of none of them, and is shown with the task only.
+
+The summary of the task's first change starts at the hand-over. A later change is measured from its own first event.
 
 ## Code classes
 
