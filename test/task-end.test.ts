@@ -66,7 +66,7 @@ test("the second still open: the task is open, and the summary is to the last ev
 
 test("the second closed without a merge after the first was merged: merged, at the closing, with the second change", () => {
   const shown = ask([...first(), observed("change.closed", 75, { ...of("65", SHA.b), actor: person })]);
-  assert.deepEqual(shown.end, { state: "merged", time: at(75), actor: person, change: "65" });
+  assert.deepEqual(shown.end, { state: "merged", time: at(75), change: "65" });
   assert.equal(shown.summary.to, at(75));
 });
 
@@ -102,6 +102,29 @@ test("a claimed merge of the second change ends nothing (#51)", () => {
   const shown = ask([...first(), claimed("change.merged", 90, of("65", SHA.b))]);
   assert.deepEqual(shown.end, { state: "open" });
   assert.equal(render(shown, { utc: true }).split("\n")[0], "Task 40: open");
+});
+
+test("a change that only a session's own event names changes nothing: merged stays merged, with one change and with several", () => {
+  const ghost = [claimed("session.started", 70, { task: "40", change: "99" }), claimed("checks.passed", 71, { task: "40", change: "99", sha: "c".repeat(40) })];
+  const one = first().filter((e) => e.change !== "65");
+  const alone = ask(one);
+  const withGhost = ask([...one, ...ghost]);
+  assert.deepEqual(withGhost.end, { state: "merged", time: at(30), actor: person });
+  assert.deepEqual(withGhost.end, alone.end);
+  const both = [...first(), observed("change.merged", 90, { ...of("65", SHA.b), actor: person })];
+  const several = ask([...both, ...ghost]);
+  assert.deepEqual(several.end, { state: "merged", time: at(90), actor: person, change: "65" });
+  assert.equal(several.summary.to, at(90));
+  assert.equal(render(several, { utc: true }).split("\n")[0], "Task 40: merged");
+});
+
+test("merged with the last change closed without a merge: the end has no actor; the same where a merge and a closing fall at one instant", () => {
+  const closing = ask([...first(), observed("change.closed", 75, { ...of("65", SHA.b), actor: agent })]);
+  assert.deepEqual(closing.end, { state: "merged", time: at(75), change: "65" });
+  const tie = ask([...first().filter((e) => e.type !== "change.merged"), observed("change.merged", 75, { ...of("63", SHA.a), actor: person }), observed("change.closed", 75, { ...of("65", SHA.b), actor: agent })]);
+  assert.equal(tie.end.state, "merged");
+  assert.equal((tie.end as { time: string }).time, at(75));
+  assert.equal((tie.end as { actor?: unknown }).actor, undefined);
 });
 
 test("a change asked for keeps its own end, and the same task's end is not added to it", () => {

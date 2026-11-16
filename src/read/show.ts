@@ -172,7 +172,7 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   const fromHandover = !asksChange || first === undefined || first === asked.id;
   const parts = changeParts(events, changes, acting);
   // The end of a change that is asked for is its own; the end of a task is that of its last change (#118).
-  const end = asksChange ? (parts[0]?.end ?? { state: "open" as const }) : endOfTask(parts);
+  const end = asksChange ? (parts[0]?.end ?? { state: "open" as const }) : endOfTask(parts, events);
   return {
     task,
     asked: asksChange ? "change" : "task",
@@ -516,19 +516,23 @@ function endOfChange(own: LedgerEvent[]): End {
  * #118: the end of a task, from the ends of its changes. Open while a change has no end; merged when every
  * change has ended and one was merged; closed when every change was closed without a merge. The time is the
  * last end, and `change` is the change it is of. A claim ends nothing: `endOfChange` reads observed events only.
- * With one change the end is that change's and names none: `change` is for a task of several. The tracker's
+ * The actor is left out where the last end is not of the state's kind (a merged task whose last change was
+ * closed). With one change the end is that change's and names none: `change` is for a task of several. The tracker's
  * closing of the task is not read here.
  */
-function endOfTask(parts: ChangePart[]): End {
+function endOfTask(all: ChangePart[], events: LedgerEvent[]): End {
+  // Only a change the code host showed counts: one that only a session's own event names keeps nothing open (#51).
+  const shown = new Set(events.filter((e) => e.change !== undefined && observed(e)).map((e) => e.change));
+  const parts = all.filter((p) => shown.has(p.change));
   if (parts.length === 0 || parts.some((p) => p.end.state === "open")) return { state: "open" };
-  let last: ChangePart | undefined;
-  for (const p of parts) {
-    const e = p.end;
-    if (e.state !== "open" && (last === undefined || Date.parse(e.time) >= Date.parse((last.end as { time: string }).time))) last = p;
-  }
-  const e = last!.end as Exclude<End, { state: "open" }>;
-  const merged = parts.some((p) => p.end.state === "merged");
-  return defined({ state: merged ? ("merged" as const) : ("closed" as const), time: e.time, actor: e.actor, change: parts.length > 1 ? last!.change : undefined });
+  const ends = parts.map((p) => ({ change: p.change, end: p.end as Exclude<End, { state: "open" }> }));
+  const latest = Math.max(...ends.map((x) => Date.parse(x.end.time)));
+  const last = ends.filter((x) => Date.parse(x.end.time) === latest);
+  const state = ends.some((x) => x.end.state === "merged") ? ("merged" as const) : ("closed" as const);
+  const chosen = last.at(-1)!;
+  // The actor is given only when every last end is of the kind the state says.
+  const actor = last.every((x) => x.end.state === state) ? chosen.end.actor : undefined;
+  return defined({ state, time: chosen.end.time, actor, change: parts.length > 1 ? chosen.change : undefined });
 }
 
 /**
