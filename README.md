@@ -189,7 +189,7 @@ node /path/to/handover-ledger/src/cli/howl.ts emit "$result" --change "$CHANGE" 
 | A comment on a change | `review.commented` when its first line matches `review_comment_pattern`, else `change.commented` |
 | A change merged | `change.merged` |
 
-`actor` is always the one who did it. On `task.assigned` that is the one who gave the task, and `to` is the one who got it; an account that no longer exists is left out and the event says `account_removed`. On `task.unassigned` the actor took the task back and `to` is the one who had it. Where `to` is an agent whose name differs from its account, the account is kept in `data.to_account`. A `task.assigned` written before `to` existed has the one who got the task as `actor`, and is read as it was.
+`actor` is always the one who did it. On `task.assigned` that is the one who gave the task, and `to` is the one who got it; an account that no longer exists is left out, and the event says `account_removed` of the actor and `to_account_removed` of the one in `to`. `to` is allowed on these two types only. On `task.unassigned` the actor took the task back and `to` is the one who had it. `howl show` lists every giving and marks the ones that were taken back. Where `to` is an agent whose name differs from its account, the account is kept in `data.to_account`. A `task.assigned` written before `to` existed has the one who got the task as `actor`, and is read as it was.
 
 ```sh
 cd the/observed/repository
@@ -248,6 +248,10 @@ The code host kept in local files (`host: local`) takes its lasting id from `rep
 The first round reads the whole history of the repository: on a repository with hundreds of issues and pull requests it takes minutes.
 
 **Known limit:** when the repository belongs to a person's account and not to an organisation, `repo`, and the ids of a ledger from before the lasting ids, hold that account's name. It names the repository, not who did what.
+
+**Known limit:** the observer reads the closing of a task or a change from the host's state now, and a reopening from its events. A change closed and opened again between two rounds is recorded as opened again with no closing before it. And the time a change lay closed counts as work in the summary of `howl show`, not as waiting.
+
+**Known limit:** the GitHub adapter does not yet read which review a dismissal dismissed, or what that review was, because the fields have not been checked against the host. A dismissal is recorded with `data.review_unseen: true`, and `howl show` says that a review not in the ledger was dismissed. A review that is dismissed stays in the ledger as the review it was, marked as dismissed, only where the host names it (the local host does).
 
 ## One process: howl up
 

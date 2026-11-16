@@ -77,7 +77,7 @@ export interface LedgerEvent {
     id: string;
   };
   /**
-   * The team member it is about, when that is not the one who did it. On task.assigned: the one who got the task. On task.unassigned: the one it was taken from.
+   * Only on task.assigned and task.unassigned: the team member the event is about, when that is not the one who did it. On task.assigned: the one who got the task. On task.unassigned: the one it was taken from.
    */
   to?: {
     kind: "person" | "agent";

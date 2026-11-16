@@ -357,8 +357,17 @@ export class Observer {
     for (const r of change.reopenings ?? []) {
       found.push(this.event(`change:${n}:reopened:${r.id}`, "change.reopened", r.at, r.by, of(head), seen));
     }
+    // The review that was dismissed is a review that happened. One the host no longer lists is written from what the
+    // dismissal names of it, before the dismissal; where the host names none the dismissal says no review is tied to it.
+    const listed = new Set(change.reviews.map((r) => r.id));
     for (const d of change.dismissals ?? []) {
-      const data = { review: d.review, ...(d.state !== undefined ? { state: d.state } : {}) };
+      let unseen = d.review === undefined;
+      if (d.review !== undefined && !listed.has(d.review) && !this.known(`review:${d.review}`)) {
+        if (d.state !== undefined && d.reviewed !== undefined) {
+          found.push(this.event(`review:${d.review}`, `review.${d.state}`, d.reviewed.at, d.reviewed.by, of(d.reviewed.sha ?? head), seen));
+        } else unseen = true;
+      }
+      const data = { ...(d.review !== undefined ? { review: d.review } : {}), ...(d.state !== undefined ? { state: d.state } : {}), ...(unseen ? { review_unseen: true } : {}) };
       found.push(this.event(`review:dismissed:${d.id}`, "review.dismissed", d.at, d.by, { ...of(head), data }, seen));
     }
     // #28: a comment is a review only when the project's pattern says so. The key is the one comments had as
@@ -392,13 +401,13 @@ export class Observer {
     seen: string,
     to?: Account,
   ): LedgerEvent {
-    // #48: an account that is gone names no one, and the event says so, so it is not taken for an event nobody did. Of `actor` or
-    // of `to`: the one that is left out is the one that is gone (`assignee` in src/read reads it).
+    // #48: an account that is gone names no one, and the event says so, so it is not taken for an event nobody did:
+    // `account_removed` of the actor, `to_account_removed` of `to` (`accountsGone` in src/read reads them).
     const gone = by !== undefined && "removed" in by;
     // #46: an agent that has a name other than its account keeps the account in data, as it is no person's.
     const named = by && !gone ? this.names.get(by.login.toLowerCase()) : undefined;
     const account = by && !gone && named !== undefined && named !== by.login ? { account: by.login } : {};
-    // #45: the same of `to`: its account in `to_account`. A `to` that is gone is left out and says `account_removed`, as an actor does.
+    // #45: the same of `to`: its account in `to_account`. A `to` that is gone is left out and says `to_account_removed`.
     const toGone = to !== undefined && "removed" in to;
     const toNamed = to && !toGone ? this.names.get(to.login.toLowerCase()) : undefined;
     const toAccount = to && !toGone && toNamed !== undefined && toNamed !== to.login ? { to_account: to.login } : {};
@@ -414,7 +423,7 @@ export class Observer {
         to: to && !toGone ? this.actor(to) : undefined,
         repo: this.host.repository,
         ...fields,
-        data: { ...(fields.data ?? {}), ...account, ...toAccount, ...(gone || toGone ? { account_removed: true } : {}), seen },
+        data: { ...(fields.data ?? {}), ...account, ...toAccount, ...(gone ? { account_removed: true } : {}), ...(toGone ? { to_account_removed: true } : {}), seen },
       }),
     ) as LedgerEvent;
   }

@@ -130,20 +130,9 @@ export class GitHub implements CodeHost {
         return [defined({ id: String(r.id), by: account(r.user), state, at: r.submitted_at, sha: r.commit_id ?? undefined })];
       }),
       reopenings: some(events.filter((e) => e.event === "reopened").map((e) => defined({ id: String(e.id), by: doer(e), at: e.created_at }))),
-      dismissals: some(
-        events
-          .filter((e) => e.event === "review_dismissed" && e.dismissed_review?.review_id !== undefined)
-          .map((e) =>
-            defined({
-              id: String(e.id),
-              review: String(e.dismissed_review.review_id),
-              // The text of the dismissal is never read.
-              state: REVIEW_STATES[String(e.dismissed_review.state).toUpperCase()],
-              by: doer(e),
-              at: e.created_at,
-            }),
-          ),
-      ),
+      // #45: only what is known of the answer: that a review was dismissed, when and by whom. The fields that would name the
+      // review and what it was are not read until a token has shown what the host gives (the dismissal then says no review is tied to it).
+      dismissals: some(events.filter((e) => e.event === "review_dismissed").map((e) => defined({ id: String(e.id), by: doer(e), at: e.created_at }))),
       comments: (Array.isArray(comments) ? comments : [])
         .filter((c) => c && c.id !== undefined && c.user && c.created_at)
         // The text is tested here and never kept: only whether it counts as a review.

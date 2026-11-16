@@ -48,17 +48,26 @@ export interface Reopening {
   at: string;
 }
 
-/** #45: a formal review that was dismissed. Its text is never kept. */
+/**
+ * #45: a formal review that was dismissed. Its text is never kept. What the host says of the review it dismissed
+ * differs: a host that names none gives none of `review`, `state` and `reviewed`, and the dismissal then says that no
+ * review is tied to it.
+ */
 export interface Dismissal {
   /** The host's own id of the dismissal. */
   id: string;
-  /** The host's id of the review that was dismissed. */
-  review: string;
+  /** The host's id of the review that was dismissed, when the host says. */
+  review?: string;
   /** What the review was, when the host says. */
   state?: "approved" | "changes_requested" | "commented";
   /** The one who dismissed it, when the host says. */
   by?: Account;
   at: string;
+  /**
+   * The review itself, for one the host no longer lists among its reviews, when the host names it in the dismissal:
+   * with `state`, enough to write the review that was dismissed.
+   */
+  reviewed?: { by?: Account; at: string; sha?: string };
 }
 
 export interface Task {

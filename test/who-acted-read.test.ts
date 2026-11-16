@@ -54,18 +54,24 @@ test("two old givings of one task are both in the hand-over, as before", () => {
   assert.deepEqual(shown.handover.map((h) => h.actor), [agent, second]);
 });
 
-test("a task given, taken back and given to another: the hand-over is the last giving; the taking back is shown", () => {
+test("a task given, taken back and given to another: every giving is shown, the first marked as taken back, and the taking back", () => {
   const shown = ask([
     observed("task.assigned", 1, { task: "40", actor: other, to: agent }),
     observed("task.unassigned", 2, { task: "40", actor: other, to: agent }),
     observed("task.assigned", 3, { task: "40", actor: other, to: second }),
   ]);
-  assert.deepEqual(shown.handover, [{ time: at(3), actor: second, by: other, kind: "observed" }]);
+  assert.deepEqual(shown.handover, [
+    { time: at(1), actor: agent, by: other, kind: "observed", takenBack: { time: at(2), by: other, kind: "observed" } },
+    { time: at(3), actor: second, by: other, kind: "observed" },
+  ]);
   assert.deepEqual(shown.takenBack, [{ time: at(2), actor: agent, by: other, kind: "observed" }]);
   const text = render(shown, { utc: true });
-  assert.match(text, /given to agent-2 by person-0b0b0b0b/);
-  assert.match(text, /taken from agent-1 by person-0b0b0b0b/);
-  assert.doesNotMatch(text, /given to agent-1/);
+  const given = text.split("\n").filter((l) => /given to|taken from/.test(l));
+  assert.equal(given.length, 3, text);
+  assert.match(given[0]!, /given to agent-1 by person-0b0b0b0b/);
+  assert.match(given[1]!, /taken from agent-1 by person-0b0b0b0b/);
+  assert.match(given[2]!, /given to agent-2 by person-0b0b0b0b/);
+  assert.doesNotMatch(text, /given to no one now/);
   // The summary is measured from the first giving, whether or not it was taken back, as before this step.
   assert.equal(shown.summary.from, at(1));
 });
@@ -133,40 +139,62 @@ test("a round whose change was closed, reopened and merged says what followed, i
   assert.match(plain, /; followed by the merge\n/);
 });
 
-test("a task taken back from the one who had it and given to the same again: it stands", () => {
+test("a task taken back from the one who had it and given to the same again: two givings, the first taken back", () => {
   const shown = ask([
     observed("task.assigned", 1, { task: "40", actor: other, to: agent }),
     observed("task.unassigned", 2, { task: "40", actor: other, to: agent }),
     observed("task.assigned", 3, { task: "40", actor: other, to: agent }),
   ]);
-  assert.deepEqual(shown.handover.map((h) => h.time), [at(3)]);
+  assert.deepEqual(shown.handover.map((h) => [h.time, h.takenBack?.time]), [[at(1), at(2)], [at(3), undefined]]);
+  assert.doesNotMatch(render(shown, { utc: true }), /given to no one now/);
 });
 
-test("taking back from one of two who have it leaves the other", () => {
+test("taking back from one of two who have it leaves the other: both givings shown, one taken back", () => {
   const shown = ask([
     observed("task.assigned", 1, { task: "40", actor: other, to: agent }),
     observed("task.assigned", 2, { task: "40", actor: other, to: second }),
     observed("task.unassigned", 3, { task: "40", actor: other, to: agent }),
   ]);
-  assert.deepEqual(shown.handover.map((h) => h.actor), [second]);
+  assert.deepEqual(shown.handover.map((h) => [h.actor, h.takenBack?.time]), [[agent, at(3)], [second, undefined]]);
 });
 
 test("an old giving is taken back by name: the actor of the old event is who had it", () => {
   const shown = ask([observed("task.assigned", 1, { task: "40", actor: agent }), observed("task.unassigned", 2, { task: "40", actor: other, to: agent })]);
-  assert.deepEqual(shown.handover, []);
+  assert.deepEqual(shown.handover, [{ time: at(1), actor: agent, kind: "observed", takenBack: { time: at(2), by: other, kind: "observed" } }]);
   assert.equal(shown.takenBack.length, 1);
+  assert.match(render(shown, { utc: true }), /given to no one now/);
 });
 
-test("a giving to an account that is gone is no one's: the giver is not named as the receiver", () => {
-  const shown = ask([observed("task.assigned", 1, { task: "40", actor: other, data: { account_removed: true } })]);
-  assert.deepEqual(shown.handover, [{ time: at(1), by: other, kind: "observed" }]);
-  assert.match(lineOf(render(shown, { utc: true }), "given to")!, /given to someone by person-0b0b0b0b$/);
+const text = (events: LedgerEvent[]) => render(ask(events), { utc: true });
+
+test("#48: given by someone to an account that is gone: the actor, no `to`, `to_account_removed`: the receiver is the one gone", () => {
+  const shown = ask([observed("task.assigned", 1, { task: "40", actor: other, data: { to_account_removed: true } })]);
+  assert.deepEqual(shown.handover, [{ time: at(1), by: other, kind: "observed", gone: ["to"] }]);
+  assert.match(lineOf(render(shown, { utc: true }), "given to")!, /given to someone \(account removed\) by person-0b0b0b0b$/);
 });
 
-test("an old giving to an account that is gone has no actor, and reads as before", () => {
+test("#48: given by an account that is gone: no actor, `to`, `account_removed`: the giver is the one gone", () => {
+  const shown = ask([observed("task.assigned", 1, { task: "40", to: agent, data: { account_removed: true } })]);
+  assert.deepEqual(shown.handover, [{ time: at(1), actor: agent, kind: "observed", gone: ["by"] }]);
+  assert.match(lineOf(render(shown, { utc: true }), "given to")!, /given to agent-1 by someone \(account removed\)$/);
+});
+
+test("#48: both gone: no actor, no `to`, both flags: both are said gone", () => {
+  const shown = ask([observed("task.assigned", 1, { task: "40", data: { account_removed: true, to_account_removed: true } })]);
+  assert.deepEqual(shown.handover, [{ time: at(1), kind: "observed", gone: ["to", "by"] }]);
+  assert.match(lineOf(render(shown, { utc: true }), "given to")!, /given to someone \(account removed\) by someone \(account removed\)$/);
+});
+
+test("#48: given to an account that is gone and the giver unsaid: no actor, no `to`, `to_account_removed` only", () => {
+  const shown = ask([observed("task.assigned", 1, { task: "40", data: { to_account_removed: true } })]);
+  assert.deepEqual(shown.handover, [{ time: at(1), kind: "observed", gone: ["to"] }]);
+  assert.match(lineOf(render(shown, { utc: true }), "given to")!, /given to someone \(account removed\)$/);
+});
+
+test("an old giving to an account that is gone has no actor and no `to` and `account_removed`: the receiver is gone, as before", () => {
   const shown = ask([observed("task.assigned", 1, { task: "40", data: { account_removed: true } })]);
-  assert.deepEqual(shown.handover, [{ time: at(1), kind: "observed" }]);
-  assert.match(lineOf(render(shown, { utc: true }), "given to")!, /given to someone$/);
+  assert.deepEqual(shown.handover, [{ time: at(1), kind: "observed", gone: ["to"] }]);
+  assert.match(lineOf(render(shown, { utc: true }), "given to")!, /given to someone \(account removed\)$/);
 });
 
 test("a claimed taking back is shown as a claim and takes nothing back", () => {
@@ -318,23 +346,59 @@ test("a claimed reopening is not counted in the figures", () => {
   assert.equal(keyFigures(events, T0 + 3600_000).open, 0);
 });
 
-test("a dismissed review is not a review: no round, no count, no handover, no unmatched person", () => {
+// A review that is dismissed (#45): a review that happened, marked as dismissed.
+
+const dismissal = (minute: number, review: string, extra: Record<string, unknown> = {}) =>
+  observed("review.dismissed", minute, { ...of("63"), actor: person, data: { review }, ...extra });
+const review = (type: string, minute: number, id: string, actor = other) => observed(type, minute, { ...of("63"), id: `github:1:review:${id}`, actor });
+
+test("a request for changes that is dismissed before the merge: the round shows it with its outcome, and as dismissed by whom; the counts are as before", () => {
   const events = [
     observed("task.opened", 0, { task: "40", actor: person }),
     observed("change.opened", 10, { ...of("63"), actor: agent }),
-    observed("review.approved", 20, { ...of("63"), actor: other }),
-    observed("review.dismissed", 25, { ...of("63"), actor: other, data: { review: "9" } }),
-    observed("change.merged", 40, { ...of("63"), actor: other }),
+    review("review.changes_requested", 20, "9"),
+    dismissal(25, "9"),
+    observed("change.merged", 40, { ...of("63"), actor: person }),
   ];
   const shown = ask(events);
   assert.equal(shown.reviews.length, 1);
-  assert.deepEqual(shown.reviews[0]!.reviews.map((r) => r.outcome), ["approved"]);
+  assert.deepEqual(shown.reviews[0]!.reviews.map((r) => [r.outcome, r.dismissed]), [["changes_requested", { time: at(25), actor: person }]]);
+  assert.match(render(shown, { utc: true }), /round 1: person-0b0b0b0b changes requested \(dismissed by person-0a0a0a0a at 2026-11-16T09:25:00Z\)/);
   assert.equal(shown.summary.reviewRounds, 1);
-  assert.equal(handovers(events.map((event) => ({ event }))).filter((h) => h.step !== "Review → merge").length, 1);
-  assert.equal(keyFigures(events, T0 + 3600_000).reviewRoundsMean, 1);
-  const alone = [events[1]!, observed("review.dismissed", 25, { ...of("63"), actor: other }), events[4]!];
+  const plain = events.filter((e) => e.type !== "review.dismissed");
+  assert.deepEqual(handovers(events.map((event) => ({ event }))), handovers(plain.map((event) => ({ event }))));
+  assert.equal(keyFigures(events, T0 + 3600_000).reviewRoundsMean, keyFigures(plain, T0 + 3600_000).reviewRoundsMean);
+  assert.equal(keyFigures(events, T0 + 3600_000).unattributed.count, keyFigures(plain, T0 + 3600_000).unattributed.count);
+});
+
+test("a dismissal is no review on its own: no round, and no matching to an agent", () => {
+  const alone = [observed("change.opened", 10, { ...of("63"), actor: agent }), dismissal(25, "9", { actor: other }), observed("change.merged", 40, { ...of("63"), actor: other })];
   assert.equal(handovers(alone.map((event) => ({ event }))).filter((h) => h.step !== "Review → merge").length, 0);
-  assert.equal(keyFigures(alone, T0 + 3600_000).unattributed.count, 0, "a dismissal through a person's account is not a review to be matched to an agent");
+  assert.equal(keyFigures(alone, T0 + 3600_000).unattributed.count, 0);
+  assert.equal(ask(alone).reviews.length, 0);
+});
+
+test("an approval that is dismissed: from then the summary counts waiting for review, not waiting for a person", () => {
+  const before = [
+    observed("change.opened", 10, { ...of("63"), actor: agent }),
+    review("review.approved", 20, "9"),
+    observed("change.merged", 40, { ...of("63"), actor: person }),
+  ];
+  const withDismissal = [before[0]!, before[1]!, dismissal(25, "9"), before[2]!];
+  const a = ask(before).summary.parts;
+  const b = ask(withDismissal).summary.parts;
+  assert.equal(a.person, 20 * 60);
+  assert.equal(a.review, 10 * 60);
+  assert.equal(b.person, 5 * 60, "waiting for a person until the dismissal");
+  assert.equal(b.review, 10 * 60 + 15 * 60, "and for review again from it");
+});
+
+test("a dismissal that names no review the ledger holds is said so", () => {
+  const unseen = observed("review.dismissed", 25, { ...of("63"), actor: person, data: { review_unseen: true } });
+  const shown = ask([observed("change.opened", 10, { ...of("63"), actor: agent }), unseen]);
+  assert.deepEqual(shown.unseenDismissals, [{ time: at(25), actor: person, change: "63" }]);
+  assert.deepEqual(shown.reviews, []);
+  assert.match(render(shown, { utc: true }), /a review that is not in the ledger was dismissed by person-0a0a0a0a/);
 });
 
 // The state, the filter and the lines.

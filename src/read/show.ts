@@ -22,7 +22,7 @@
 import { traceText, type HeadTrace } from "./trace-text.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
-import { assignee, giver } from "./assignee.ts";
+import { accountsGone, assignee, giver } from "./assignee.ts";
 import { claimOfHost, isReview, observed } from "./observed.ts";
 import { byTime } from "./order.ts";
 import { waitsFor } from "./wait.ts";
@@ -82,7 +82,8 @@ export interface ChangePart {
 export interface Round {
   /** #117: the change the round is of. A new head of one change ends no round of another. */
   change?: string;
-  reviews: { time: string; actor?: Actor; outcome: string; by?: string }[];
+  /** `dismissed`: #45: the review happened and was dismissed, when and by whom. */
+  reviews: { time: string; actor?: Actor; outcome: string; by?: string; dismissed?: { time: string; actor?: Actor } }[];
   /** The type of what came next: a new head, the merge, or none yet. */
   followedBy: string | null;
   /** #45: when the change was closed and then went on (opened again, closed again, merged): what came after, in the order it happened. */
@@ -91,9 +92,15 @@ export interface Round {
 
 export interface Giving {
   time: string;
+  /** The one who got the task (of a taking back: the one it was taken from); none when that account is gone. */
   actor?: Actor;
+  /** The one who gave it (took it back), where the event says. */
   by?: Actor;
   kind: string;
+  /** #45: a giving that was taken back says so: when, and by whom. */
+  takenBack?: { time: string; by?: Actor; kind: string };
+  /** #48: which accounts no longer exist: `to` the one who got it, `by` the one who gave it. */
+  gone?: ("to" | "by")[];
 }
 
 /** `change`: #118: for a task of several changes, the change whose end it is, the last to end. */
@@ -127,10 +134,12 @@ export interface Shown {
   /** #117: the task's other changes, named and not shown. Empty when a task is asked for. */
   otherChanges: string[];
   events: LedgerEvent[];
-  /** The givings of the task that stand (#45): `actor` got it, `by` gave it where the event says; `kind` is observed or claimed. */
+  /** Every giving of the task that the code host showed, in the order of time (#45): `actor` got it, `by` gave it where the event says. One that was taken back says so. */
   handover: Giving[];
-  /** #45: what was taken back: `actor` is the one it was taken from, `by` the one who took it back. */
+  /** #45: every taking back, in the order of time: `actor` is the one it was taken from, `by` the one who took it back. */
   takenBack: Giving[];
+  /** #45: dismissals that name no review the ledger holds: a review not seen before was dismissed. */
+  unseenDismissals: { time: string; actor?: Actor; change?: string }[];
   sessions: Session[];
   reviews: Round[];
   /** Claimed, not seen at the code host: shown, and counted nowhere (#51). */
@@ -194,8 +203,20 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
     changes: parts,
     otherChanges: asksChange ? [...linked].filter((c) => c !== asked.id) : [],
     events,
-    handover: given.standing.map((e) => defined({ time: e.time, actor: assignee(e), by: giver(e), kind: e.source.kind })),
-    takenBack: given.taken.map((e) => defined({ time: e.time, actor: assignee(e), by: e.actor, kind: e.source.kind })),
+    handover: given.all.map(({ event: e, takenBy }) =>
+      defined({
+        time: e.time,
+        actor: assignee(e),
+        by: giver(e),
+        kind: e.source.kind,
+        takenBack: takenBy ? defined({ time: takenBy.time, by: takenBy.actor, kind: takenBy.source.kind }) : undefined,
+        gone: goneOf(e),
+      }),
+    ),
+    takenBack: given.taken.map((e) => defined({ time: e.time, actor: assignee(e), by: e.actor, kind: e.source.kind, gone: goneOf(e) })),
+    unseenDismissals: events
+      .filter((e) => e.type === "review.dismissed" && observed(e) && (e.data as { review_unseen?: unknown } | undefined)?.review_unseen === true)
+      .map((e) => defined({ time: e.time, actor: e.actor, change: e.change })),
     sessions: sessionParts(events, activityFrom, found.whole),
     reviews: rounds(events, acting),
     claimed: events.filter(claimOfHost).map((e) => defined({ time: e.time, type: e.type, task: e.task, change: e.change, actor: e.actor })),
@@ -205,13 +226,20 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   };
 }
 
+/** #48: which of a giving's accounts no longer exist; none when both are there. */
+function goneOf(e: LedgerEvent): ("to" | "by")[] | undefined {
+  const g = accountsGone(e);
+  const list = [...(g.to ? (["to"] as const) : []), ...(g.by ? (["by"] as const) : [])];
+  return list.length > 0 ? [...list] : undefined;
+}
+
 /**
- * #45: the givings of a task that stand, and what was taken back, in the order of time. A taking back ends the
- * latest giving to the same team member that is still standing. Two givings to two members stand together, as before.
+ * #45: every giving of a task, in the order of time, and every taking back. A taking back marks the latest giving to
+ * the same team member that is not taken back yet. Two givings to two members are both there, as before.
  * Observed events only: a claim of a giving or a taking back is a claim (#51).
  */
-function givings(events: LedgerEvent[]): { standing: LedgerEvent[]; taken: LedgerEvent[] } {
-  const standing: LedgerEvent[] = [];
+function givings(events: LedgerEvent[]): { all: { event: LedgerEvent; takenBy?: LedgerEvent }[]; taken: LedgerEvent[] } {
+  const all: { event: LedgerEvent; takenBy?: LedgerEvent }[] = [];
   const taken: LedgerEvent[] = [];
   const same = (a: LedgerEvent, b: LedgerEvent) => {
     const x = assignee(a);
@@ -219,14 +247,14 @@ function givings(events: LedgerEvent[]): { standing: LedgerEvent[]; taken: Ledge
     return x === undefined || y === undefined ? x === y : x.kind === y.kind && x.id === y.id;
   };
   for (const e of inOrder(events.filter(observed))) {
-    if (e.type === "task.assigned") standing.push(e);
+    if (e.type === "task.assigned") all.push({ event: e });
     else if (e.type === "task.unassigned") {
       taken.push(e);
-      const i = standing.findLastIndex((g) => same(g, e));
-      if (i >= 0) standing.splice(i, 1);
+      const i = all.findLastIndex((g) => g.takenBy === undefined && same(g.event, e));
+      if (i >= 0) all[i]!.takenBy = e;
     }
   }
-  return { standing, taken };
+  return { all, taken };
 }
 
 interface Found {
@@ -523,6 +551,7 @@ function roundsOf(events: LedgerEvent[], acting: Map<string, Acting>, change: st
   let current: Round | null = null;
   let newHead = false;
   let lastReview = -1;
+  const entries = new Map<string, Round["reviews"][number]>();
   for (const [i, e] of events.entries()) {
     if (isReview(e)) {
       if (current === null || newHead) {
@@ -530,7 +559,10 @@ function roundsOf(events: LedgerEvent[], acting: Map<string, Acting>, change: st
         found.push(current);
         newHead = false;
       }
-      current.reviews.push(defined({ time: e.time, actor: e.actor, outcome: e.type.slice("review.".length), by: acting.get(e.id)?.agent }));
+      const entry = defined({ time: e.time, actor: e.actor, outcome: e.type.slice("review.".length), by: acting.get(e.id)?.agent });
+      current.reviews.push(entry);
+      const key = reviewIdOf(e);
+      if (key !== undefined) entries.set(key, entry);
       lastReview = i;
     } else if (e.type === "change.updated" && current !== null) {
       newHead = true;
@@ -542,6 +574,12 @@ function roundsOf(events: LedgerEvent[], acting: Map<string, Acting>, change: st
         if (after.length > 0) current.then = after.map((x) => x.type);
       }
     }
+  }
+  // #45: a review that was dismissed is a review that happened, marked with when and by whom. The first dismissal counts.
+  for (const e of events) {
+    const id = e.type === "review.dismissed" ? (e.data as { review?: unknown } | undefined)?.review : undefined;
+    const entry = typeof id === "string" ? entries.get(id) : undefined;
+    if (entry !== undefined && entry.dismissed === undefined) entry.dismissed = defined({ time: e.time, actor: e.actor });
   }
   return found;
 }
@@ -559,6 +597,11 @@ function endedBy(own: LedgerEvent[]): LedgerEvent | undefined {
     else if (e.type === "change.reopened") closed = undefined;
   }
   return merged ?? closed;
+}
+
+/** The host's id of a review, from the id of its event: `github:1:review:77` is 77. Not of a comment (`review:c5`) or a dismissal (`review:dismissed:5`). */
+function reviewIdOf(e: LedgerEvent): string | undefined {
+  return /(?:^|:)review:([^:]+)$/.exec(e.id)?.[1];
 }
 
 /** The end of one change as the code host showed it: see `endedBy`. */
@@ -674,6 +717,13 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
       case "review.approved":
         change = "approved";
         break;
+      case "review.dismissed": {
+        // #45: an approval that was dismissed is no longer what the change waits on.
+        const id = (e.data as { review?: unknown; state?: unknown } | undefined)?.review;
+        const was = events.find((x) => isReview(x) && typeof id === "string" && reviewIdOf(x) === id)?.type ?? `review.${String((e.data as { state?: unknown } | undefined)?.state)}`;
+        if (was === "review.approved" && change === "approved") change = "review";
+        break;
+      }
       case "change.merged":
       case "change.closed":
         change = "done";
@@ -712,15 +762,28 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   out.push("", "Hand-over");
   const opened = shown.events.find((e) => e.type === "task.opened" && e.task === shown.task && observed(e));
   if (opened) out.push(`  ${t(opened.time)}  ${opened.source.kind.padEnd(8)}  task opened by ${who(opened.actor)}`);
-  // #45: the givings that stand, and what was taken back, in the order of time.
-  const byWho = (g: Giving) => (g.by === undefined ? "" : ` by ${who(g.by)}`);
-  const given = [
-    ...shown.handover.map((g) => ({ g, text: `given to ${who(g.actor)}${byWho(g)}` })),
-    ...shown.takenBack.map((g) => ({ g, text: `taken from ${who(g.actor)}${byWho(g)}` })),
-  ].sort((a, b) => Date.parse(a.g.time) - Date.parse(b.g.time));
-  if (given.length === 0) out.push("  given to no one in the ledger");
-  for (const { g, text } of given) out.push(`  ${t(g.time)}  ${g.kind.padEnd(8)}  ${text}`);
-  if (shown.handover.length === 0 && given.length > 0) out.push("  given to no one now");
+  // #45: every giving, and every taking back, in the order of time.
+  const gone = " (account removed)";
+  const name = (a: Actor | undefined, isGone: boolean) => `${who(a)}${isGone ? gone : ""}`;
+  const text = (verb: string, g: Giving) => {
+    const toGone = g.gone?.includes("to") ?? false;
+    const byGone = g.gone?.includes("by") ?? false;
+    return `${verb} ${name(g.actor, toGone)}${g.by !== undefined || byGone ? ` by ${name(g.by, byGone)}` : ""}`;
+  };
+  const sameMember = (a?: Actor, b?: Actor) => (a === undefined || b === undefined ? a === b : a.kind === b.kind && a.id === b.id);
+  const lines: { time: string; rank: number; kind: string; text: string }[] = [];
+  for (const g of shown.handover) {
+    lines.push({ time: g.time, rank: 1, kind: g.kind, text: text("given to", g) });
+    // The taking back of a giving stands after it; at the moment of the giving itself, too.
+    if (g.takenBack) lines.push({ time: g.takenBack.time, rank: g.takenBack.time === g.time ? 2 : 0, kind: g.takenBack.kind, text: text("taken from", { time: g.takenBack.time, actor: g.actor, by: g.takenBack.by, kind: g.takenBack.kind, gone: g.gone?.filter((x) => x === "to") }) });
+  }
+  for (const tb of shown.takenBack) {
+    if (!shown.handover.some((g) => g.takenBack?.time === tb.time && sameMember(g.actor, tb.actor))) lines.push({ time: tb.time, rank: 0, kind: tb.kind, text: text("taken from", tb) });
+  }
+  lines.sort((a, b) => Date.parse(a.time) - Date.parse(b.time) || a.rank - b.rank);
+  if (lines.length === 0) out.push("  given to no one in the ledger");
+  for (const l of lines) out.push(`  ${t(l.time)}  ${l.kind.padEnd(8)}  ${l.text}`);
+  if (lines.length > 0 && shown.handover.every((g) => g.takenBack !== undefined)) out.push("  given to no one now");
   // #117: the task's closing is the task's, not the change's end: it stands with the task's opening and giving.
   // #45: with its reopenings, in the order of time; with none, the last closing alone, as before.
   const ofTask = (type: string) => shown.events.filter((e) => e.type === type && e.task === shown.task && observed(e));
@@ -772,11 +835,15 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   for (const r of shown.reviews) {
     const key = r.change ?? "";
     counted.set(key, (counted.get(key) ?? 0) + 1);
-    const reviews = roundText(r.reviews);
+    const reviews = roundText(r.reviews, t);
     const next = r.followedBy === null ? "" : `; followed by ${[r.followedBy, ...(r.then ?? [])].map((t) => FOLLOWED[t] ?? t).join(", then ")}`;
     // #117: where the view has more than one change, a round says which change it is of.
     const of = several && r.change !== undefined ? ` of change ${r.change}` : "";
     out.push(`  round ${counted.get(key)}${of}: ${reviews}${next}`);
+  }
+
+  for (const u of shown.unseenDismissals) {
+    out.push(`  ${t(u.time)}  observed  a review that is not in the ledger was dismissed by ${who(u.actor)}${u.change !== undefined && several ? ` on change ${u.change}` : ""}`);
   }
 
   if (shown.claimed.length > 0) {

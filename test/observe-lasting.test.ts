@@ -455,7 +455,9 @@ test("#48: two reviews by two removed accounts have no actor, say account_remove
   assert.ok(byRemoved.length >= 8, "the events of the removed accounts are there");
   for (const e of byRemoved) {
     assert.equal(e.actor, undefined, `${e.type} has no actor`);
-    assert.equal(e.data.account_removed, true, `${e.type} says the account is removed`);
+    // #45: a giving to an account that is gone says it of the receiver (`to_account_removed`), the host naming no giver.
+    const flag = e.type === "task.assigned" ? "to_account_removed" : "account_removed";
+    assert.equal(e.data[flag], true, `${e.type} says the account is removed`);
   }
   assert.equal(all.filter((e) => e.type === "review.approved").length, 2);
   // Nobody is named: no pseudonym was made up for them, and no "ghost".

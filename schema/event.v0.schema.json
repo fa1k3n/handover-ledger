@@ -108,7 +108,7 @@
       }
     },
     "to": {
-      "description": "The team member it is about, when that is not the one who did it. On task.assigned: the one who got the task. On task.unassigned: the one it was taken from.",
+      "description": "Only on task.assigned and task.unassigned: the team member the event is about, when that is not the one who did it. On task.assigned: the one who got the task. On task.unassigned: the one it was taken from.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -236,6 +236,24 @@
               "trial"
             ]
           }
+        }
+      }
+    }
+  },
+  "not": {
+    "description": "`to` stands only where it means something: on a task given or taken back.",
+    "type": "object",
+    "required": [
+      "to"
+    ],
+    "properties": {
+      "to": true,
+      "type": {
+        "not": {
+          "enum": [
+            "task.assigned",
+            "task.unassigned"
+          ]
         }
       }
     }

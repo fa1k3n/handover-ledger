@@ -113,7 +113,7 @@ An own schema; a CloudEvents envelope is an option. First draft of the fields. T
 | `type` | What happened (below) | yes |
 | `source` | The adapter that read it, and whether it was observed or claimed | yes |
 | `actor` | The team member who did it: person or agent, with its identity | yes |
-| `to` | The team member it is about, when that is not the one who did it: who got a task, or who it was taken from (#45) | yes |
+| `to` | Only on a task given or taken back: who got the task, or who it was taken from (#45) | yes |
 | `model`, `effort` | For an agent: the model ID and effort of the session | yes |
 | `prompt` | For an agent: the role prompt, as `file` and `sha256` of its content | yes |
 | `rules` | Version of the rules in force (the commit they ran from) | waits for the rules |
@@ -124,7 +124,7 @@ An own schema; a CloudEvents envelope is an option. First draft of the fields. T
 
 The schema also holds what the first steps added: `id`, `project`, `session`, `role`, `repo`, `branch`, `sig` and `data`.
 
-Types, in the first draft: task assigned, change opened or updated, tests written, checks passed or failed, review approved or changes requested, finding fixed, dismissed or left open, change merged, level changed, rule broken, escalated to a person. In the schema today are those that something writes (`actor` is always the one who did it: on a task given or taken back, the one who gave it or took it back, and `to` the one who got it or had it): a task opened, assigned, taken back, closed and opened again; a change opened, updated, commented, merged, closed and opened again; checks passed or failed; a review that approved, asked for changes, commented or was dismissed; and what the steps since added (the ledger, a session, a tool call, a wait, a key, the start of observing, a change to `.howl/`). Tests written, the findings, level changed, rule broken and escalated wait for their steps.
+Types, in the first draft: task assigned, change opened or updated, tests written, checks passed or failed, review approved or changes requested, finding fixed, dismissed or left open, change merged, level changed, rule broken, escalated to a person. In the schema today are those that something writes (`actor` is always the one who did it: on a task given or taken back, the one who gave it or took it back, and `to` the one who got it or had it; a review that is dismissed is still the review it was): a task opened, assigned, taken back, closed and opened again; a change opened, updated, commented, merged, closed and opened again; checks passed or failed; a review that approved, asked for changes, commented or was dismissed; and what the steps since added (the ledger, a session, a tool call, a wait, a key, the start of observing, a change to `.howl/`). Tests written, the findings, level changed, rule broken and escalated wait for their steps.
 
 An event does not know its place in a ledger. A line of the ledger holds `prev`, the SHA-256 of the line before; `hash`, the SHA-256 of the event in its fixed form; and the event itself, in that fixed form. The fixed form is the JSON Canonicalization Scheme (RFC 8785), so that the Python package gives the same bytes as the engine. The same event can then wait in an inbox, and later be kept in more than one ledger.
 

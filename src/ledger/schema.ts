@@ -44,6 +44,9 @@ function faults(validate: ValidateFunction, value: unknown, what: string): strin
           return `${at(e.params.additionalProperty)}: not a field of ${what}`;
         case "required":
           return `${at(e.params.missingProperty)}: missing`;
+        case "not":
+          // The only `not` of the schema: `to` on a type that is not a task given or taken back.
+          return e.schemaPath === "#/not" ? "to: only on task.assigned and task.unassigned" : `${where || what}: ${e.message}`;
         case "enum":
           return `${where}: must be one of ${e.params.allowedValues.join(", ")}`;
         default:
