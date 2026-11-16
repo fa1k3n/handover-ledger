@@ -154,11 +154,8 @@ export function verifyBundle(bytes: Buffer, signers?: string): { ok: boolean; me
       if (chain.head !== manifest.head) fail(`${LEDGER_FILE}: its head is not the manifest's`);
       // The trial is read from the ledger's first line, which the chain covers; the manifest is covered by no hash (#33).
       trial = chain.trial;
-      // A manifest made before #33 has no trial and no inferred.json; it holds, and the trial shows from the ledger.
-      // One that lists inferred.json is of this step or later, and must say what the ledger says.
-      const modern = "inferred.json" in manifest.files;
-      const said = manifest.trial ?? (modern ? false : chain.trial);
-      if (said !== chain.trial) fail("manifest.json: trial does not say what the ledger says");
+      // A manifest with no trial holds: nothing is hidden, the line comes from the ledger. One that has it must agree.
+      if (manifest.trial !== undefined && manifest.trial !== chain.trial) fail("manifest.json: trial does not say what the ledger says");
     }
     const selection = json<{ lines: number[] }>("selection.json", files.get("selection.json"), { lines: [] });
     const count = chain.ok ? chain.lines : 0;

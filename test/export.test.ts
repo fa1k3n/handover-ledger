@@ -178,15 +178,20 @@ function withManifest(files: Map<string, Buffer>, change: (m: Record<string, unk
   return file;
 }
 
-test("#33: a manifest that has lost trial, or says false, while the ledger says trial: the bundle does not hold", () => {
+test("#33: a manifest that says trial false while the ledger says trial does not hold, and the trial line is printed", () => {
   const { files } = exportOf(writeStory(), ["--change", "30"]);
-  for (const edit of [(m: Record<string, unknown>) => delete m.trial, (m: Record<string, unknown>) => (m.trial = false)]) {
-    const r = howl(["verify", "--bundle", withManifest(files, edit)]);
-    assert.equal(r.status, 1, r.stdout);
-    assert.match(r.stdout, /the bundle does not hold/);
-    assert.match(r.stdout, /manifest\.json: trial does not say what the ledger says/);
-    assert.match(r.stdout, /a trial: it does not count as evidence/);
-  }
+  const r = howl(["verify", "--bundle", withManifest(files, (m) => (m.trial = false))]);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /the bundle does not hold/);
+  assert.match(r.stdout, /manifest\.json: trial does not say what the ledger says/);
+  assert.match(r.stdout, /a trial: it does not count as evidence/);
+});
+
+test("#33: a manifest that lost trial holds, and the trial line is printed from the ledger", () => {
+  const { files } = exportOf(writeStory(), ["--change", "30"]);
+  const r = howl(["verify", "--bundle", withManifest(files, (m) => delete m.trial)]);
+  assert.equal(r.status, 0, r.stdout);
+  assert.equal(r.stdout.trim().split("\n").at(-1), "a trial: it does not count as evidence");
 });
 
 test("#33: a bundle made before this step, with no trial in its manifest, holds and says trial from its ledger", () => {
