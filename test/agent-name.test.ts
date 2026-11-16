@@ -110,6 +110,8 @@ for (const bad of [
   "\n  - agent-1=agent-1-bot\n- agent-2",
   "[agent-1=agent-1-bot]\nagents: [agent-2]",
   "\n  - agent-1=agent-1-bot\nagents:\n  - agent-2",
+  "[agent-1=agent-1-bot]\n  - agent-2",
+  "agent-1=agent-1-bot\n  - agent-2",
   "[reviewer[bot]=x]",
   "[rev[bot]iewer]",
 ]) {
@@ -206,6 +208,9 @@ test("#46: the lines of agents are named when one is no item, an item is not ind
   assert.match(agentLineFaults("agents:\n  - a\n  b\n")[0]!, /line 3.*no item/);
   assert.match(agentLineFaults("agents:\n  - a\n- b\n")[0]!, /line 3.*not indented/);
   assert.match(agentLineFaults("agents: [a]\nagents: [b]\n")[0]!, /line 2.*second/);
+  assert.match(agentLineFaults("agents: [a]\n  - b\n")[0]!, /line 2.*value on its own line/);
+  assert.match(agentLineFaults("agents: a\n  - b\n")[0]!, /line 2/);
+  assert.deepEqual(agentLineFaults("agents: [a]\n\n# note\n  # note\nlocal: x\n  nested: y\n"), []);
   assert.deepEqual(agentLineFaults("agents:\n  - a   # c\n\n  # note\n  - b\nlocal: x\n    indented: but not under agents\n"), []);
 });
 

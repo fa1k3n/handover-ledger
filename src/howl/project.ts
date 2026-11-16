@@ -94,22 +94,28 @@ function read(root: string, text: string): Project | null {
 export function agentLineFaults(text: string): string[] {
   const faults: string[] = [];
   let keys = 0;
-  let under = false;
+  let under: "none" | "items" | "valued" = "none";
   text.split(/\r?\n/).forEach((raw, i) => {
     const line = raw.replace(/(^|\s)#.*$/, "");
     const key = /^agents:(.*)$/.exec(line);
     if (key) {
       keys++;
       if (keys > 1) faults.push(`agents: line ${i + 1} is a second agents: key`);
-      under = key[1]!.trim() === "";
+      under = key[1]!.trim() === "" ? "items" : "valued";
       return;
     }
     if (line.trim() === "") return;
-    if (!under) return;
+    if (under === "none") return;
+    // An `agents:` that has its value on its own line has no items below it: an indented line there is passed over by the reader.
+    if (under === "valued") {
+      if (/^\s/.test(line)) faults.push(`agents: line ${i + 1}, "${raw.trim()}", is indented under an agents: that has a value on its own line`);
+      else under = "none";
+      return;
+    }
     if (/^\s+-\s+\S/.test(line)) return;
     if (/^-(\s|$)/.test(line)) faults.push(`agents: line ${i + 1}, "${raw.trim()}", is an item that is not indented`);
     else if (/^\s/.test(line)) faults.push(`agents: line ${i + 1}, "${raw.trim()}", is no item (no "- " in front)`);
-    else under = false;
+    else under = "none";
   });
   return faults;
 }
