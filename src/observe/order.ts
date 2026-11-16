@@ -17,6 +17,8 @@
 const ORDER: string[][] = [
   ["task.opened"],
   ["task.assigned"],
+  // Taken back after it was given.
+  ["task.unassigned"],
   ["change.opened"],
   ["change.updated"],
   // What a head holds is told with the head, before what is done to it.
@@ -28,9 +30,14 @@ const ORDER: string[][] = [
   ["change.commented"],
   // The reviews of one moment come by the host's own ids, whatever their outcome: the host numbered them as they came.
   ["review.commented", "review.changes_requested", "review.approved"],
+  // A review is dismissed after it was handed in.
+  ["review.dismissed"],
   ["change.merged"],
   ["change.closed"],
+  // Opened again after it was closed.
+  ["change.reopened"],
   ["task.closed"],
+  ["task.reopened"],
 ];
 
 function place(type: string): number {

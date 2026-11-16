@@ -17,3 +17,8 @@ export function observed(event: LedgerEvent): boolean {
 export function claimOfHost(event: LedgerEvent): boolean {
   return !observed(event) && /^(task|change|review|trace)\./.test(event.type);
 }
+
+/** A review that was handed in: not the dismissal of one (`review.dismissed`, #45), which is no review. */
+export function isReview(event: { type: string }): boolean {
+  return event.type.startsWith("review.") && event.type !== "review.dismissed";
+}

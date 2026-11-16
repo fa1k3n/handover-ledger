@@ -22,7 +22,8 @@
 import { traceText, type HeadTrace } from "./trace-text.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
-import { claimOfHost, observed } from "./observed.ts";
+import { assignee, giver } from "./assignee.ts";
+import { claimOfHost, isReview, observed } from "./observed.ts";
 import { byTime } from "./order.ts";
 import { waitsFor } from "./wait.ts";
 import { roundText } from "./rounds.ts";
@@ -86,6 +87,13 @@ export interface Round {
   followedBy: string | null;
 }
 
+export interface Giving {
+  time: string;
+  actor?: Actor;
+  by?: Actor;
+  kind: string;
+}
+
 /** `change`: #118: for a task of several changes, the change whose end it is, the last to end. */
 export type End = { state: "merged" | "closed"; time: string; actor?: Actor; change?: string } | { state: "open" };
 
@@ -117,7 +125,10 @@ export interface Shown {
   /** #117: the task's other changes, named and not shown. Empty when a task is asked for. */
   otherChanges: string[];
   events: LedgerEvent[];
-  handover: { time: string; actor?: Actor; kind: string }[];
+  /** The givings of the task that stand (#45): `actor` got it, `by` gave it where the event says; `kind` is observed or claimed. */
+  handover: Giving[];
+  /** #45: what was taken back: `actor` is the one it was taken from, `by` the one who took it back. */
+  takenBack: Giving[];
   sessions: Session[];
   reviews: Round[];
   /** Claimed, not seen at the code host: shown, and counted nowhere (#51). */
@@ -174,15 +185,15 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   const parts = changeParts(events, changes, acting);
   // The end of a change that is asked for is its own; the end of a task is that of its last change (#118).
   const end = asksChange ? (parts[0]?.end ?? { state: "open" as const }) : endOfTask(parts, events);
+  const given = givings(events);
   return {
     task,
     asked: asksChange ? "change" : "task",
     changes: parts,
     otherChanges: asksChange ? [...linked].filter((c) => c !== asked.id) : [],
     events,
-    handover: events
-      .filter((e) => e.type === "task.assigned" && observed(e))
-      .map((e) => defined({ time: e.time, actor: e.actor, kind: e.source.kind })),
+    handover: given.standing.map((e) => defined({ time: e.time, actor: assignee(e), by: giver(e), kind: e.source.kind })),
+    takenBack: given.taken.map((e) => defined({ time: e.time, actor: assignee(e), by: e.actor, kind: e.source.kind })),
     sessions: sessionParts(events, activityFrom, found.whole),
     reviews: rounds(events, acting),
     claimed: events.filter(claimOfHost).map((e) => defined({ time: e.time, type: e.type, task: e.task, change: e.change, actor: e.actor })),
@@ -190,6 +201,30 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
     // The first change of a task is measured from the hand-over; a later one from its own first event.
     summary: summarise(events, end, fromHandover),
   };
+}
+
+/**
+ * #45: the givings of a task that stand, and what was taken back, in the order of time. A taking back ends the
+ * latest giving to the same team member that is still standing. Two givings to two members stand together, as before.
+ * Observed events only: a claim of a giving or a taking back is a claim (#51).
+ */
+function givings(events: LedgerEvent[]): { standing: LedgerEvent[]; taken: LedgerEvent[] } {
+  const standing: LedgerEvent[] = [];
+  const taken: LedgerEvent[] = [];
+  const same = (a: LedgerEvent, b: LedgerEvent) => {
+    const x = assignee(a);
+    const y = assignee(b);
+    return x === undefined || y === undefined ? x === y : x.kind === y.kind && x.id === y.id;
+  };
+  for (const e of inOrder(events.filter(observed))) {
+    if (e.type === "task.assigned") standing.push(e);
+    else if (e.type === "task.unassigned") {
+      taken.push(e);
+      const i = standing.findLastIndex((g) => same(g, e));
+      if (i >= 0) standing.splice(i, 1);
+    }
+  }
+  return { standing, taken };
 }
 
 interface Found {
@@ -287,18 +322,14 @@ function placer(given: LedgerEvent[]): (e: LedgerEvent) => string[] | null {
   // What the code host showed: the branch, the commits and the end of each change.
   const first = new Map<string, number>();
   const ended = new Map<string, number>();
-  const endedBy = new Map<string, "merged" | "closed">();
+  const ofChange = new Map<string, LedgerEvent[]>();
   const onBranch = new Map<string, string[]>();
   const bySha = new Map<string, string[]>();
   for (const e of all) {
     if (e.change === undefined || !observed(e)) continue;
     const t = Date.parse(e.time);
     if (!first.has(e.change)) first.set(e.change, t);
-    // The first merge, or else the last closing, as `endOfChange` has it.
-    if ((e.type === "change.merged" || e.type === "change.closed") && endedBy.get(e.change) !== "merged") {
-      ended.set(e.change, t);
-      endedBy.set(e.change, e.type === "change.merged" ? "merged" : "closed");
-    }
+    ofChange.set(e.change, [...(ofChange.get(e.change) ?? []), e]);
     if (e.branch) {
       const list = onBranch.get(e.branch) ?? [];
       if (!list.includes(e.change)) onBranch.set(e.branch, [...list, e.change]);
@@ -307,6 +338,11 @@ function placer(given: LedgerEvent[]): (e: LedgerEvent) => string[] | null {
       const list = bySha.get(e.sha) ?? [];
       if (!list.includes(e.change)) bySha.set(e.sha, [...list, e.change]);
     }
+  }
+  // The end of each change as `endOfChange` has it: a closing before a reopening ends nothing (#45).
+  for (const [change, own] of ofChange) {
+    const end = endedBy(own);
+    if (end !== undefined) ended.set(change, Date.parse(end.time));
   }
   const lives = new Map<string, { change: string; after: number; until: number }[]>();
   const livesOf = new Map<string, { after: number; until: number }[]>();
@@ -486,7 +522,7 @@ function roundsOf(events: LedgerEvent[], acting: Map<string, Acting>, change: st
   let newHead = false;
   let lastReview = -1;
   for (const [i, e] of events.entries()) {
-    if (e.type.startsWith("review.")) {
+    if (isReview(e)) {
       if (current === null || newHead) {
         current = defined({ change, reviews: [], followedBy: null });
         found.push(current);
@@ -504,13 +540,26 @@ function roundsOf(events: LedgerEvent[], acting: Map<string, Acting>, change: st
   return found;
 }
 
-/** The end of one change as the code host showed it: its first merge, or else its last closing. */
+/**
+ * The event that ends one change, as the code host showed it: its first merge, or else its last closing. A closing
+ * that a reopening follows ends nothing (#45), and a merge is never undone. In the order of time, not of the lines.
+ */
+function endedBy(own: LedgerEvent[]): LedgerEvent | undefined {
+  let merged: LedgerEvent | undefined;
+  let closed: LedgerEvent | undefined;
+  for (const e of inOrder(own.filter(observed))) {
+    if (e.type === "change.merged") merged ??= e;
+    else if (e.type === "change.closed") closed = e;
+    else if (e.type === "change.reopened") closed = undefined;
+  }
+  return merged ?? closed;
+}
+
+/** The end of one change as the code host showed it: see `endedBy`. */
 function endOfChange(own: LedgerEvent[]): End {
-  const merged = own.find((e) => e.type === "change.merged" && observed(e));
-  if (merged) return defined({ state: "merged" as const, time: merged.time, actor: merged.actor });
-  const closed = own.findLast((e) => e.type === "change.closed" && observed(e));
-  if (closed) return defined({ state: "closed" as const, time: closed.time, actor: closed.actor });
-  return { state: "open" };
+  const e = endedBy(own);
+  if (e === undefined) return { state: "open" };
+  return defined({ state: e.type === "change.merged" ? ("merged" as const) : ("closed" as const), time: e.time, actor: e.actor });
 }
 
 /**
@@ -552,7 +601,8 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
     const at = all[0]!.time;
     return { from: at, to: at, open: true, seconds: 0, parts: { work: 0, person: 0, instructions: 0, checks: 0, review: 0 }, reviewRounds: 0, actors: [] };
   }
-  const handover = events.find((e) => e.type === "task.assigned");
+  // #45: from the giving that stands; one that was taken back is no hand-over.
+  const handover = givings(events).standing[0];
   // #22: without a hand-over, from the first sign of work, not from when the task was opened (it may wait for days).
   const work = events.find((e) => e.type.startsWith("session.") || e.type.startsWith("change.") || e.type === "tool.used");
   // #117: a later change of a task is measured from its own first event. The hand-over is the task's
@@ -602,6 +652,10 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
       case "change.updated":
         change = e.sha && checked.has(e.sha) ? "checks" : "review";
         break;
+      case "change.reopened":
+        // Opened again: it waits for a review; the checks of its head were told before it was closed.
+        change = "review";
+        break;
       case "checks.passed":
         change = "review";
         break;
@@ -622,7 +676,10 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
   if (stop > at) parts[part()] += (stop - at) / 1000;
 
   const actors = new Map<string, Actor>();
-  for (const e of events) if (e.actor) actors.set(`${e.actor.kind}:${e.actor.id}`, e.actor);
+  for (const e of events) {
+    // #45: the one who got a task takes part in its giving, as the actor of it did before.
+    for (const a of [e.actor, e.type === "task.assigned" ? assignee(e) : undefined]) if (a) actors.set(`${a.kind}:${a.id}`, a);
+  }
   return {
     from,
     to,
@@ -648,11 +705,23 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   out.push("", "Hand-over");
   const opened = shown.events.find((e) => e.type === "task.opened" && e.task === shown.task && observed(e));
   if (opened) out.push(`  ${t(opened.time)}  ${opened.source.kind.padEnd(8)}  task opened by ${who(opened.actor)}`);
-  if (shown.handover.length === 0) out.push("  given to no one in the ledger");
-  for (const h of shown.handover) out.push(`  ${t(h.time)}  ${h.kind.padEnd(8)}  given to ${who(h.actor)}`);
+  // #45: the givings that stand, and what was taken back, in the order of time.
+  const byWho = (g: Giving) => (g.by === undefined ? "" : ` by ${who(g.by)}`);
+  const given = [
+    ...shown.handover.map((g) => ({ g, text: `given to ${who(g.actor)}${byWho(g)}` })),
+    ...shown.takenBack.map((g) => ({ g, text: `taken from ${who(g.actor)}${byWho(g)}` })),
+  ].sort((a, b) => Date.parse(a.g.time) - Date.parse(b.g.time));
+  if (given.length === 0) out.push("  given to no one in the ledger");
+  for (const { g, text } of given) out.push(`  ${t(g.time)}  ${g.kind.padEnd(8)}  ${text}`);
+  if (shown.handover.length === 0 && given.length > 0) out.push("  given to no one now");
   // #117: the task's closing is the task's, not the change's end: it stands with the task's opening and giving.
-  const closed = shown.events.findLast((e) => e.type === "task.closed" && e.task === shown.task && observed(e));
-  if (closed && one) out.push(`  ${t(closed.time)}  ${closed.source.kind.padEnd(8)}  task closed by ${who(closed.actor)}`);
+  // #45: with its reopenings, in the order of time; with none, the last closing alone, as before.
+  const ofTask = (type: string) => shown.events.filter((e) => e.type === type && e.task === shown.task && observed(e));
+  const reopened = ofTask("task.reopened");
+  const tracker = (reopened.length === 0 ? ofTask("task.closed").slice(-1) : [...ofTask("task.closed"), ...reopened].sort((a, b) => Date.parse(a.time) - Date.parse(b.time))).map(
+    (e) => `  ${t(e.time)}  ${e.source.kind.padEnd(8)}  task ${e.type === "task.closed" ? "closed" : "reopened"} by ${who(e.actor)}`,
+  );
+  if (one) out.push(...tracker);
 
   out.push("", "Sessions");
   if (shown.sessions.length === 0) out.push("  none in the ledger");
@@ -716,7 +785,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   // #117: where the view has more than one change, each end says which change it is of.
   if (several) for (const c of shown.changes) out.push(`  change ${c.change}  ${ending(c.end)}`);
   else out.push(`  ${ending(shown.end)}`);
-  if (closed && !one) out.push(`  ${t(closed.time)}  ${closed.source.kind.padEnd(8)}  task closed by ${who(closed.actor)}`);
+  if (!one) out.push(...tracker);
 
   const s = shown.summary;
   out.push("", "Summary");

@@ -182,12 +182,14 @@ node /path/to/handover-ledger/src/cli/howl.ts emit "$result" --change "$CHANGE" 
 
 | Seen at the host | Event |
 |---|---|
-| A task opened, given to someone, closed | `task.opened`, `task.assigned`, `task.closed` |
-| A change opened, a new head commit, closed without merge | `change.opened`, `change.updated`, `change.closed` |
+| A task opened, given to someone, taken from someone, closed, opened again | `task.opened`, `task.assigned`, `task.unassigned`, `task.closed`, `task.reopened` |
+| A change opened, a new head commit, closed without merge, opened again | `change.opened`, `change.updated`, `change.closed`, `change.reopened` |
 | The checks of a head commit finished | `checks.passed`, `checks.failed` |
-| A review handed in | `review.approved`, `review.changes_requested`, `review.commented` |
+| A review handed in, or dismissed | `review.approved`, `review.changes_requested`, `review.commented`, `review.dismissed` |
 | A comment on a change | `review.commented` when its first line matches `review_comment_pattern`, else `change.commented` |
 | A change merged | `change.merged` |
+
+`actor` is always the one who did it. On `task.assigned` that is the one who gave the task, and `to` is the one who got it; an account that no longer exists is left out and the event says `account_removed`. On `task.unassigned` the actor took the task back and `to` is the one who had it. Where `to` is an agent whose name differs from its account, the account is kept in `data.to_account`. A `task.assigned` written before `to` existed has the one who got the task as `actor`, and is read as it was.
 
 ```sh
 cd the/observed/repository

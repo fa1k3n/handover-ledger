@@ -9,8 +9,8 @@
 // out and counted, and the first reason is kept. `has(event.change)` tests for
 // a field. A wrong expression is refused before any event is read.
 //
-// A filter never sees a person's pseudonym: for a person, `event.actor.id`
-// reads "a person", so no expression tells two people apart. (A pair still
+// A filter never sees a person's pseudonym: for a person, `event.actor.id` and `event.to.id`
+// read "a person", so no expression tells two people apart. (A pair still
 // matches a pseudonym; refusing that is #53's.)
 // @code_class reading
 import { Environment } from "@marcbachmann/cel-js";
@@ -118,8 +118,10 @@ function expression(text: string, fail: (why: string) => void): Test {
 
 /** The event as a filter sees it: a person's pseudonym is not in it. */
 function seen(event: LedgerEvent): LedgerEvent {
-  if (event.actor?.kind !== "person") return event;
-  return { ...event, actor: { ...event.actor, id: A_PERSON } };
+  const actor = event.actor?.kind === "person" ? { actor: { ...event.actor, id: A_PERSON } } : {};
+  // #45: the same for `to`, a team member as `actor` is.
+  const to = event.to?.kind === "person" ? { to: { ...event.to, id: A_PERSON } } : {};
+  return { ...event, ...actor, ...to };
 }
 
 /** Why an expression is refused: the library's own words, and the place counted from 1. */

@@ -1,8 +1,10 @@
 // The local code host: a folder of JSON files in the shapes of the port. It is
 // the test environment, and a way to try `howl observe` with no host at all.
 //
-//   tasks/<number>.json     a Task
-//   changes/<number>.json   a Change; a comment may have a `body` in place of `review`, tested as GitHub's is
+//   tasks/<number>.json     a Task; each of `assignments` may have `by`, the one who gave it (#45); `unassignments`
+//                           and `reopenings` are lists as the port has them, and none is as no list
+//   changes/<number>.json   a Change; a comment may have a `body` in place of `review`, tested as GitHub's is;
+//                           `reopenings` and `dismissals` (a review's `id`, its `state`, `by`, `at`) as the port has them
 //   checks/<sha>.json       a ChecksState; no file is no checks
 //   repository.json         {"id": ..., "was": ["owner/old"]}: the repository's lasting id and the names it had
 //                           before (#48); without the file, the id is the name and no other name is this repository

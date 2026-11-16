@@ -4,7 +4,7 @@
 // the observed event is evidence and is never rewritten.
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
-import { claimOfHost } from "./observed.ts";
+import { claimOfHost, isReview } from "./observed.ts";
 
 /** A session's events this long before an observed event count for it. */
 export const BEFORE_MS = 10 * 60_000;
@@ -51,7 +51,7 @@ export function matches(events: LedgerEvent[]): Map<string, Acting & { rule: Rul
     const nameless = e.actor === undefined && e.type === "change.updated";
     if (!throughPerson && !nameless) continue;
     const isChange = e.type === "change.opened" || e.type === "change.updated";
-    if (!isChange && !e.type.startsWith("review.")) continue;
+    if (!isChange && !isReview(e)) continue;
     if (isChange && e.branch === undefined) continue;
     const t = Date.parse(e.time);
     const within = own.filter((s) => {

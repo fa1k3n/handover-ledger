@@ -21,7 +21,43 @@ export type Account =
 export interface Assignment {
   /** The host's own id of the assignment: the same every time it is read. */
   id: string;
+  /** The one who got the task. */
   assignee: Account;
+  /** #45: the one who gave it, when the host says; none when it does not. */
+  by?: Account;
+  at: string;
+}
+
+/** #45: a task taken from someone. */
+export interface Unassignment {
+  /** The host's own id of it. */
+  id: string;
+  /** The one it was taken from. */
+  assignee: Account;
+  /** The one who took it, when the host says. */
+  by?: Account;
+  at: string;
+}
+
+/** #45: a task or a change opened again. */
+export interface Reopening {
+  /** The host's own id of it. */
+  id: string;
+  /** The one who opened it again, when the host says. */
+  by?: Account;
+  at: string;
+}
+
+/** #45: a formal review that was dismissed. Its text is never kept. */
+export interface Dismissal {
+  /** The host's own id of the dismissal. */
+  id: string;
+  /** The host's id of the review that was dismissed. */
+  review: string;
+  /** What the review was, when the host says. */
+  state?: "approved" | "changes_requested" | "commented";
+  /** The one who dismissed it, when the host says. */
+  by?: Account;
   at: string;
 }
 
@@ -30,6 +66,9 @@ export interface Task {
   openedAt: string;
   openedBy: Account;
   assignments: Assignment[];
+  /** #45: a host that tells nothing of them gives none; so does a file from before. */
+  unassignments?: Unassignment[];
+  reopenings?: Reopening[];
   closedAt?: string;
   closedBy?: Account;
   updatedAt: string;
@@ -79,6 +118,9 @@ export interface Change {
   reviews: Review[];
   /** Comments on the change, apart from the reviews. */
   comments?: Comment[];
+  /** #45: the times it was opened again, and the reviews that were dismissed. */
+  reopenings?: Reopening[];
+  dismissals?: Dismissal[];
   closedAt?: string;
   closedBy?: Account;
   mergedAt?: string;

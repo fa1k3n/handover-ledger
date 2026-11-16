@@ -70,6 +70,8 @@ export function formatLine(event: LedgerEvent, colour: boolean, utc = false): st
   const concerns = [
     event.task !== undefined ? `task ${event.task}` : null,
     event.change !== undefined ? `change ${event.change}` : null,
+    // #45: who a task was given to, or taken from: the actor column is the one who acted.
+    event.to !== undefined ? `to ${event.to.id}` : null,
     // The first 8 characters are enough to tell sessions apart on a screen; --filter takes the whole id.
     event.session !== undefined ? `session ${event.session.slice(0, 8)}` : null,
   ].filter(Boolean);

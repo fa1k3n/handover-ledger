@@ -313,8 +313,11 @@ export class Observer {
     const of = { task: String(n) };
     const found = [
       this.event(`task:${n}:opened`, "task.opened", task.openedAt, task.openedBy, of, seen),
-      // The actor of an assignment is the one who got the task: the hand-over is to them.
-      ...task.assignments.map((a) => this.event(`task:${n}:assigned:${a.id}`, "task.assigned", a.at, a.assignee, of, seen)),
+      // #45: the actor of a giving is the one who gave the task, and `to` the one who got it. Where the host says
+      // nothing of who gave it there is no actor. Taken back: the actor took it, `to` is who had it.
+      ...task.assignments.map((a) => this.event(`task:${n}:assigned:${a.id}`, "task.assigned", a.at, a.by, of, seen, a.assignee)),
+      ...(task.unassignments ?? []).map((u) => this.event(`task:${n}:unassigned:${u.id}`, "task.unassigned", u.at, u.by, of, seen, u.assignee)),
+      ...(task.reopenings ?? []).map((r) => this.event(`task:${n}:reopened:${r.id}`, "task.reopened", r.at, r.by, of, seen)),
     ];
     if (task.closedAt) {
       found.push(this.event(`task:${n}:closed:${task.closedAt}`, "task.closed", task.closedAt, task.closedBy, of, seen));
@@ -350,6 +353,14 @@ export class Observer {
     for (const r of change.reviews) {
       found.push(this.event(`review:${r.id}`, `review.${r.state}`, r.at, r.by, of(r.sha ?? head), seen));
     }
+    // #45: a change opened again, and a review dismissed. The text of a dismissal is never kept.
+    for (const r of change.reopenings ?? []) {
+      found.push(this.event(`change:${n}:reopened:${r.id}`, "change.reopened", r.at, r.by, of(head), seen));
+    }
+    for (const d of change.dismissals ?? []) {
+      const data = { review: d.review, ...(d.state !== undefined ? { state: d.state } : {}) };
+      found.push(this.event(`review:dismissed:${d.id}`, "review.dismissed", d.at, d.by, { ...of(head), data }, seen));
+    }
     // #28: a comment is a review only when the project's pattern says so. The key is the one comments had as
     // reviews before (#20), so a comment already in the ledger is not written again under another type.
     for (const c of change.comments ?? []) {
@@ -379,12 +390,18 @@ export class Observer {
     by: Account | undefined,
     fields: Partial<LedgerEvent>,
     seen: string,
+    to?: Account,
   ): LedgerEvent {
-    // #48: an account that is gone names no one, and the event says so, so it is not taken for an event nobody did.
+    // #48: an account that is gone names no one, and the event says so, so it is not taken for an event nobody did. Of `actor` or
+    // of `to`: the one that is left out is the one that is gone (`assignee` in src/read reads it).
     const gone = by !== undefined && "removed" in by;
     // #46: an agent that has a name other than its account keeps the account in data, as it is no person's.
     const named = by && !gone ? this.names.get(by.login.toLowerCase()) : undefined;
     const account = by && !gone && named !== undefined && named !== by.login ? { account: by.login } : {};
+    // #45: the same of `to`: its account in `to_account`. A `to` that is gone is left out and says `account_removed`, as an actor does.
+    const toGone = to !== undefined && "removed" in to;
+    const toNamed = to && !toGone ? this.names.get(to.login.toLowerCase()) : undefined;
+    const toAccount = to && !toGone && toNamed !== undefined && toNamed !== to.login ? { to_account: to.login } : {};
     return JSON.parse(
       JSON.stringify({
         v: 0,
@@ -394,9 +411,10 @@ export class Observer {
         source: { adapter: this.host.name, kind: "observed" },
         project: this.settings.project,
         actor: by && !gone ? this.actor(by) : undefined,
+        to: to && !toGone ? this.actor(to) : undefined,
         repo: this.host.repository,
         ...fields,
-        data: { ...(fields.data ?? {}), ...account, ...(gone ? { account_removed: true } : {}), seen },
+        data: { ...(fields.data ?? {}), ...account, ...toAccount, ...(gone || toGone ? { account_removed: true } : {}), seen },
       }),
     ) as LedgerEvent;
   }
