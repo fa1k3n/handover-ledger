@@ -142,7 +142,7 @@ export function parseAsked(text: string): Asked {
  * `activityFrom` is the time of the oldest line of the activity file, or null
  * when it holds none.
  */
-export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | null): Shown | null {
+export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | null, options: { matched?: boolean } = {}): Shown | null {
   let task: string | undefined;
   const asksChange = asked.kind === "change" || (asked.kind === undefined && !all.some((e) => e.task === asked.id));
   // #117: the view of a change does not rest on the order its events are given in.
@@ -166,7 +166,8 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   if (found === null || found.events.length === 0) return null;
   const { events, sessions } = found;
 
-  const acting = actingAgents(all);
+  // #33: a bundle asks for the timeline without what howl matched.
+  const acting = options.matched === false ? new Map<string, Acting>() : actingAgents(all);
   const first = firstChange(all, linked);
   const fromHandover = !asksChange || first === undefined || first === asked.id;
   const parts = changeParts(events, changes, acting);

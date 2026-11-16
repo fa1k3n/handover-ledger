@@ -17,6 +17,15 @@ export interface Acting {
   via?: string;
 }
 
+/** The rule that matched an agent to an event (#33): the branch or the change, and the window of time. */
+export interface Rule {
+  by: "branch" | "change";
+  branch?: string;
+  change: string;
+  before_ms: number;
+  after_ms: number;
+}
+
 /**
  * For each observed change or review whose actor is a person, the one agent
  * whose own session was at it then: on the change's branch for an opened or
@@ -24,12 +33,17 @@ export interface Acting {
  * than one matches.
  */
 export function actingAgents(events: LedgerEvent[]): Map<string, Acting> {
+  return new Map([...matches(events)].map(([id, { rule: _, ...acting }]) => [id, acting]));
+}
+
+/** The same matches, each with the rule that made it, for the bundle's `inferred.json` (#33). */
+export function matches(events: LedgerEvent[]): Map<string, Acting & { rule: Rule }> {
   // A session's own events. A claimed review or change is no session at the change (#51).
   // Each with its time read once (#85): the match below looks at every one of them for every observed event.
   const own = events
     .filter((e) => e.source.kind === "claimed" && e.actor?.kind === "agent" && !claimOfHost(e))
     .map((e) => ({ t: Date.parse(e.time), agent: e.actor!.id, branch: e.branch, change: e.change }));
-  const found = new Map<string, Acting>();
+  const found = new Map<string, Acting & { rule: Rule }>();
   for (const e of events) {
     if (e.source.kind !== "observed" || e.change === undefined) continue;
     // Through a person's account (#14), or a new head the code host names no one for (#21).
@@ -49,7 +63,13 @@ export function actingAgents(events: LedgerEvent[]): Map<string, Acting> {
         })
         .map((s) => s.agent),
     );
-    if (agents.size === 1) found.set(e.id, throughPerson ? { agent: [...agents][0]!, via: e.actor!.id } : { agent: [...agents][0]! });
+    if (agents.size === 1) {
+      const agent = [...agents][0]!;
+      const rule: Rule = isChange
+        ? { by: "branch", branch: e.branch, change: e.change, before_ms: BEFORE_MS, after_ms: AFTER_MS }
+        : { by: "change", change: e.change, before_ms: BEFORE_MS, after_ms: AFTER_MS };
+      found.set(e.id, throughPerson ? { agent, via: e.actor!.id, rule } : { agent, rule });
+    }
   }
   return found;
 }

@@ -7,8 +7,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { readTar, writeTar } from "../src/export/tar.ts";
 import { show } from "../src/read/show.ts";
-import { folder, git, howl, rawLines, workspace } from "./helpers.ts";
-import { activityEvents, writeStory } from "./story.ts";
+import { folder, git, howl, PROJECT, rawLines, workspace } from "./helpers.ts";
+import { openLedger } from "../src/ledger/ledger.ts";
+import { activityEvents, m, REVIEWER, SHA, writeStory } from "./story.ts";
 
 const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
 
@@ -106,4 +107,60 @@ test("#19: a bundle whose checkpoint does not match its head fails", () => {
   const r = howl(["verify", "--bundle", out]);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /line changed/);
+});
+
+/** A ledger where an agent's session is on a branch and a person's account opens the change. */
+function writeMatched(): string {
+  const path = join(folder(), "ledger.jsonl");
+  const writer = openLedger(path, { project: PROJECT });
+  const base = { v: 0 as const, project: PROJECT };
+  writer.append({ ...base, id: "s-1", time: m(1), type: "session.started", source: { adapter: "claude-code-hook", kind: "claimed" }, actor: { kind: "agent", id: "agent-1" }, session: "s1", branch: "task-5-x", data: { source: "startup" } });
+  writer.append({ ...base, id: "o-1", time: m(5), type: "change.opened", source: { adapter: "local", kind: "observed" }, actor: { kind: "person", id: REVIEWER }, change: "40", branch: "task-5-x", sha: SHA.a, task: "5", data: { seen: m(5) } });
+  writer.close();
+  return path;
+}
+
+test("#33: a bundle from a trial ledger says so in its manifest, its README and when it is checked, and still passes", () => {
+  const ledger = writeStory();
+  const made = howl(["export", "--ledger", ledger, "--change", "30", "--out", join(folder(), "b.tar.gz")]);
+  assert.equal(made.status, 0, made.stderr);
+  assert.match(made.stdout, /a trial: it does not count as evidence/);
+  const { out, files } = exportOf(ledger, ["--change", "30"]);
+  const manifest = JSON.parse(files.get("manifest.json")!.toString()) as { trial?: boolean };
+  assert.equal(manifest.trial, true);
+  assert.match(files.get("README.txt")!.toString().split("\n").slice(0, 3).join("\n"), /a trial: it does not count as evidence/i);
+  const r = howl(["verify", "--bundle", out]);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const lines = r.stdout.trim().split("\n");
+  assert.equal(lines.at(-2), "ok: the bundle holds");
+  assert.equal(lines.at(-1), "a trial: it does not count as evidence");
+});
+
+test("#33: a change opened through a person's account by a matched agent: the timeline names the person, inferred.json the agent and the rule", () => {
+  const ledger = writeMatched();
+  const { files } = exportOf(ledger, ["--change", "40"]);
+  const timeline = files.get("timeline.json")!.toString();
+  assert.ok(timeline.includes(REVIEWER));
+  // The session's own events name the agent; the match is no part of the timeline.
+  const shown = JSON.parse(timeline) as { changes: { opened?: { actor?: { id: string }; by?: string } }[] };
+  assert.equal(shown.changes[0]!.opened!.actor!.id, REVIEWER);
+  assert.ok(!/"by"/.test(timeline), "the timeline holds no matched agent");
+  const inferred = JSON.parse(files.get("inferred.json")!.toString()) as { event: string; agent: string; via?: string; rule: { by: string; branch?: string; before_ms: number; after_ms: number } }[];
+  assert.equal(inferred.length, 1);
+  assert.equal(inferred[0]!.event, "o-1");
+  assert.equal(inferred[0]!.agent, "agent-1");
+  assert.equal(inferred[0]!.via, REVIEWER);
+  assert.equal(inferred[0]!.rule.by, "branch");
+  assert.equal(inferred[0]!.rule.branch, "task-5-x");
+  assert.equal(typeof inferred[0]!.rule.before_ms, "number");
+  assert.equal(typeof inferred[0]!.rule.after_ms, "number");
+  assert.match(files.get("README.txt")!.toString(), /inferred\.json[^\n]*not evidence/);
+});
+
+test("#33: a bundle with no match has an empty inferred.json, and the manifest lists it", () => {
+  // Change 31 is opened by the agent itself: nothing to match.
+  const { files } = exportOf(writeStory(), ["--change", "31"]);
+  assert.deepEqual(JSON.parse(files.get("inferred.json")!.toString()), []);
+  const manifest = JSON.parse(files.get("manifest.json")!.toString()) as { files: Record<string, string> };
+  assert.equal(manifest.files["inferred.json"], sha(files.get("inferred.json")!));
 });
