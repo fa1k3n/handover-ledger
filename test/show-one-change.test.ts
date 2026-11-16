@@ -341,3 +341,73 @@ test("the Change tab's line for the other changes: a link to each, and to the ta
   ]);
   assert.deepEqual(otherChangeLinks("40", ["63"], null).changes, [{ label: "63", href: hashFor("change", null, "change:63") }]);
 });
+
+test("a session event that holds the first change's head after its merge is of the second change, by its time", () => {
+  const tool = (minute: number, session: string, sha: string) => hook("tool.used", minute, session, { sha, data: { tool: "Edit", target: `${minute}.ts`, outcome: "succeeded" } });
+  const events = [
+    ...base(),
+    hook("session.started", 25, "head", { sha: SHA.a }),
+    tool(28, "head", SHA.a), // inside the first change's life: its commit and its time agree
+    tool(40, "head", SHA.a), // after the first merge, the checkout still holds the first head
+    tool(50, "head", SHA.a),
+    tool(70, "head", SHA.b),
+    hook("session.ended", 75, "head", { sha: SHA.b }),
+  ];
+  const first = ask(events, "change:63");
+  const second = ask(events, "change:65");
+  assert.deepEqual(first.sessions[0]!.files, ["28.ts"]);
+  assert.equal(first.sessions[0]!.end, at(28));
+  assert.deepEqual(second.sessions[0]!.files, ["40.ts", "50.ts", "70.ts"]);
+  assert.equal(second.sessions[0]!.start, at(40));
+  assert.ok(!first.events.some((e) => e.sha === SHA.a && Date.parse(e.time) > Date.parse(at(30)) && e.session !== undefined));
+  assert.deepEqual(first.sessions[0]!.also, ["65"]);
+  assert.deepEqual(second.sessions[0]!.also, ["63"]);
+  // A branch with one change is as today: its commit places the event whatever the time.
+  const alone = base().filter((e) => e.change !== "65");
+  const late = [...alone, hook("session.started", 40, "late", { sha: SHA.a }), hook("session.ended", 45, "late", { sha: SHA.a })];
+  assert.deepEqual(sessionIds(ask(late, "change:63")), ["late"]);
+});
+
+test("two changes open at once on one branch: the earlier one's life for placing ends where the later one's starts", () => {
+  // A guess the view makes: 63 is still open, and under review, at minute 25, but the session's events there are 65's.
+  const events = [
+    observed("change.opened", 10, { ...of("63", SHA.a), actor: agent }),
+    observed("change.opened", 20, { ...of("65", SHA.b), actor: agent }),
+    observed("review.commented", 27, { ...of("63", SHA.a), actor: person }),
+    observed("change.merged", 30, { ...of("63", SHA.a), actor: person }),
+    observed("change.merged", 50, { ...of("65", SHA.b), actor: person }),
+    hook("session.started", 15, "before"),
+    hook("session.ended", 18, "before"),
+    hook("session.started", 22, "overlap"),
+    hook("session.ended", 25, "overlap"),
+  ];
+  assert.deepEqual(sessionIds(ask(events, "change:63")), ["before"]);
+  assert.deepEqual(sessionIds(ask(events, "change:65")), ["overlap"]);
+});
+
+test("the same events in another order give the same views", () => {
+  const tool = (minute: number, session: string, extra: Partial<LedgerEvent> = {}) => hook("tool.used", minute, session, { data: { tool: "Edit", target: `${minute}.ts`, outcome: "succeeded" }, ...extra });
+  const events = byTime([
+    ...base(),
+    hook("session.started", 25, "across"),
+    tool(28, "across", { sha: SHA.a }),
+    hook("agent.waiting", 29, "across", { data: { notification_type: "idle_prompt" } }),
+    tool(40, "across", { sha: SHA.a }),
+    tool(80, "across", { sha: SHA.b }),
+    hook("session.ended", 85, "across"),
+    hook("session.started", 13, "early"),
+    hook("session.ended", 14, "early"),
+    hook("session.started", 35, "between"),
+    hook("session.ended", 50, "between"),
+    hook("session.started", 92, "late"),
+    // An event with no branch rides with the branch its session was last on.
+    hook("agent.waiting", 93, "late", { branch: undefined, data: { notification_type: "idle_prompt" } }),
+  ]);
+  const shuffled = events.map((e, i) => ({ e, k: (i * 7919) % 31 })).sort((a, b) => a.k - b.k).map((x) => x.e);
+  for (const order of [[...events].reverse(), shuffled]) {
+    assert.notDeepEqual(order, events);
+    for (const what of ["change:63", "change:65"]) {
+      assert.deepEqual(show(order, parseAsked(what), null), show(events, parseAsked(what), null), what);
+    }
+  }
+});

@@ -5,6 +5,15 @@
 // commit of such a change; or belongs to a session that has such an event. An
 // event that names another task, or a change of another task, never does.
 //
+// Asked for a change, only that change is shown (#117): the events that name it, those on its
+// commits, its sessions, and the task's own events as the hand-over. The task's other changes
+// are named and not mixed in. Where a branch holds more than one change, an event of a session
+// that does not name a change is placed by its time: it is of the change whose life holds that
+// time. The life of a change runs from the end of the change before it on its branch (from the
+// beginning, for the first) to its own end. A commit is no reason against the time (a checkout
+// still holds the head of a change after that change is merged): it places an event only
+// inside that change's life.
+//
 // People are not measured one by one: a person is shown by a pseudonym, a wait
 // for a person is shown with its length and without who, and nothing is summed
 // per person. Everything is ordered and computed by `time`, never by the order
@@ -13,6 +22,7 @@
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
 import { claimOfHost, observed } from "./observed.ts";
+import { byTime } from "./order.ts";
 import { waitsFor } from "./wait.ts";
 import { roundText } from "./rounds.ts";
 import { shortTime, zoneLine } from "./watch.ts";
@@ -132,6 +142,8 @@ export function parseAsked(text: string): Asked {
 export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | null): Shown | null {
   let task: string | undefined;
   const asksChange = asked.kind === "change" || (asked.kind === undefined && !all.some((e) => e.task === asked.id));
+  // #117: the view of a change does not rest on the order its events are given in.
+  if (asksChange) all = inOrder(all);
   if (asksChange) {
     if (!all.some((e) => e.change === asked.id)) return null;
     // The task of a change is the one the code host shows; a session's word for it only when the
@@ -215,8 +227,8 @@ function ofTask(all: LedgerEvent[], task: string, changes: Set<string>): Found |
 /**
  * #117: the change that was asked for, alone. Selected are the events that name it, the events
  * on its commits, its sessions, and the task's own events (opened, given, closed). An event that
- * names another change is not selected. An event of a session that names neither a change nor a
- * commit is of the change whose life holds its time.
+ * names another change is not selected. An event of a session that does not name a change is of
+ * the change whose life holds its time; its commit places it only inside that change's life.
  */
 function ofOneChange(all: LedgerEvent[], change: string, task: string | undefined): Found {
   const place = placer(all);
@@ -265,7 +277,9 @@ function ofOneChange(all: LedgerEvent[], change: string, task: string | undefine
  * its own end, and an event after the last change has ended is of none. Null: nothing places it
  * (no branch, and no change or commit known).
  */
-function placer(all: LedgerEvent[]): (e: LedgerEvent) => string[] | null {
+function placer(given: LedgerEvent[]): (e: LedgerEvent) => string[] | null {
+  // The order of the changes on a branch, and the branch of an event that has none, come from the order of time.
+  const all = inOrder(given);
   // What the code host showed: the branch, the commits and the end of each change.
   const first = new Map<string, number>();
   const ended = new Map<string, number>();
@@ -291,6 +305,7 @@ function placer(all: LedgerEvent[]): (e: LedgerEvent) => string[] | null {
     }
   }
   const lives = new Map<string, { change: string; after: number; until: number }[]>();
+  const livesOf = new Map<string, { after: number; until: number }[]>();
   for (const [branch, list] of onBranch) {
     // `list` is in the order of the first event of each change, as `all` is in the order of time.
     const ordered = list;
@@ -304,6 +319,7 @@ function placer(all: LedgerEvent[]): (e: LedgerEvent) => string[] | null {
       }),
     );
   }
+  for (const list of lives.values()) for (const l of list) livesOf.set(l.change, [...(livesOf.get(l.change) ?? []), l]);
   // An event that names neither a branch nor a change rides with the branch its session was last on.
   const branchOf = new Map<LedgerEvent, string | undefined>();
   const lastBranch = new Map<string, string>();
@@ -315,14 +331,22 @@ function placer(all: LedgerEvent[]): (e: LedgerEvent) => string[] | null {
   }
   return (e) => {
     if (e.change !== undefined) return [e.change];
-    const onCommit = e.sha !== undefined ? bySha.get(e.sha) : undefined;
-    if (onCommit) return onCommit;
+    const t = Date.parse(e.time);
+    // A commit places an event only inside that change's life: a session's checkout still holds the head
+    // of the change it pushed after that change is merged. Outside the life, the time decides.
+    const inLife = (change: string) => (livesOf.get(change) ?? [{ after: -Infinity, until: Infinity }]).some((l) => t > l.after && t <= l.until);
+    const onCommit = (e.sha !== undefined ? bySha.get(e.sha) : undefined)?.filter(inLife);
+    if (onCommit !== undefined && onCommit.length > 0) return onCommit;
     const branch = branchOf.get(e) ?? e.branch;
     const list = branch !== undefined ? lives.get(branch) : undefined;
     if (!list) return null;
-    const t = Date.parse(e.time);
     return list.filter((l) => t > l.after && t <= l.until).map((l) => l.change);
   };
+}
+
+/** The events in the order of time; events of one time keep the order they came in. */
+function inOrder(events: LedgerEvent[]): LedgerEvent[] {
+  return byTime(events.map((event) => ({ event }))).map((x) => x.event);
 }
 
 /** The first change of the task: the first that the code host showed opened. */
