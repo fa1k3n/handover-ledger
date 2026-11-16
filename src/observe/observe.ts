@@ -24,7 +24,7 @@ import { events as ledgerEvents, type LedgerWriter } from "../ledger/ledger.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { agentAccounts } from "../howl/project.ts";
 import type { People } from "./people.ts";
-import type { Account, Change, ChecksState, CodeHost, Task } from "./port.ts";
+import type { Account, Change, ChecksState, CodeHost, Push, Task } from "./port.ts";
 import { happensBefore } from "./order.ts";
 import type { TraceResult } from "../howl/trace-read.ts";
 
@@ -58,10 +58,30 @@ interface TracePending {
   open: boolean;
 }
 
+/** #44: the heads of a change, as `headsOf` reads them from the host's pushes. */
+interface Heads {
+  /** The head the change was opened with. */
+  opening: string;
+  /** Whether that head is the one a round saw, and not what the host said. */
+  openingInferred: boolean;
+  /** The pushes after the opening, oldest first: its new heads. */
+  pushes: Push[];
+  /** Whether the host's pushes do not reach the head now: it is then a new head as a round sees it. */
+  unpushed: boolean;
+  /** When the head now was pushed, else when it was made. */
+  headAt: string;
+  /** The head that was there at a time. */
+  at: (time: string) => string;
+  /** Whether the host gave a list of pushes that does not reach the head now, for a change updated a moment ago. */
+  waits: boolean;
+}
+
 interface Cursor {
   since: string | null;
   watch: Watched[];
   trace: TracePending[];
+  /** #44: the host refuses the list of pushes: how many heads were written as inferred because of it, since it began. */
+  refused?: { heads: number };
 }
 
 export interface Round {
@@ -86,6 +106,12 @@ export interface ObserverParts {
   /** #38: what the tests of a commit name, read from the repository on this machine. */
   traceAt?: (sha: string) => TraceResult;
 }
+
+/**
+ * #44: how long a change must have been still at the host before a head its list of pushes does not hold is written as
+ * inferred. Until then the list may only lag, and the change waits for the next round.
+ */
+export const STILL_MS = 5 * 60_000;
 
 /** #38: the most heads read in one round: the writer is held while they are, and the rest wait for the next round. */
 const MAX_TRACE_READS = 10;
@@ -194,6 +220,12 @@ export class Observer {
     };
 
     let latest = cursor.since;
+    // #44: the earliest update of a change that waits for its list of pushes: the cursor does not pass it.
+    let hold: string | null = null;
+    // #44: whether a list of pushes was refused, or read, in this round; the inferred heads written because of a refusal.
+    let refused = false;
+    let readable = false;
+    const refusedIds = new Set<string>();
     let refs: Awaited<ReturnType<CodeHost["listUpdated"]>> = [];
     try {
       refs = await this.host.listUpdated(cursor.since);
@@ -220,7 +252,17 @@ export class Observer {
           failed(`change ${ref.number}`, e);
           continue;
         }
-        found.push(...this.changeEvents(change, seen));
+        const events = this.changeEvents(change, seen, now);
+        if (events === null) {
+          // #44: the list of pushes may lag: nothing of the change now, and the next round asks again.
+          if (hold === null || ref.updatedAt < hold) hold = ref.updatedAt;
+          continue;
+        }
+        found.push(...events);
+        if (change.pushesRefused) {
+          refused = true;
+          for (const e of events) if ((e.data as { inferred?: unknown } | undefined)?.inferred === true) refusedIds.add(e.id);
+        } else if (change.pushes !== undefined) readable = true;
         for (const [sha, w] of watch) if (w.change === change.number) watch.delete(sha);
         if (!this.known(`checks:${change.head.sha}`)) {
           watch.set(change.head.sha, {
@@ -262,17 +304,31 @@ export class Observer {
     found.push(...this.traceEvents(seen));
 
     let appended = 0;
+    let refusedHeads = 0;
     // #112: by time, and at the same time by what can happen first: opened before assigned.
     found.sort(happensBefore);
     for (const e of found) {
       if (this.known(e.id.slice(this.prefix!.length))) continue;
       this.writer.append(e);
       appended++;
+      if (refusedIds.has(e.id)) refusedHeads++;
       if (e.type === "change.opened" && e.sha) this.openedHeads.set(Number(e.change), e.sha);
     }
 
+    // #44: a refused list of pushes is said on every round until a list is read again, with the heads it cost.
+    let refusal = cursor.refused;
+    if (refused) refusal = { heads: (refusal?.heads ?? 0) + refusedHeads };
+    else if (readable) refusal = undefined;
+    if (refusal !== undefined) {
+      this.warn(
+        `${this.host.repository}: the list of pushes cannot be read: the host refuses it, perhaps for want of a permission; ` +
+          `${refusal.heads} head${refusal.heads === 1 ? "" : "s"} written as inferred because of it`,
+      );
+    }
+
     this.people.save();
-    this.writeCursor({ since: complete ? latest : cursor.since, watch: [...watch.values()], trace: [...this.pendingTrace.values()] });
+    const since = complete ? (hold !== null && (latest === null || hold < latest) ? hold : latest) : cursor.since;
+    this.writeCursor({ since, watch: [...watch.values()], trace: [...this.pendingTrace.values()], ...(refusal !== undefined ? { refused: refusal } : {}) });
     return { ingested, appended, complete };
   }
 
@@ -325,37 +381,52 @@ export class Observer {
     return found;
   }
 
-  private changeEvents(change: Change, seen: string): LedgerEvent[] {
+  /** The events of a change; null when it waits for its list of pushes (#44). */
+  private changeEvents(change: Change, seen: string, now: Date): LedgerEvent[] | null {
     const n = change.number;
     const of = (sha: string) => ({ change: String(n), branch: change.branch, sha, task: this.taskOf(change) });
     const head = change.head.sha;
-    const found = [this.event(`change:${n}:opened`, "change.opened", change.openedAt, change.openedBy, of(head), seen)];
+    const heads = this.headsOf(change, now);
+    if (heads.waits) return null;
+    const found = [
+      this.event(`change:${n}:opened`, "change.opened", change.openedAt, change.openedBy, { ...of(heads.opening), ...(heads.openingInferred ? { data: { inferred: true } } : {}) }, seen),
+    ];
 
-    // A head that is not the one the change was opened with is a new head. When
-    // the ledger has no opening yet, it is written now with this head.
-    const openedWith = this.openedHeads.get(n);
-    if (openedWith !== undefined && openedWith !== head) {
-      found.push(this.event(`change:${n}:head:${head}`, "change.updated", change.head.at, undefined, of(head), seen));
+    // #44: each push after the opening is a new head, with who pushed it and when, as the host says. A head pushed
+    // for the first time keeps the id a new head always had; pushed again, or back to the head the change was opened
+    // with, it takes the host's id of the push as well.
+    const pushed = new Set([heads.opening]);
+    for (const p of heads.pushes) {
+      const key = pushed.has(p.sha) ? `change:${n}:head:${p.sha}:${p.id}` : `change:${n}:head:${p.sha}`;
+      pushed.add(p.sha);
+      found.push(this.event(key, "change.updated", p.at, p.by, { ...of(p.sha), ...(p.forced ? { data: { forced: true } } : {}) }, seen));
+    }
+    // The fall-back: a head the host told no push for, and that is not the one the change was opened with, is a new
+    // head as a round sees it, at the time of its commit. It says so.
+    if (heads.unpushed && !pushed.has(head)) {
+      found.push(this.event(`change:${n}:head:${head}`, "change.updated", change.head.at, undefined, { ...of(head), data: { inferred: true } }, seen));
     }
 
     // #25: a change to .howl/ is high risk: one event per head that touches it, with the paths.
     const config = (change.files ?? []).filter((f) => f === ".howl" || f.startsWith(".howl/"));
     if (config.length > 0) {
-      found.push(this.event(`config:${n}:${head}`, "config.changed", change.head.at, undefined, { ...of(head), data: { paths: config } }, seen));
+      found.push(this.event(`config:${n}:${head}`, "config.changed", heads.headAt, undefined, { ...of(head), data: { paths: config } }, seen));
     }
 
     // #38: what the tests of this head name is read once the round has its events: the head waits for that.
     if (this.traceAt !== undefined && !this.known(`trace:${n}:${head}`)) {
       const task = this.taskOf(change);
-      this.pendingTrace.set(`${n}:${head}`, { sha: head, change: n, branch: change.branch, ...(task !== undefined ? { task } : {}), at: change.head.at, open: change.closedAt === undefined });
+      this.pendingTrace.set(`${n}:${head}`, { sha: head, change: n, branch: change.branch, ...(task !== undefined ? { task } : {}), at: heads.headAt, open: change.closedAt === undefined });
     }
 
+    // #44: what has no commit of its own is of the head that was there at its time.
+    const at = heads.at;
     for (const r of change.reviews) {
-      found.push(this.event(`review:${r.id}`, `review.${r.state}`, r.at, r.by, of(r.sha ?? head), seen));
+      found.push(this.event(`review:${r.id}`, `review.${r.state}`, r.at, r.by, of(r.sha ?? at(r.at)), seen));
     }
     // #45: a change opened again, and a review dismissed. The text of a dismissal is never kept.
     for (const r of change.reopenings ?? []) {
-      found.push(this.event(`change:${n}:reopened:${r.id}`, "change.reopened", r.at, r.by, of(head), seen));
+      found.push(this.event(`change:${n}:reopened:${r.id}`, "change.reopened", r.at, r.by, of(at(r.at)), seen));
     }
     // The review that was dismissed is a review that happened. One the host no longer lists is written from what the
     // dismissal names of it, before the dismissal. A review the host names and the ledger does not hold: `review_unseen`.
@@ -365,23 +436,76 @@ export class Observer {
       let unseen = false;
       if (d.review !== undefined && !listed.has(d.review) && !this.known(`review:${d.review}`)) {
         if (d.state !== undefined && d.reviewed !== undefined) {
-          found.push(this.event(`review:${d.review}`, `review.${d.state}`, d.reviewed.at, d.reviewed.by, of(d.reviewed.sha ?? head), seen));
+          found.push(this.event(`review:${d.review}`, `review.${d.state}`, d.reviewed.at, d.reviewed.by, of(d.reviewed.sha ?? at(d.reviewed.at)), seen));
         } else unseen = true;
       }
       const data = { ...(d.review !== undefined ? { review: d.review } : {}), ...(d.state !== undefined ? { state: d.state } : {}), ...(unseen ? { review_unseen: true } : {}), ...(d.review === undefined ? { review_unnamed: true } : {}) };
-      found.push(this.event(`review:dismissed:${d.id}`, "review.dismissed", d.at, d.by, { ...of(head), data }, seen));
+      found.push(this.event(`review:dismissed:${d.id}`, "review.dismissed", d.at, d.by, { ...of(at(d.at)), data }, seen));
     }
     // #28: a comment is a review only when the project's pattern says so. The key is the one comments had as
     // reviews before (#20), so a comment already in the ledger is not written again under another type.
     for (const c of change.comments ?? []) {
-      found.push(this.event(`review:c${c.id}`, c.review ? "review.commented" : "change.commented", c.at, c.by, of(head), seen));
+      found.push(this.event(`review:c${c.id}`, c.review ? "review.commented" : "change.commented", c.at, c.by, of(at(c.at)), seen));
     }
     if (change.mergedAt) {
-      found.push(this.event(`change:${n}:merged`, "change.merged", change.mergedAt, change.mergedBy, of(head), seen));
+      found.push(this.event(`change:${n}:merged`, "change.merged", change.mergedAt, change.mergedBy, of(at(change.mergedAt)), seen));
     } else if (change.closedAt) {
-      found.push(this.event(`change:${n}:closed:${change.closedAt}`, "change.closed", change.closedAt, change.closedBy, of(head), seen));
+      found.push(this.event(`change:${n}:closed:${change.closedAt}`, "change.closed", change.closedAt, change.closedBy, of(at(change.closedAt)), seen));
     }
     return found;
+  }
+
+  /**
+   * #44: the heads of a change, from the pushes the host tells. The change was opened with the head of the last push
+   * before it; where the list no longer holds that push, with the head the first push after it replaced, which is marked
+   * as inferred, as it rests on the list having dropped no push in between. The pushes after the opening, up to its end,
+   * are its new heads. A push to the branch after the change was merged or closed is not of it.
+   *
+   * Where the host's list does not reach the head now, the change waits while it was updated less than STILL_MS ago:
+   * the list may lag. After that, or where the host tells no list (a change from a fork, a list refused), the head now is
+   * the one a round sees, marked as inferred. It is never lost.
+   */
+  private headsOf(change: Change, now: Date): Heads {
+    const head = change.head.sha;
+    const recorded = this.openedHeads.get(change.number);
+    const time = (p: Push) => Date.parse(p.at);
+    const given = change.pushes !== undefined;
+    // Stable: pushes of one second keep the order the host gave them in.
+    const all = [...(change.pushes ?? [])].sort((a, b) => time(a) - time(b));
+    const opened = Date.parse(change.openedAt);
+    const end = change.closedAt !== undefined ? Date.parse(change.closedAt) : Infinity;
+    const until = all.filter((p) => time(p) <= end);
+    let after = until.filter((p) => time(p) > opened);
+    const pushedBefore = until.filter((p) => time(p) <= opened).at(-1)?.sha;
+    const told = pushedBefore ?? after[0]?.before;
+    const opening = recorded ?? told ?? head;
+    // A ledger from before this step may hold the change opened with a later head than the host's first, as a round
+    // saw it: the pushes up to that head come before what the ledger tells, and are not written now.
+    if (recorded !== undefined && told !== undefined && told !== recorded) {
+      const i = after.findIndex((p) => p.sha === recorded);
+      if (i >= 0) after = after.slice(i + 1);
+    }
+    // The last head the host's pushes tell of: none when the list tells nothing of this change.
+    const lastTold = after.at(-1)?.sha ?? (told !== undefined ? opening : undefined);
+    const unpushed = !given || lastTold !== head;
+    const lastPush = until.at(-1);
+    const headPush = until.findLast((p) => p.sha === head);
+    return {
+      opening,
+      openingInferred: recorded === undefined && pushedBefore === undefined,
+      pushes: after,
+      unpushed,
+      headAt: headPush?.at ?? change.head.at,
+      waits: given && unpushed && now.getTime() - Date.parse(change.updatedAt) < STILL_MS,
+      // What has no commit of its own is of the head of the last push before it, as the host's pushes say. Only what
+      // comes after the last of those pushes can be of a head the host told no push for. With no list, the head now.
+      at: (t) => {
+        if (!given) return head;
+        const ms = Date.parse(t);
+        if (unpushed && (lastPush === undefined || ms > time(lastPush))) return head;
+        return until.findLast((p) => time(p) <= ms && time(p) > opened)?.sha ?? opening;
+      },
+    };
   }
 
   private checksEvent(w: Watched, checks: ChecksState, seen: string): LedgerEvent {
@@ -461,6 +585,7 @@ export class Observer {
         since: typeof value.since === "string" ? value.since : null,
         watch: Array.isArray(value.watch) ? value.watch : [],
         trace: Array.isArray(value.trace) ? value.trace : [],
+        ...(value.refused && typeof value.refused.heads === "number" ? { refused: { heads: value.refused.heads } } : {}),
       };
     } catch {
       return { since: null, watch: [], trace: [] };

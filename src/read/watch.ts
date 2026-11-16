@@ -99,7 +99,8 @@ function short(event: LedgerEvent): string {
     case "session.ended":
       return String(d.reason ?? "");
     default:
-      if (event.type.startsWith("change.")) return [event.branch, sha].filter(Boolean).join(" ");
+      // #44: a forced push says so.
+      if (event.type.startsWith("change.")) return [event.branch, sha, event.type === "change.updated" && d.forced === true ? "forced" : null].filter(Boolean).join(" ");
       if (event.type.startsWith("checks.") || event.type.startsWith("review.")) return sha;
       return Object.entries(d)
         .filter(([k]) => k !== "seen")

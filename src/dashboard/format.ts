@@ -255,9 +255,13 @@ export function needsInputHref(project: string | null): string {
   return hashFor("overview", project);
 }
 
-/** A head of a change for the change view: `new head 399a7cb by agent-1 (matched) · checks failed`. */
+/**
+ * A head of a change for the change view: `new head 399a7cb by agent-1 (matched) · checks failed`. #44: where the host
+ * named who pushed it, `pushed by`, with the agent behind a person's account, and a forced push; a head a round saw says so.
+ */
 export function headText(h: Head, first: boolean): string {
-  return [`${first ? "head" : "new head"} ${h.sha.slice(0, 7)}${h.by ? ` by ${h.by} (matched)` : ""}`, h.checks ? `checks ${h.checks}` : null]
+  const pusher = h.actor ? ` pushed by ${h.by ? `${h.by} via ${h.actor.id}` : h.actor.id}` : h.gone ? " pushed by an account that no longer exists" : h.by ? ` by ${h.by} (matched)` : "";
+  return [`${first ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${h.forced ? ", forced" : ""}`, h.inferred ? "as a round of howl saw it" : null, h.checks ? `checks ${h.checks}` : null]
     .filter(Boolean)
     .join(" · ");
 }

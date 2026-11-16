@@ -6,7 +6,7 @@
 // the limit. The ETags are kept in memory, for as long as `howl observe` runs.
 // Details are asked only for what has changed.
 // @code_class recording
-import { isReviewComment, type Account, type Change, type ChecksState, type CodeHost, type Comment, type Ref, type Review, type Task } from "./port.ts";
+import { isReviewComment, type Account, type Change, type ChecksState, type CodeHost, type Comment, type Push, type Ref, type Review, type Task } from "./port.ts";
 
 const API = "https://api.github.com";
 
@@ -116,6 +116,10 @@ export class GitHub implements CodeHost {
     const events = await this.all(this.url(`issues/${number}/events`, { per_page: "100" }));
     // A pull request does not say who closed it; its issue does.
     const closedBy = pull.closed_at ? (await this.one(this.url(`issues/${number}`))).closed_by : null;
+    // #44: who pushed each head, and when, from the repository's activity list. The branch of a change from a fork is
+    // in the fork, and this repository's list cannot hold its pushes: it has none, and its heads fall back.
+    const own = pull.head?.repo != null && pull.base?.repo != null && pull.head.repo.id === pull.base.repo.id;
+    const pushed = own && typeof pull.head.ref === "string" ? await this.pushes(pull.head.ref) : { pushes: undefined };
     return defined({
       number,
       branch: pull.head.ref,
@@ -137,12 +141,46 @@ export class GitHub implements CodeHost {
         .filter((c) => c && c.id !== undefined && c.user && c.created_at)
         // The text is tested here and never kept: only whether it counts as a review.
         .map((c): Comment => ({ id: String(c.id), by: account(c.user), at: c.created_at, review: isReviewComment(c.body, this.reviewCommentPattern) })),
+      pushes: pushed.pushes,
+      pushesRefused: pushed.refused,
       closedAt: pull.closed_at ?? undefined,
       closedBy: closedBy ? account(closedBy) : undefined,
       mergedAt: pull.merged_at ?? undefined,
       mergedBy: pull.merged_at && pull.merged_by ? account(pull.merged_by) : undefined,
       updatedAt: pull.updated_at,
     });
+  }
+
+  /**
+   * #44: the pushes to a branch, oldest first, from `GET /repos/{owner}/{repo}/activity?ref=refs/heads/<branch>`. A
+   * push, a forced push and the push that made the branch each give a head; the deletion of the branch and a merge give
+   * none. A branch the host has no record of gives an empty list. A 403 or a 404 that is no rate limit is the list
+   * refused for want of a permission (the change itself was read): no pushes, and `refused`. Anything else is thrown.
+   */
+  private async pushes(branch: string): Promise<{ pushes?: Push[]; refused?: true }> {
+    let entries: Json[];
+    try {
+      entries = await this.all(this.url("activity", { ref: `refs/heads/${branch}`, per_page: "100" }));
+    } catch (e) {
+      const { status, limited } = e as { status?: number; limited?: boolean };
+      if ((status === 403 || status === 404) && !limited) return { refused: true };
+      throw e;
+    }
+    const found = entries
+      .filter((e) => e && PUSHES.has(e.activity_type) && isCommit(e.after) && typeof e.timestamp === "string" && e.id !== undefined)
+      .map((e) =>
+        defined<Push>({
+          id: String(e.id),
+          sha: e.after,
+          before: isCommit(e.before) ? e.before : undefined,
+          at: e.timestamp,
+          by: doer(e),
+          forced: e.activity_type === "force_push" ? true : undefined,
+        }),
+      )
+      // GitHub gives the newest first; the host's ids follow the order of the pushes within one second.
+      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || byNumber(a.id, b.id));
+    return { pushes: found };
   }
 
   async checks(sha: string): Promise<ChecksState> {
@@ -214,7 +252,8 @@ export class GitHub implements CodeHost {
         await this.sleep(wait);
         continue;
       }
-      throw Object.assign(new Error(`GitHub answered ${response.status} to GET ${new URL(url).pathname}`), { status: response.status });
+      // #44: a rate limit that was still on after the last wait says so, so that no caller takes it for a refusal.
+      throw Object.assign(new Error(`GitHub answered ${response.status} to GET ${new URL(url).pathname}`), { status: response.status, limited: wait !== null });
     }
   }
 }
@@ -224,6 +263,22 @@ const REVIEW_STATES: Record<string, Review["state"]> = {
   CHANGES_REQUESTED: "changes_requested",
   COMMENTED: "commented",
 };
+
+/**
+ * #44: the entries of the activity list that give a head. `force_push` is named by the host's documents and was not
+ * seen in a real answer; it is read in the form of the entries that were.
+ */
+const PUSHES = new Set(["push", "force_push", "branch_creation"]);
+
+/** A commit, and not the zeros the host gives for no commit (a branch made or deleted). */
+function isCommit(sha: unknown): sha is string {
+  return typeof sha === "string" && /^[0-9a-f]{7,64}$/i.test(sha) && !/^0+$/.test(sha);
+}
+
+/** Two ids of the host, as numbers where they are. */
+function byNumber(a: string, b: string): number {
+  return /^\d+$/.test(a) && /^\d+$/.test(b) ? Number(a) - Number(b) : a.localeCompare(b);
+}
 
 /** The id GitHub gives `ghost`, the account it shows in place of one that was deleted. */
 const GHOST_ID = 10137;

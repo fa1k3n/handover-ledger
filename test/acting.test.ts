@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
 import { actingAgents } from "../src/read/acting.ts";
-import { handovers } from "../src/read/overview.ts";
+import { handovers, keyFigures } from "../src/read/overview.ts";
 import { show, render } from "../src/read/show.ts";
 import { PROJECT } from "./helpers.ts";
 
@@ -146,4 +146,81 @@ test("#21: howl show says who pushed each new head", () => {
   const events = [session("agent-a", 9), host("change.opened", 10, { sha: "e".repeat(40) }), session("agent-a", 29), pushed(30)];
   const text = render(show(events, { kind: "change", id: "30" }, null)!, { utc: true });
   assert.match(text, /new head fffffff by agent-a \(matched\)/);
+});
+
+// #44: a head the code host named a pusher for.
+test("#44: a head pushed through a person's account while one agent's session was on the branch: that agent, via the person", () => {
+  const head = pushed(30, { actor: { kind: "person", id: OWNER } });
+  assert.deepEqual(actingAgents([session("agent-a", 29), head]).get(head.id), { agent: "agent-a", via: OWNER });
+});
+
+test("#44: a head pushed by an agent's account, or by an account that no longer exists, is matched to no one", () => {
+  const own = pushed(30, { actor: { kind: "agent", id: "agent-b" } });
+  const gone = pushed(31, { actor: undefined, data: { account_removed: true } });
+  const acting = actingAgents([session("agent-a", 29), own, gone]);
+  assert.equal(acting.get(own.id), undefined);
+  assert.equal(acting.get(gone.id), undefined);
+});
+
+test("#44: a head the host gave no push for, marked as inferred, is matched as before", () => {
+  const head = pushed(30, { data: { inferred: true } });
+  assert.equal(actingAgents([session("agent-a", 29), head]).get(head.id)?.agent, "agent-a");
+});
+
+test("#44: howl show says who pushed each head the host named a pusher for, and the agent behind a person's account", () => {
+  const events = [
+    session("agent-a", 9),
+    host("change.opened", 10, { sha: "e".repeat(40) }),
+    session("agent-a", 29),
+    pushed(30, { actor: { kind: "person", id: OWNER } }),
+    pushed(40, { actor: { kind: "agent", id: "agent-b" }, sha: "d".repeat(40) }),
+    pushed(50, { actor: undefined, sha: "c".repeat(40), data: { account_removed: true } }),
+  ];
+  const shown = show(events, { kind: "change", id: "30" }, null)!;
+  assert.deepEqual(shown.changes[0]!.heads.map((h) => [h.actor?.id, h.by]), [
+    [undefined, undefined],
+    [OWNER, "agent-a"],
+    ["agent-b", undefined],
+    [undefined, undefined],
+  ]);
+  const text = render(shown, { utc: true });
+  assert.match(text, /new head fffffff pushed by agent-a via person-0c0c0c0c/);
+  assert.match(text, /new head ddddddd pushed by agent-b/);
+  assert.match(text, /new head ccccccc pushed by an account that no longer exists/);
+});
+
+test("#44: a head marked as inferred says so in howl show; one from a ledger before this is shown as before", () => {
+  const events = [
+    host("change.opened", 10, { sha: "e".repeat(40), data: { inferred: true } }),
+    pushed(30, { data: { inferred: true } }),
+    pushed(40, { sha: "d".repeat(40) }),
+  ];
+  const shown = show(events, { kind: "change", id: "30" }, null)!;
+  assert.deepEqual(shown.changes[0]!.heads.map((h) => h.inferred), [true, true, undefined]);
+  const text = render(shown, { utc: true });
+  assert.match(text, /the host told no push for the opening head eeeeeee: howl worked it out\n/);
+  assert.match(text, /the host told no push for the new head fffffff: as a round of howl saw it, at the time of its commit\n/);
+  assert.doesNotMatch(text, /eeeeeee[^\n]*time of its commit/, "the opening head stands at the opening's time, not its commit's");
+  assert.match(text, /new head ddddddd\n/, "a head from a ledger before this is shown as before");
+});
+
+test("#44: a forced push is said by howl show, in text and in its JSON, and by howl watch", async () => {
+  const { formatLine } = await import("../src/read/watch.ts");
+  const forced = pushed(30, { actor: { kind: "agent", id: "agent-b" }, data: { forced: true } });
+  const plain = pushed(40, { actor: { kind: "agent", id: "agent-b" }, sha: "d".repeat(40) });
+  const shown = show([host("change.opened", 10, { sha: "e".repeat(40) }), forced, plain], { kind: "change", id: "30" }, null)!;
+  assert.deepEqual(shown.changes[0]!.heads.map((h) => h.forced), [undefined, true, undefined]);
+  assert.equal(JSON.parse(JSON.stringify(shown)).changes[0].heads[1].forced, true, "--json gives it");
+  const text = render(shown, { utc: true });
+  assert.match(text, /new head fffffff pushed by agent-b, forced\n/);
+  assert.match(text, /new head ddddddd pushed by agent-b\n/);
+  assert.match(formatLine(forced, false, true), /forced/);
+  assert.doesNotMatch(formatLine(plain, false, true), /forced/);
+});
+
+test("#44: a head whose pusher's account no longer exists is not counted as a head no agent was matched to; one the host named no one for is", () => {
+  const gone = pushed(30, { actor: undefined, data: { account_removed: true } });
+  const nameless = pushed(31, { sha: "d".repeat(40) });
+  const figures = keyFigures([host("change.opened", 10, { actor: { kind: "agent", id: "agent-a" } }), gone, nameless], T0 + 3600_000);
+  assert.equal(figures.unattributed.count, 1);
 });

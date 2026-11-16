@@ -60,3 +60,17 @@ test("#22: a head line and a session line for the view", () => {
     "agent-1 · fix · 33 min · Bash 54, Read 1",
   );
 });
+
+test("#44: a head line says who pushed it, as the host says, and the agent behind a person's account", () => {
+  assert.equal(
+    headText({ sha: "399a7cb1234", time: m(30), actor: { kind: "person", id: "person-0a0a0a0a" }, by: "agent-1", checks: "failed", checksTime: m(33) }, false),
+    "new head 399a7cb pushed by agent-1 via person-0a0a0a0a · checks failed",
+  );
+  assert.equal(headText({ sha: "399a7cb1234", time: m(30), actor: { kind: "agent", id: "agent-2" } }, false), "new head 399a7cb pushed by agent-2");
+  assert.equal(headText({ sha: "399a7cb1234", time: m(30), gone: true }, false), "new head 399a7cb pushed by an account that no longer exists");
+  assert.equal(headText({ sha: "399a7cb1234", time: m(30), inferred: true }, false), "new head 399a7cb · as a round of howl saw it");
+});
+
+test("#44: the page's line of a head says that a push was forced", () => {
+  assert.equal(headText({ sha: "399a7cb1234", time: m(30), actor: { kind: "agent", id: "agent-2" }, forced: true }, false), "new head 399a7cb pushed by agent-2, forced");
+});
