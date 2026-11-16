@@ -387,16 +387,17 @@ export class Observer {
       found.push(this.event(`change:${n}:reopened:${r.id}`, "change.reopened", r.at, r.by, of(at(r.at)), seen));
     }
     // The review that was dismissed is a review that happened. One the host no longer lists is written from what the
-    // dismissal names of it, before the dismissal; where the host names none the dismissal says no review is tied to it.
+    // dismissal names of it, before the dismissal. A review the host names and the ledger does not hold: `review_unseen`.
+    // A host that does not say which review: `review_unnamed`, and nothing is said of whether the ledger holds it.
     const listed = new Set(change.reviews.map((r) => r.id));
     for (const d of change.dismissals ?? []) {
-      let unseen = d.review === undefined;
+      let unseen = false;
       if (d.review !== undefined && !listed.has(d.review) && !this.known(`review:${d.review}`)) {
         if (d.state !== undefined && d.reviewed !== undefined) {
           found.push(this.event(`review:${d.review}`, `review.${d.state}`, d.reviewed.at, d.reviewed.by, of(d.reviewed.sha ?? at(d.reviewed.at)), seen));
         } else unseen = true;
       }
-      const data = { ...(d.review !== undefined ? { review: d.review } : {}), ...(d.state !== undefined ? { state: d.state } : {}), ...(unseen ? { review_unseen: true } : {}) };
+      const data = { ...(d.review !== undefined ? { review: d.review } : {}), ...(d.state !== undefined ? { state: d.state } : {}), ...(unseen ? { review_unseen: true } : {}), ...(d.review === undefined ? { review_unnamed: true } : {}) };
       found.push(this.event(`review:dismissed:${d.id}`, "review.dismissed", d.at, d.by, { ...of(at(d.at)), data }, seen));
     }
     // #28: a comment is a review only when the project's pattern says so. The key is the one comments had as

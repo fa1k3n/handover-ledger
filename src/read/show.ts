@@ -147,8 +147,10 @@ export interface Shown {
   handover: Giving[];
   /** #45: every taking back, in the order of time: `actor` is the one it was taken from, `by` the one who took it back. */
   takenBack: Giving[];
-  /** #45: dismissals that name no review the ledger holds: a review not seen before was dismissed. */
+  /** #45: dismissals of a review that the host names and the ledger does not hold (`data.review_unseen`). */
   unseenDismissals: { time: string; actor?: Actor; change?: string }[];
+  /** #45: dismissals where the host did not say which review (`data.review_unnamed`). Nothing is said of the ledger. */
+  unnamedDismissals: { time: string; actor?: Actor; change?: string }[];
   sessions: Session[];
   reviews: Round[];
   /** Claimed, not seen at the code host: shown, and counted nowhere (#51). */
@@ -223,9 +225,8 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
       }),
     ),
     takenBack: given.taken.map((e) => defined({ time: e.time, actor: assignee(e), by: e.actor, kind: e.source.kind, gone: goneOf(e) })),
-    unseenDismissals: events
-      .filter((e) => e.type === "review.dismissed" && observed(e) && (e.data as { review_unseen?: unknown } | undefined)?.review_unseen === true)
-      .map((e) => defined({ time: e.time, actor: e.actor, change: e.change })),
+    unseenDismissals: dismissals(events, "review_unseen"),
+    unnamedDismissals: dismissals(events, "review_unnamed"),
     sessions: sessionParts(events, activityFrom, found.whole),
     reviews: rounds(events, acting),
     claimed: events.filter(claimOfHost).map((e) => defined({ time: e.time, type: e.type, task: e.task, change: e.change, actor: e.actor })),
@@ -233,6 +234,13 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
     // The first change of a task is measured from the hand-over; a later one from its own first event.
     summary: summarise(events, end, fromHandover),
   };
+}
+
+/** #45: the observed dismissals that say `flag` in their data, as rows. */
+function dismissals(events: LedgerEvent[], flag: "review_unseen" | "review_unnamed"): Shown["unseenDismissals"] {
+  return events
+    .filter((e) => e.type === "review.dismissed" && observed(e) && (e.data as Record<string, unknown> | undefined)?.[flag] === true)
+    .map((e) => defined({ time: e.time, actor: e.actor, change: e.change }));
 }
 
 /** #48: which of a giving's accounts no longer exist; none when both are there. */
@@ -677,8 +685,10 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
   // #117: a later change of a task is measured from its own first event. The hand-over is the task's
   // first change's, and the life of the changes before it is not its work.
   const own = events.find((e) => !e.type.startsWith("task."));
-  const from = (fromHandover ? (handover ?? work ?? events[0]!) : (own ?? events[0]!)).time;
   const to = end.state === "open" ? events.at(-1)!.time : end.time;
+  // A task given only after its change had ended is measured as one that was never given: from the first sign of work.
+  const given = handover !== undefined && Date.parse(handover.time) <= Date.parse(to) ? handover : undefined;
+  const from = (fromHandover ? (given ?? work ?? events[0]!) : (own ?? events[0]!)).time;
   const parts = { work: 0, person: 0, instructions: 0, checks: 0, review: 0 };
   const checked = new Set(events.filter((e) => e.type.startsWith("checks.") && e.sha).map((e) => e.sha!));
 
@@ -869,6 +879,10 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
 
   for (const u of shown.unseenDismissals) {
     out.push(`  ${t(u.time)}  observed  a review that is not in the ledger was dismissed by ${who(u.actor)}${u.change !== undefined && several ? ` on change ${u.change}` : ""}`);
+  }
+  // #45: where the host did not say which review, nothing is said of whether the ledger holds it.
+  for (const u of shown.unnamedDismissals) {
+    out.push(`  ${t(u.time)}  observed  a review was dismissed; the host did not say which (by ${who(u.actor)})${u.change !== undefined && several ? ` on change ${u.change}` : ""}`);
   }
 
   if (shown.claimed.length > 0) {
