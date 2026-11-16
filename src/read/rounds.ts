@@ -15,7 +15,8 @@ export function roundText(reviews: RoundReview[]): string {
   for (const x of reviews) {
     const text = `${who(x)} ${x.outcome.replace("_", " ")}`;
     const last = parts.at(-1);
-    if (last && last.text === text) last.n++;
+    // #48: reviews with no actor (accounts that are gone) are not one reviewer, so they stay apart.
+    if (last && last.text === text && x.actor !== undefined) last.n++;
     else parts.push({ text, n: 1 });
   }
   return parts.map((p) => (p.n > 1 ? `${p.text} ×${p.n}` : p.text)).join(", ");

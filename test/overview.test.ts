@@ -120,3 +120,35 @@ test("#25: the overview lists the changes to .howl/ of the period", () => {
   );
   assert.equal(keyFigures([cfg("7", 1, [".howl/howl.yml"])], T0 + 40 * DAY).configChanges.length, 0);
 });
+
+/** #48: an observed event of an account that no longer exists: no actor, and it says so. */
+function gone(type: LedgerEvent["type"], minute: number): LedgerEvent {
+  const e = observed(type, minute, "agent-x");
+  delete e.actor;
+  return { ...e, data: { account_removed: true } };
+}
+
+test("#48: a review by a removed account is a handover to someone, with no pseudonym", () => {
+  const rows = handovers(items([observed("change.opened", 0, "agent-a"), gone("review.approved", 5)]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.from, "agent-a");
+  assert.equal(rows[0]!.to, "someone");
+  assert.equal(rows[0]!.step, "Implementation → review");
+});
+
+test("#48: a review that asks for changes, by a removed account, is a handover from someone back to the author", () => {
+  const rows = handovers(items([observed("change.opened", 0, "agent-a"), gone("review.changes_requested", 5)]));
+  assert.deepEqual(rows.map((r) => `${r.from} → ${r.to}`), ["someone → agent-a"]);
+});
+
+test("#48: two reviews by two removed accounts are two rows, not one reviewer with a count", () => {
+  const rows = handovers(items([observed("change.opened", 0, "agent-a"), gone("review.approved", 5), gone("review.approved", 6)]));
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((r) => r.n === undefined));
+});
+
+test("#48: a review with no actor and no word that the account is gone is still no handover", () => {
+  const e = observed("review.approved", 5, "agent-x");
+  delete e.actor;
+  assert.deepEqual(handovers(items([observed("change.opened", 0, "agent-a"), e])), []);
+});

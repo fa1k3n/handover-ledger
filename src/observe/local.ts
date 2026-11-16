@@ -4,6 +4,8 @@
 //   tasks/<number>.json     a Task
 //   changes/<number>.json   a Change; a comment may have a `body` in place of `review`, tested as GitHub's is
 //   checks/<sha>.json       a ChecksState; no file is no checks
+//   repository.json         {"id": ..., "was": ["owner/old"]}: the repository's lasting id and the names it had
+//                           before (#48); without the file, the id is the name and no other name is this repository
 //   fail.json               calls that fail: "list", "task <n>", "change <n>", "checks <sha>"
 // @code_class recording
 import { readdirSync, readFileSync } from "node:fs";
@@ -23,6 +25,40 @@ export class LocalHost implements CodeHost {
     this.dir = dir;
     this.repository = repository;
     this.reviewCommentPattern = reviewCommentPattern;
+  }
+
+  async repositoryId(): Promise<string> {
+    return this.file()?.id ?? this.repository;
+  }
+
+  async isSameRepository(name: string): Promise<boolean> {
+    return this.file()?.was.includes(name) ?? false;
+  }
+
+  /** `repository.json`: its id and the names before; none when there is no file. */
+  private file(): { id: string; was: string[] } | null {
+    let text: string;
+    try {
+      text = readFileSync(join(this.dir, "repository.json"), "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw e;
+    }
+    let value: { id?: unknown; was?: unknown };
+    try {
+      value = JSON.parse(text) as typeof value;
+    } catch {
+      throw new Error("repository.json is not JSON");
+    }
+    const id = value.id;
+    if (!((typeof id === "string" && id !== "" && !/[\s:]/.test(id)) || (typeof id === "number" && Number.isSafeInteger(id) && id >= 0))) {
+      throw new Error('repository.json needs {"id": ...}: a number, or text without spaces or colons');
+    }
+    const was = value.was ?? [];
+    if (!Array.isArray(was) || !was.every((n) => typeof n === "string")) {
+      throw new Error('was in repository.json is a list of names: ["owner/old"]');
+    }
+    return { id: String(id), was: was as string[] };
   }
 
   async listUpdated(since: string | null): Promise<Ref[]> {

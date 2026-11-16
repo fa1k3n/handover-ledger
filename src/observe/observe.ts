@@ -7,6 +7,12 @@
 // passed over. Where the last round ended is kept in observe.json; without it
 // the host is read from the start and nothing is written twice.
 //
+// The repository in an id is the host's lasting id of it (#48), so a rename or
+// a move to another owner leaves the ids as they were. A ledger from before
+// that holds ids made from `owner/name`: the names are read from the ledger
+// when the observer starts, and an id of either form is the same event. `repo`
+// on the event stays the name, as people read it.
+//
 // The cursor moves on only after a round in which every call went through.
 // Otherwise the next round reads the same span again.
 // @code_class recording
@@ -85,6 +91,16 @@ const MAX_TRACE_READS = 10;
 export class Observer {
   /** The head commit of each change when it was opened, as the ledger has it. */
   private readonly openedHeads = new Map<number, string>();
+  /** #48: the change openings the ledger holds, as written under any form of id; read at the start. */
+  private readonly openings: { id: string; change: number; sha: string }[] = [];
+  /** #48: the names the ledger's old ids were made from, apart from the repository's name now. */
+  private readonly oldNames = new Set<string>();
+  /** #48: what the host said of an old name, asked for once for as long as the observer runs. */
+  private readonly confirmed = new Map<string, boolean>();
+  /** #48: the start of an id of the lasting form, once the host has said the repository's id. */
+  private prefix: string | undefined;
+  /** #48: the starts of every id this repository's events have had, the lasting form first. */
+  private prefixes: string[] = [];
   private readonly taskPattern: RegExp | null;
   private readonly host: CodeHost;
   private readonly writer: LedgerWriter;
@@ -113,14 +129,52 @@ export class Observer {
     const { host, settings } = parts;
     this.taskPattern = settings.taskFromBranch === undefined ? null : new RegExp(settings.taskFromBranch);
     for (const e of ledgerEvents(parts.ledgerPath)) {
-      if (e.type === "change.opened" && e.source?.adapter === host.name && e.repo === host.repository && e.sha) {
-        this.openedHeads.set(Number(e.change), e.sha);
+      if (e.source?.adapter !== host.name || e.source.kind !== "observed" || typeof e.id !== "string") continue;
+      // An id made from a name starts with the name the event's `repo` held then.
+      if (typeof e.repo === "string" && e.repo !== host.repository && e.id.startsWith(`${host.name}:${e.repo}:`)) this.oldNames.add(e.repo);
+      if (e.type === "change.opened" && e.sha) this.openings.push({ id: e.id, change: Number(e.change), sha: e.sha });
+    }
+  }
+
+  /**
+   * #48: the ids of events, and the heads the ledger has of changes, from the host's id of the repository. An old
+   * name is this repository's only when the host says so: an id made from the name of another repository is not
+   * this repository's event. A name the host cannot answer for throws.
+   */
+  private async learn(): Promise<void> {
+    const repositoryId = await this.host.repositoryId();
+    const names = new Set([this.host.repository]);
+    for (const name of this.oldNames) {
+      let same = this.confirmed.get(name);
+      if (same === undefined) {
+        try {
+          same = await this.host.isSameRepository(name);
+        } catch (e) {
+          throw new Error(`the host cannot say whether ${name}, a name in the ledger's ids, is ${this.host.repository}: ${(e as Error).message}`);
+        }
+        this.confirmed.set(name, same);
       }
+      if (same) names.add(name);
+    }
+    this.prefix = `${this.host.name}:${repositoryId}:`;
+    this.prefixes = [...new Set([this.prefix, ...[...names].map((n) => `${this.host.name}:${n}:`)])];
+    for (const o of this.openings) {
+      if (this.prefixes.some((p) => o.id.startsWith(p))) this.openedHeads.set(o.change, o.sha);
     }
   }
 
   async round(now = new Date()): Promise<Round> {
     const ingested = ingestPass(this.places, this.writer, this.settings.activityDays, now.getTime());
+    // #48: every id is made from the host's id of the repository, and an old name must be confirmed by the host:
+    // without either nothing observed is written, and the cursor stays.
+    if (this.prefix === undefined) {
+      try {
+        await this.learn();
+      } catch (e) {
+        this.warn(`${this.host.repository}: ${(e as Error).message}`);
+        return { ingested, appended: 0, complete: false };
+      }
+    }
     const seen = now.toISOString();
     const first = !existsSync(this.cursorPath);
     const cursor = this.readCursor();
@@ -163,7 +217,7 @@ export class Observer {
         }
         found.push(...this.changeEvents(change, seen));
         for (const [sha, w] of watch) if (w.change === change.number) watch.delete(sha);
-        if (!this.writer.has(this.id(`checks:${change.head.sha}`))) {
+        if (!this.known(`checks:${change.head.sha}`)) {
           watch.set(change.head.sha, {
             sha: change.head.sha,
             change: change.number,
@@ -176,7 +230,7 @@ export class Observer {
     }
 
     for (const [sha, w] of watch) {
-      if (this.writer.has(this.id(`checks:${sha}`))) {
+      if (this.known(`checks:${sha}`)) {
         watch.delete(sha);
         continue;
       }
@@ -206,7 +260,7 @@ export class Observer {
     // #112: by time, and at the same time by what can happen first: opened before assigned.
     found.sort(happensBefore);
     for (const e of found) {
-      if (this.writer.has(e.id)) continue;
+      if (this.known(e.id.slice(this.prefix!.length))) continue;
       this.writer.append(e);
       appended++;
       if (e.type === "change.opened" && e.sha) this.openedHeads.set(Number(e.change), e.sha);
@@ -228,7 +282,7 @@ export class Observer {
     let reads = 0;
     for (const [key, p] of this.pendingTrace) {
       const id = `trace:${p.change}:${p.sha}`;
-      if (this.writer.has(this.id(id))) {
+      if (this.known(id)) {
         this.pendingTrace.delete(key);
         continue;
       }
@@ -283,7 +337,7 @@ export class Observer {
     }
 
     // #38: what the tests of this head name is read once the round has its events: the head waits for that.
-    if (this.traceAt !== undefined && !this.writer.has(this.id(`trace:${n}:${head}`))) {
+    if (this.traceAt !== undefined && !this.known(`trace:${n}:${head}`)) {
       const task = this.taskOf(change);
       this.pendingTrace.set(`${n}:${head}`, { sha: head, change: n, branch: change.branch, ...(task !== undefined ? { task } : {}), at: change.head.at, open: change.closedAt === undefined });
     }
@@ -321,6 +375,8 @@ export class Observer {
     fields: Partial<LedgerEvent>,
     seen: string,
   ): LedgerEvent {
+    // #48: an account that is gone names no one, and the event says so, so it is not taken for an event nobody did.
+    const gone = by !== undefined && "removed" in by;
     return JSON.parse(
       JSON.stringify({
         v: 0,
@@ -329,20 +385,26 @@ export class Observer {
         type,
         source: { adapter: this.host.name, kind: "observed" },
         project: this.settings.project,
-        actor: by ? this.actor(by) : undefined,
+        actor: by && !gone ? this.actor(by) : undefined,
         repo: this.host.repository,
         ...fields,
-        data: { ...(fields.data ?? {}), seen },
+        data: { ...(fields.data ?? {}), ...(gone ? { account_removed: true } : {}), seen },
       }),
     ) as LedgerEvent;
   }
 
+  /** The id of a thing of this repository: its lasting form. */
   private id(key: string): string {
-    return `${this.host.name}:${this.host.repository}:${key}`;
+    return `${this.prefix!}${key}`;
+  }
+
+  /** Whether the ledger has the thing already, under the lasting id or under an id made from a name (#48). */
+  private known(key: string): boolean {
+    return this.prefixes.some((p) => this.writer.has(`${p}${key}`));
   }
 
   /** An agent is named by its account; a person by a pseudonym, never by the account. */
-  private actor(account: Account): NonNullable<LedgerEvent["actor"]> {
+  private actor(account: Exclude<Account, { removed: true }>): NonNullable<LedgerEvent["actor"]> {
     if (account.bot || this.settings.agents.includes(account.login)) return { kind: "agent", id: account.login };
     return { kind: "person", id: this.people.pseudonym(account.login) };
   }

@@ -249,3 +249,96 @@ test("#20, #28: a change's comments are read apart from its reviews, with their 
   ]);
   assert.ok(!JSON.stringify(change).includes("round 1"), "no comment text is kept");
 });
+
+test("#48: the lasting id of the repository is its numeric id, as text, asked once for as long as the host lives", async () => {
+  const { host, asked } = github({ [R]: { body: { id: 1234567, full_name: "team/product" } } });
+  assert.equal(await host.repositoryId(), "1234567");
+  assert.equal(await host.repositoryId(), "1234567");
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0]!.url, R);
+});
+
+test("#48: an answer with no id for the repository is an error, not an id made from the name", async () => {
+  const { host } = github({ [R]: { body: { full_name: "team/product" } } });
+  await assert.rejects(host.repositoryId(), /id/);
+});
+
+test("#48: an account that no longer exists is no one: no user, or the ghost the host puts in its place", async () => {
+  const { host } = github({
+    [`${R}/issues/5/events`]: { body: [{ id: 900, event: "assigned", assignee: null, created_at: "2026-01-01T00:01:00Z" }] },
+    [`${R}/issues/5`]: {
+      body: {
+        number: 5,
+        user: null,
+        created_at: "2026-01-01T00:00:00Z",
+        closed_at: "2026-01-01T01:00:00Z",
+        closed_by: { login: "ghost", id: 10137, type: "User" },
+        updated_at: "2026-01-01T01:00:00Z",
+      },
+    },
+  });
+  const task = await host.task(5);
+  assert.deepEqual(task.openedBy, { removed: true });
+  assert.deepEqual(task.closedBy, { removed: true });
+  assert.deepEqual(task.assignments, [{ id: "900", assignee: { removed: true }, at: "2026-01-01T00:01:00Z" }], "given to an account that is gone: it was still given");
+});
+
+test("#48: a user who is called ghost and is not the host's ghost is an account like another", async () => {
+  const { host } = github({
+    [`${R}/issues/5/events`]: { body: [] },
+    [`${R}/issues/5`]: { body: { number: 5, user: { login: "ghost", id: 42, type: "User" }, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" } },
+  });
+  assert.deepEqual((await host.task(5)).openedBy, { login: "ghost", bot: false });
+});
+
+test("#48: a review with no user, and a comment by the host's ghost, are of an account that is gone; a comment with no user is left out, as before", async () => {
+  const sha = "a".repeat(40);
+  const { host } = github({
+    [`${R}/pulls/7/files`]: { body: [] },
+    [`${R}/pulls/7/reviews`]: {
+      body: [
+        { id: 1, user: null, state: "APPROVED", submitted_at: "2026-01-01T00:10:00Z", commit_id: sha },
+        { id: 2, user: { login: "ghost", id: 10137, type: "User" }, state: "COMMENTED", submitted_at: "2026-01-01T00:11:00Z", commit_id: sha },
+      ],
+    },
+    [`${R}/issues/7/comments`]: {
+      body: [
+        { id: 31, user: { login: "ghost", id: 10137, type: "User" }, created_at: "2026-01-01T00:12:00Z", body: "[review] ok" },
+        { id: 32, user: null, created_at: "2026-01-01T00:13:00Z", body: "[review] ok" },
+      ],
+    },
+    [`${R}/pulls/7`]: {
+      body: { number: 7, user: null, created_at: "2026-01-01T00:00:00Z", head: { ref: "x", sha }, updated_at: "2026-01-01T00:30:00Z" },
+    },
+    [`${R}/commits/${sha}`]: { body: { sha, commit: { committer: { date: "2026-01-01T00:05:00Z" } } } },
+  });
+  const change = await host.change(7);
+  assert.deepEqual(change.openedBy, { removed: true });
+  assert.deepEqual(change.reviews.map((r) => r.by), [{ removed: true }, { removed: true }]);
+  assert.deepEqual(change.reviews.map((r) => r.state), ["approved", "commented"]);
+  assert.deepEqual(change.comments!.map((c) => [c.id, c.by]), [["31", { removed: true }]]);
+});
+
+test("#48: an old name that GitHub answers with the same id is the same repository: it was renamed", async () => {
+  const { host, asked } = github({ "/repos/team/old": { body: { id: 1234567 } }, [R]: { body: { id: 1234567 } } });
+  assert.equal(await host.isSameRepository("team/old"), true);
+  assert.deepEqual(asked.map((a) => a.url).sort(), ["/repos/team/old", R].sort());
+});
+
+test("#48: an old name that GitHub answers with another id is another repository", async () => {
+  const { host } = github({ "/repos/team/old": { body: { id: 7654321 } }, [R]: { body: { id: 1234567 } } });
+  assert.equal(await host.isSameRepository("team/old"), false);
+});
+
+test("#48: an old name that is no repository at GitHub is another repository; any other failure is no answer", async () => {
+  const none = github({ "/repos/team/old": { status: 404, body: { message: "Not Found" } }, [R]: { body: { id: 1234567 } } });
+  assert.equal(await none.host.isSameRepository("team/old"), false);
+  const down = github({ "/repos/team/old": { status: 502 }, [R]: { body: { id: 1234567 } } });
+  await assert.rejects(down.host.isSameRepository("team/old"), /502/);
+  const denied = github({ "/repos/team/old": { status: 401 }, [R]: { body: { id: 1234567 } } });
+  await assert.rejects(denied.host.isSameRepository("team/old"), /401/);
+  // A name that cannot be a repository at GitHub is asked for nowhere.
+  const odd = github({});
+  assert.equal(await odd.host.isSameRepository("local"), false);
+  assert.deepEqual(odd.asked, []);
+});
