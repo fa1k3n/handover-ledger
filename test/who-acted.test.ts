@@ -350,7 +350,7 @@ test("a review the host lists as already dismissed, with its outcome named in th
   assert.deepEqual(round(s), []);
 });
 
-test("a review the host lists as dismissed, naming nothing of it: only the dismissal, with review_unseen, and howl show says so", () => {
+test("a review the host names and the ledger does not hold, with no outcome named: only the dismissal, with its id and review_unseen, and howl show says so", () => {
   const s = setup();
   s.host.change(changeWith({ dismissals: [{ id: "d1", review: "r-9", by: lead, at: at(15) }] }) as any);
   const events = round(s);
@@ -358,6 +358,7 @@ test("a review the host lists as dismissed, naming nothing of it: only the dismi
   const dismissed = one(events, "review.dismissed");
   assert.equal(dismissed.data.review_unseen, true);
   assert.equal(dismissed.data.review, "r-9");
+  assert.equal("review_unnamed" in dismissed.data, false);
   assert.match(show(s, "change:7"), /a review that is not in the ledger was dismissed by person-/);
 });
 
@@ -374,12 +375,20 @@ test("a dismissal of a review the ledger already holds is no review_unseen, also
   assert.doesNotMatch(text, /not in the ledger/);
 });
 
-test("a dismissal that names no review at all (GitHub, until the token has checked its fields) is written with review_unseen and no review", () => {
+test("a dismissal that names no review (GitHub, until #127): no review, review_unnamed, and no word that the review is not in the ledger", () => {
   const s = setup();
-  s.host.change(changeWith({ dismissals: [{ id: "d1", by: lead, at: at(15) }] }) as any);
+  s.host.change(changeWith({ reviews: [{ id: "r-9", by: bob, state: "approved", at: at(10), sha: SHA.a }] }) as any);
+  round(s);
+  s.host.change(changeWith({ reviews: [{ id: "r-9", by: bob, state: "approved", at: at(10), sha: SHA.a }], dismissals: [{ id: "d1", by: lead, at: at(15) }], updatedAt: at(40) }) as any);
   const dismissed = one(round(s), "review.dismissed");
-  assert.equal(dismissed.data.review_unseen, true);
+  assert.equal(dismissed.data.review_unnamed, true);
   assert.equal("review" in dismissed.data, false);
+  assert.equal("review_unseen" in dismissed.data, false);
+  const text = show(s, "change:7");
+  assert.match(text, /a review was dismissed; the host did not say which \(by person-\w+\)/);
+  assert.doesNotMatch(text, /not in the ledger/);
+  // The review is in the ledger and shown as it was: nothing is guessed about which one was dismissed.
+  assert.match(text, /person-\w+ approved\n/);
 });
 
 test("a bundle of the task holds the giving, the taking back and the second giving", () => {
