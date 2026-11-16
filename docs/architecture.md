@@ -89,10 +89,12 @@ The first version only **records**: a ledger over a flow that exists (level 0). 
 Embedded developers know Python and shell, not TypeScript. So everything a development team writes or changes itself is Python or a shell script:
 
 - mandatory checks before a review (a wrapper around a static analyser, a coverage limit),
-- adapters to in-house tools (an export from a requirements tool, an internal tracker),
+- adapters to tools of the team's own making (an internal tracker, an in-house test bench),
 - scripts in `.howl/`.
 
 Rules are configuration first, and code only where configuration is not enough.
+
+An adapter to a tool that many teams use (a code host, a tracker, a requirements tool) is not among these: it is part of `howl`, as the GitHub adapter is, and a team configures it and does not write it.
 
 The boundary is a protocol between processes, not an API inside the engine: the engine starts the script, sends JSON on standard input and reads JSON on standard output. Python then needs no place inside the TypeScript code, and a shell script or any other language works as well. `howl emit` writes an event from a script without building the JSON by hand.
 
