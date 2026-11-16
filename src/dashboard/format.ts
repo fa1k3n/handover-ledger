@@ -327,6 +327,21 @@ export function stepText(h: { step: string; n?: number }): string {
   return h.n !== undefined && h.n > 1 ? `${h.step} ×${h.n}` : h.step;
 }
 
+/** #120: the address a row of the handovers opens: the change's view, or the task's for the giving of a task. */
+export function handoverLink(h: { change?: string; task?: string }, project: string | null): string {
+  return hashFor("change", project, h.change !== undefined ? `change:${h.change}` : `task:${h.task}`);
+}
+
+/** #120: the key of a row of the handovers; a row of a task has no change, and two rows are never one. */
+export function handoverKey(h: { time: string; change?: string; task?: string; step: string; from: string; to: string; hash?: string }): string {
+  return [h.time, h.change !== undefined ? `change:${h.change}` : `task:${h.task ?? ""}`, h.step, h.from, h.to, h.hash ?? ""].join("|");
+}
+
+/** #120: for a giving that was taken back, when; none for every other row. */
+export function takenBackText(h: { takenBack?: string }, now: number): string | null {
+  return h.takenBack === undefined ? null : texts.overview.takenBack(whenShort(h.takenBack, now));
+}
+
 /**
  * #110: the field a decoded row can narrow the event log by, or null. The
  * project and the repository, as a click on their cells did since #79.

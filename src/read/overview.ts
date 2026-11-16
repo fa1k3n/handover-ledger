@@ -4,6 +4,7 @@
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, namelessHead } from "./acting.ts";
+import { accountsGone, assignee, giver, givings } from "./assignee.ts";
 import { isReview, observed } from "./observed.ts";
 import { byTime } from "./order.ts";
 
@@ -13,12 +14,15 @@ export const PERIOD_MS = 30 * DAY;
 
 export interface Handover {
   time: string;
-  change: string;
+  /** None on the row of a task given (#120): it has no change yet, and opens the task's view. */
+  change?: string;
   task?: string;
   from: string;
   /** An actor, or `merged` when the merge ends the chain. */
   to: string;
-  step: "Implementation → review" | "Review → fix" | "Review → merge";
+  step: "Task → implementation" | "Implementation → review" | "Review → fix" | "Review → merge";
+  /** #120: when the giving of a task was taken back, as `howl show` marks it. */
+  takenBack?: string;
   /** The person's account the agents acted through, when the code host named a person (#14). */
   via?: string;
   /** The agent's model and effort at the time, when an agent hands over. */
@@ -41,7 +45,7 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
   // #108: the last row of each change on its head. A row that only repeats it is counted there, not written
   // again: a review recorded as sixteen comments is one handover, not sixteen.
   const lastOf = new Map<string, Handover>();
-  const add = (row: Handover, fold = true) => {
+  const add = (row: Handover & { change: string }, fold = true) => {
     const last = lastOf.get(row.change);
     if (fold && last !== undefined && last.step === row.step && last.from === row.from && last.to === row.to && last.via === row.via) {
       last.n = (last.n ?? 1) + 1;
@@ -50,7 +54,17 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     rows.push(row);
     lastOf.set(row.change, row);
   };
+  // #120: the givings of tasks, and which of them were taken back: the one reading `howl show` has.
+  const taken = new Map<LedgerEvent, string>();
+  for (const g of givings(sorted.map((i) => i.event)).all) if (g.takenBy !== undefined) taken.set(g.event, g.takenBy.time);
   for (const { event: e, hash } of sorted) {
+    // #120: the giving of a task is a handover, from the giver to the receiver. A claim of it is none (#51), and a task
+    // that someone gives to themself hands nothing over. A giving has no change, so it stands outside the folds of changes.
+    if (e.type === "task.assigned" && observed(e)) {
+      const row = givingRow(e, hash, taken.get(e));
+      if (row !== null) rows.push(row);
+      continue;
+    }
     // #51: what a session or a script claims of a change is no handover, and does not say which task it has.
     if (e.change === undefined || !observed(e)) continue;
     if (e.task !== undefined) task.set(e.change, e.task);
@@ -93,6 +107,19 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     if (row.task === undefined) delete row.task;
   }
   return rows.reverse();
+}
+
+/** #120: the row of a giving, or none: no task named, or the same member as giver and receiver. */
+function givingRow(e: LedgerEvent, hash: string | undefined, takenBack: string | undefined): Handover | null {
+  if (e.task === undefined) return null;
+  const gone = accountsGone(e);
+  const by = giver(e);
+  const to = assignee(e);
+  if (by !== undefined && to !== undefined && by.kind === to.kind && by.id === to.id) return null;
+  // An account that no longer exists has no pseudonym here, as in a review by one (#48); a giver the host did not name is not recorded.
+  const from = gone.by ? "someone" : (by?.id ?? "not recorded");
+  const receiver = gone.to ? "someone" : (to?.id ?? "someone");
+  return { time: e.time, task: e.task, hash, from, to: receiver, step: "Task → implementation", ...(takenBack !== undefined ? { takenBack } : {}) };
 }
 
 export interface KeyFigures {
