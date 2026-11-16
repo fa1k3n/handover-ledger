@@ -93,7 +93,7 @@ interface Run {
   dir: string;
   ledger: string;
   host: LocalHost;
-  observer(repository: string, start?: string, over?: Partial<{ host: CodeHost; warn: (m: string) => void }>): { observer: Observer; close(): void };
+  observer(repository: string, start?: string, over?: Partial<{ host: CodeHost; warn: (m: string) => void; hostDir: string }>): { observer: Observer; close(): void };
 }
 
 /** The folders of an observer run directly, so that a round can be given a `traceAt` and a start. */
@@ -111,7 +111,7 @@ function run(): Run {
     observer(repository, start, over = {}) {
       const writer = openLedger(ledger, { project: PROJECT });
       const observer = new Observer({
-        host: over.host ?? new LocalReader(hostDir, repository),
+        host: over.host ?? new LocalReader(over.hostDir ?? hostDir, repository),
         writer,
         ledgerPath: ledger,
         places: { project: PROJECT, inbox: join(state, "inbox"), activity: join(state, "activity.jsonl") },
@@ -144,7 +144,7 @@ const ledgerCount = (path: string) => [...ledgerEvents(path)].length;
 test("#48: a ledger of ids made from team/product, then the repository is team/renamed: a round that reads everything again writes nothing, for every kind of event", async () => {
   const r = run();
   scenario(r.host);
-  r.host.repository("4711");
+  r.host.repository("4711", ["team/product"]);
   const old = oldLedger(r.ledger);
   // The case is of every kind of event the observer writes, so that none can be forgotten.
   const types = new Set(old.map((e) => e.type));
@@ -165,6 +165,112 @@ test("#48: a ledger of ids made from team/product, then the repository is team/r
   assert.deepEqual(await round(r, "team/renamed"), []);
 });
 
+test("#48: the review's case: a ledger of one repository, then of another with the same change numbers; the observer then on the second, with a lasting id, writes each new opening and no head that never was", async () => {
+  const r = run();
+  const change = (n: number, branch: string, sha: string, minute: number) => ({
+    number: n,
+    branch,
+    openedAt: at(minute),
+    openedBy: agent,
+    head: { sha, at: at(minute) },
+    tasks: [],
+    reviews: [],
+    updatedAt: at(minute),
+  });
+  // Before this change: team/a with changes 1 to 3, then team/b with a change 1; ids made from the names.
+  const a = new LocalHost(join(r.dir, "host-a"));
+  a.change(change(1, "a-1", SHA.a, 1)).change(change(2, "a-2", SHA.a, 2)).change(change(3, "a-3", SHA.a, 3));
+  const b = new LocalHost(join(r.dir, "host-b"));
+  b.change(change(1, "b-1", SHA.b, 10));
+  for (const [dir, name] of [["host-a", "team/a"], ["host-b", "team/b"]] as const) {
+    const o = r.observer(name, undefined, { hostDir: join(r.dir, dir) });
+    await o.observer.round(new Date(at(100)));
+    o.close();
+    rmSync(join(r.dir, "state", "observe.json"));
+  }
+  const before = ledgerCount(r.ledger);
+  // Now team/b has a lasting id, and new changes 2 and 3 that team/a has numbers for too.
+  b.repository("222").change(change(2, "b-2", SHA.c, 20)).change(change(3, "b-3", SHA.d, 21));
+  const o = r.observer("team/b", undefined, { hostDir: join(r.dir, "host-b") });
+  await o.observer.round(new Date(at(200)));
+  o.close();
+  const added = [...ledgerEvents(r.ledger)].slice(before) as Record<string, any>[];
+  const ids = added.map((e) => e.id);
+  assert.ok(ids.includes("local:222:change:2:opened"), "the opening of change 2 of team/b is written");
+  assert.ok(ids.includes("local:222:change:3:opened"), "the opening of change 3 of team/b is written");
+  assert.ok(!ids.includes("local:222:change:1:opened"), "change 1 of team/b was written before, under its name");
+  assert.deepEqual(added.filter((e) => e.type === "change.updated"), [], "no new head that did not happen");
+  assert.ok(added.every((e) => e.repo === "team/b" && e.id.startsWith("local:222:")));
+});
+
+test("#48: an old name that is another repository: its events are not matched, and what the host shows is written in the new form", async () => {
+  const r = run();
+  scenario(r.host);
+  oldLedger(r.ledger);
+  // The host says nothing of team/product as a former name: it is another repository.
+  r.host.repository("4711");
+  const written = await round(r, "team/renamed", at(0));
+  assert.ok(written.length > 20, "everything the host shows is written again, for it is not what team/product was");
+  assert.ok(written.every((e) => e.id.startsWith("local:4711:")));
+});
+
+test("#48: an old name the host cannot answer for: nothing observed is written, the cursor stays, and the warning names the old name", async () => {
+  const r = run();
+  scenario(r.host);
+  oldLedger(r.ledger);
+  const inner = new LocalReader(join(r.dir, "host"), "team/renamed");
+  let answers = false;
+  const asked: string[] = [];
+  const host: CodeHost = {
+    name: inner.name,
+    repository: inner.repository,
+    repositoryId: async () => "4711",
+    isSameRepository: async (name) => {
+      asked.push(name);
+      if (!answers) throw new Error("GitHub answered 502");
+      return true;
+    },
+    listUpdated: (s) => inner.listUpdated(s),
+    task: (n) => inner.task(n),
+    change: (n) => inner.change(n),
+    checks: (s) => inner.checks(s),
+  };
+  const before = ledgerCount(r.ledger);
+  const warned: string[] = [];
+  const first = r.observer("team/renamed", at(0), { host, warn: (m) => warned.push(m) });
+  const result = await first.observer.round(new Date(at(200)));
+  assert.equal(result.complete, false);
+  assert.equal(result.appended, 0);
+  assert.equal(ledgerCount(r.ledger), before);
+  assert.equal(existsSync(join(r.dir, "state", "observe.json")), false, "the cursor did not move");
+  assert.match(warned.join("\n"), /team\/product/);
+  assert.match(warned.join("\n"), /GitHub answered 502/);
+  // The same observer asks again in the next round, and goes on when it is answered.
+  answers = true;
+  const next = await first.observer.round(new Date(at(201)));
+  first.close();
+  assert.equal(next.complete, true);
+  assert.equal(next.appended, 0, "confirmed, the old ids are the same events");
+  assert.deepEqual(asked, ["team/product", "team/product"], "only the old name is asked for, never the current one");
+});
+
+test("#48: the repository.json of the local host says what the repository was called: `was`, a list of names; anything else is an error", async () => {
+  const dir = folder();
+  const host = new LocalHost(dir);
+  host.repository(7, ["team/old", "team/older"]);
+  const reader = new LocalReader(dir, "team/new");
+  assert.equal(await reader.repositoryId(), "7");
+  assert.equal(await reader.isSameRepository("team/old"), true);
+  assert.equal(await reader.isSameRepository("team/older"), true);
+  assert.equal(await reader.isSameRepository("team/other"), false);
+  writeFileSync(join(dir, "repository.json"), JSON.stringify({ id: 7, was: "team/old" }));
+  await assert.rejects(reader.isSameRepository("team/old"), /was/);
+  // With no file the id is the name, and no other name is this repository.
+  rmSync(join(dir, "repository.json"));
+  assert.equal(await reader.repositoryId(), "team/new");
+  assert.equal(await reader.isSameRepository("team/old"), false);
+});
+
 test("#48: the same repository under its old name, with the lasting id now read: nothing is written twice", async () => {
   const r = run();
   scenario(r.host);
@@ -183,7 +289,7 @@ test("#48: without a repository.json the id is the name, so the old form goes on
 test("#48: after a rename a new head of a change opened before it is a new head (the opened head is read by the old name too)", async () => {
   const r = run();
   scenario(r.host);
-  r.host.repository("4711");
+  r.host.repository("4711", ["team/product"]);
   oldLedger(r.ledger);
   r.host.change({
     number: 12,
@@ -206,7 +312,7 @@ test("#48: after a rename a new head of a change opened before it is a new head 
 test("#48: what is new after a rename has the lasting id, repo is the name now, and is written once", async () => {
   const r = run();
   scenario(r.host);
-  r.host.repository("4711");
+  r.host.repository("4711", ["team/product"]);
   oldLedger(r.ledger);
   r.host.task({ number: 2, openedAt: at(100), openedBy: person("alice"), assignments: [], updatedAt: at(100) });
   const written = await round(r, "team/renamed");
@@ -239,6 +345,7 @@ test("#48: a host that cannot tell its repository's id writes nothing and says s
       if (fails) throw new Error("the host does not answer");
       return "4711";
     },
+    isSameRepository: (n) => inner.isSameRepository(n),
     listUpdated: (s) => inner.listUpdated(s),
     task: (n) => inner.task(n),
     change: (n) => inner.change(n),

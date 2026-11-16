@@ -318,3 +318,27 @@ test("#48: a review with no user, and a comment by the host's ghost, are of an a
   assert.deepEqual(change.reviews.map((r) => r.state), ["approved", "commented"]);
   assert.deepEqual(change.comments!.map((c) => [c.id, c.by]), [["31", { removed: true }]]);
 });
+
+test("#48: an old name that GitHub answers with the same id is the same repository: it was renamed", async () => {
+  const { host, asked } = github({ "/repos/team/old": { body: { id: 1234567 } }, [R]: { body: { id: 1234567 } } });
+  assert.equal(await host.isSameRepository("team/old"), true);
+  assert.deepEqual(asked.map((a) => a.url).sort(), ["/repos/team/old", R].sort());
+});
+
+test("#48: an old name that GitHub answers with another id is another repository", async () => {
+  const { host } = github({ "/repos/team/old": { body: { id: 7654321 } }, [R]: { body: { id: 1234567 } } });
+  assert.equal(await host.isSameRepository("team/old"), false);
+});
+
+test("#48: an old name that is no repository at GitHub is another repository; any other failure is no answer", async () => {
+  const none = github({ "/repos/team/old": { status: 404, body: { message: "Not Found" } }, [R]: { body: { id: 1234567 } } });
+  assert.equal(await none.host.isSameRepository("team/old"), false);
+  const down = github({ "/repos/team/old": { status: 502 }, [R]: { body: { id: 1234567 } } });
+  await assert.rejects(down.host.isSameRepository("team/old"), /502/);
+  const denied = github({ "/repos/team/old": { status: 401 }, [R]: { body: { id: 1234567 } } });
+  await assert.rejects(denied.host.isSameRepository("team/old"), /401/);
+  // A name that cannot be a repository at GitHub is asked for nowhere.
+  const odd = github({});
+  assert.equal(await odd.host.isSameRepository("local"), false);
+  assert.deepEqual(odd.asked, []);
+});

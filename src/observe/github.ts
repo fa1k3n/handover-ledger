@@ -52,6 +52,25 @@ export class GitHub implements CodeHost {
     return this.lastingId;
   }
 
+  /**
+   * #48: an old name is this repository when GitHub answers under it with the same id: a renamed repository answers
+   * under its old name. Another id, or no such repository, is another repository. Any other failure is no answer.
+   */
+  async isSameRepository(name: string): Promise<boolean> {
+    // A name that cannot be a repository of GitHub is not asked for.
+    if (!/^[^/\s]+\/[^/\s]+$/.test(name)) return false;
+    const mine = await this.repositoryId();
+    let id: unknown;
+    try {
+      id = (await this.one(`${API}/repos/${name.split("/").map(encodeURIComponent).join("/")}`)).id;
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      if (status === 404 || status === 410) return false;
+      throw e;
+    }
+    return typeof id === "number" && String(id) === mine;
+  }
+
   async listUpdated(since: string | null): Promise<Ref[]> {
     const params: Record<string, string> = { state: "all", sort: "updated", direction: "asc", per_page: "100" };
     if (since !== null) params.since = since;
@@ -184,7 +203,7 @@ export class GitHub implements CodeHost {
         await this.sleep(wait);
         continue;
       }
-      throw new Error(`GitHub answered ${response.status} to GET ${new URL(url).pathname}`);
+      throw Object.assign(new Error(`GitHub answered ${response.status} to GET ${new URL(url).pathname}`), { status: response.status });
     }
   }
 }

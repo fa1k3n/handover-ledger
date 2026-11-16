@@ -95,6 +95,8 @@ export class Observer {
   private readonly openings: { id: string; change: number; sha: string }[] = [];
   /** #48: the names the ledger's old ids were made from, apart from the repository's name now. */
   private readonly oldNames = new Set<string>();
+  /** #48: what the host said of an old name, asked for once for as long as the observer runs. */
+  private readonly confirmed = new Map<string, boolean>();
   /** #48: the start of an id of the lasting form, once the host has said the repository's id. */
   private prefix: string | undefined;
   /** #48: the starts of every id this repository's events have had, the lasting form first. */
@@ -129,14 +131,31 @@ export class Observer {
     for (const e of ledgerEvents(parts.ledgerPath)) {
       if (e.source?.adapter !== host.name || e.source.kind !== "observed" || typeof e.id !== "string") continue;
       // An id made from a name starts with the name the event's `repo` held then.
-      if (typeof e.repo === "string" && e.id.startsWith(`${host.name}:${e.repo}:`)) this.oldNames.add(e.repo);
+      if (typeof e.repo === "string" && e.repo !== host.repository && e.id.startsWith(`${host.name}:${e.repo}:`)) this.oldNames.add(e.repo);
       if (e.type === "change.opened" && e.sha) this.openings.push({ id: e.id, change: Number(e.change), sha: e.sha });
     }
   }
 
-  /** #48: from the host's id of the repository: the ids of events, and the heads the ledger has of changes. */
-  private learn(repositoryId: string): void {
-    const names = new Set([this.host.repository, ...this.oldNames]);
+  /**
+   * #48: the ids of events, and the heads the ledger has of changes, from the host's id of the repository. An old
+   * name is this repository's only when the host says so: an id made from the name of another repository is not
+   * this repository's event. A name the host cannot answer for throws.
+   */
+  private async learn(): Promise<void> {
+    const repositoryId = await this.host.repositoryId();
+    const names = new Set([this.host.repository]);
+    for (const name of this.oldNames) {
+      let same = this.confirmed.get(name);
+      if (same === undefined) {
+        try {
+          same = await this.host.isSameRepository(name);
+        } catch (e) {
+          throw new Error(`the host cannot say whether ${name}, a name in the ledger's ids, is ${this.host.repository}: ${(e as Error).message}`);
+        }
+        this.confirmed.set(name, same);
+      }
+      if (same) names.add(name);
+    }
     this.prefix = `${this.host.name}:${repositoryId}:`;
     this.prefixes = [...new Set([this.prefix, ...[...names].map((n) => `${this.host.name}:${n}:`)])];
     for (const o of this.openings) {
@@ -146,12 +165,13 @@ export class Observer {
 
   async round(now = new Date()): Promise<Round> {
     const ingested = ingestPass(this.places, this.writer, this.settings.activityDays, now.getTime());
-    // #48: every id is made from the host's id of the repository: without it nothing is written, and the cursor stays.
+    // #48: every id is made from the host's id of the repository, and an old name must be confirmed by the host:
+    // without either nothing observed is written, and the cursor stays.
     if (this.prefix === undefined) {
       try {
-        this.learn(await this.host.repositoryId());
+        await this.learn();
       } catch (e) {
-        this.warn(`the id of ${this.host.repository}: ${(e as Error).message}`);
+        this.warn(`${this.host.repository}: ${(e as Error).message}`);
         return { ingested, appended: 0, complete: false };
       }
     }

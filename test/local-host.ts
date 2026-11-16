@@ -28,9 +28,9 @@ export class LocalHost {
     return this;
   }
 
-  /** #48: the lasting id of the repository, as the file `repository.json` of the folder holds it. */
-  repository(id: string | number): this {
-    writeFileSync(join(this.dir, "repository.json"), JSON.stringify({ id }));
+  /** #48: the lasting id of the repository and the names it had before (`was`), as the file `repository.json` holds them. */
+  repository(id: string | number, was: string[] = []): this {
+    writeFileSync(join(this.dir, "repository.json"), JSON.stringify(was.length > 0 ? { id, was } : { id }));
     return this;
   }
 

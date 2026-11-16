@@ -110,6 +110,12 @@ export interface CodeHost {
    * of events are made from it. It may need a call to the host, so it is asked for once the observer starts.
    */
   repositoryId(): Promise<string>;
+  /**
+   * Whether a name the ledger's older ids were made from is this repository, as the host says: true when it was its
+   * name before, false when it is another repository or none. It throws when the host cannot answer, and nothing
+   * observed is written until it can. Never asked for the name in `repository`.
+   */
+  isSameRepository(name: string): Promise<boolean>;
   /** The tasks and changes updated at or after `since`, or all of them. */
   listUpdated(since: string | null): Promise<Ref[]>;
   task(number: number): Promise<Task>;
