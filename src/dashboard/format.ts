@@ -262,7 +262,22 @@ export function sessionText(s: Session): string {
     .sort((a, b) => b[1] - a[1])
     .map(([tool, n]) => `${tool} ${n}`)
     .join(", ");
-  return [s.actor?.id ?? "someone", s.role, span, tools || null].filter(Boolean).join(" · ");
+  return [s.actor?.id ?? "someone", s.role, span, tools || null, s.also !== undefined && s.also.length > 0 ? texts.change.alsoUnder(s.also) : null].filter(Boolean).join(" · ");
+}
+
+/**
+ * #117: the line of the other changes of a task: a link to the task and one to each change. The
+ * text comes from `texts.change.otherChanges`; the links keep the project the page shows.
+ */
+export function otherChangeLinks(
+  task: string,
+  others: string[],
+  project: string | null,
+): { task: { label: string; href: string }; changes: { label: string; href: string }[] } {
+  return {
+    task: { label: texts.change.task(task), href: hashFor("change", project, `task:${task}`) },
+    changes: others.map((change) => ({ label: change, href: hashFor("change", project, `change:${change}`) })),
+  };
 }
 
 /**

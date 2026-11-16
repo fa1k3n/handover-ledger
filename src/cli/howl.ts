@@ -69,7 +69,8 @@ const USAGE = `usage:
             in the local time zone (TZ), --utc as stored; --since without
             an offset is local time
   show      the timeline of one assignment, from the hand-over to the merge:
-            12, task:12 or change:30
+            12, task:12 or change:30. A change that is asked for is shown
+            alone; the other changes of its task are named in one line
   status    one line per agent: NEEDS INPUT, working, waiting, idle or ended,
             what it works on, its model, its last tool and how long ago.
             NEEDS INPUT is a wait for a person, as a permission prompt; an

@@ -92,6 +92,11 @@ export const texts = {
     none: (what: string) => `Nothing in the ledger names ${what}.`,
     task: (n: string) => `Task ${n}`,
     changeTitle: (n: string) => `Change ${n}`,
+    /** #117: the title of a change that was asked for, with the task it belongs to. */
+    changeOfTask: (n: string, task: string) => `Change ${n} of task ${task}`,
+    /** #117: the line that names the other changes of the task; the task and each change are links. */
+    otherChanges: (n: number) => (n === 1 ? " has another change: " : " has other changes: "),
+    alsoUnder: (changes: string[]) => `also under change${changes.length === 1 ? "" : "s"} ${changes.join(", ")}`,
     end: { open: "open", merged: "merged", closed: "closed" },
     summary: (all: string, work: string, checks: string, review: string, waits: string, rounds: number) =>
       `${all} in all: work ${work}, waiting for checks ${checks}, for review ${review}, for a person or instructions ${waits}; ${rounds} review round${rounds === 1 ? "" : "s"}`,
@@ -104,6 +109,8 @@ export const texts = {
     noReviews: "No review in the ledger.",
     comments: (n: number) => `${n} comment${n === 1 ? "" : "s"}, not counted as reviews`,
     round: (n: number) => `Round ${n}:`,
+    /** #117: a round where the view has more than one change. */
+    roundOf: (n: number, change: string) => `Round ${n} of change ${change}:`,
     claimed: "Claimed, not seen at the code host",
     claimedNote: "Sent by a session or a script, not read from the code host. They count for nothing above.",
   },
