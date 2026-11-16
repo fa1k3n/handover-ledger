@@ -1,9 +1,13 @@
 // #44: each head of a change with who pushed it and when, as the code host says it.
 // @code_class tests
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
-import { openLedger } from "../src/ledger/ledger.ts";
+import { events as ledgerEvents, openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
+import { LocalHost as LocalReader } from "../src/observe/local.ts";
+import { Observer } from "../src/observe/observe.ts";
+import { People } from "../src/observe/people.ts";
 import type { Change, Push } from "../src/observe/port.ts";
 import { howl, lines, PROJECT, workspace, folder, type Workspace } from "./helpers.ts";
 import { at, LocalHost, SHA } from "./local-host.ts";
@@ -45,8 +49,60 @@ const ID = "local:team/product:";
 /** A time on 2026-01-01, to the second. */
 const atSecond = (minutes: number, seconds: number) => new Date(Date.UTC(2026, 0, 1, 0, minutes, seconds)).toISOString();
 
+/** The machine's clock in a test: `minutes` after a fixed time, far from the host's times. */
+function clock(minutes: number): Date {
+  return new Date(Date.UTC(2026, 5, 1, 12, 0) + minutes * 60_000);
+}
+
+interface Direct {
+  host: LocalHost;
+  cursorPath: string;
+  /** A round at the machine's time `now`: the events it appended. */
+  round(now: Date): Promise<LedgerEvent[]>;
+  /** What the last round warned, one line each. */
+  said(): string;
+  cursor(): Record<string, any>;
+  close(): void;
+}
+
+/** An observer run directly, so that each round is given the machine's time. */
+function direct(): Direct {
+  const dir = folder();
+  const hostDir = join(dir, "host");
+  const state = join(dir, "state");
+  mkdirSync(join(state, "inbox"), { recursive: true });
+  const ledger = join(state, "ledger.jsonl");
+  const cursorPath = join(state, "observe.json");
+  const host = new LocalHost(hostDir);
+  const writer = openLedger(ledger, { project: PROJECT });
+  let warnings: string[] = [];
+  const observer = new Observer({
+    host: new LocalReader(hostDir, "team/product"),
+    writer,
+    ledgerPath: ledger,
+    places: { project: PROJECT, inbox: join(state, "inbox"), activity: join(state, "activity.jsonl") },
+    cursorPath,
+    people: new People(join(state, "people.json")),
+    settings: { project: PROJECT, activityDays: 30, agents: ["agent-bot"] },
+    warn: (m) => warnings.push(m),
+  });
+  return {
+    host,
+    cursorPath,
+    async round(now) {
+      const before = [...ledgerEvents(ledger)].length;
+      warnings = [];
+      await observer.round(now);
+      return [...ledgerEvents(ledger)].slice(before) as LedgerEvent[];
+    },
+    said: () => warnings.join("\n"),
+    cursor: () => JSON.parse(readFileSync(cursorPath, "utf8")),
+    close: () => writer.close(),
+  };
+}
+
 /** Change 40 on `work`, opened at minute 10 by the agent, with the pushes given; its head is the last of them. */
-function change(s: Setup, pushes: Push[] | undefined, more: Partial<Change> = {}): void {
+function change(s: { host: LocalHost }, pushes: Push[] | undefined, more: Partial<Change> = {}): void {
   const last = pushes?.at(-1);
   s.host.change({
     number: 40,
@@ -171,7 +227,7 @@ test("#44: a host with no pushes gives today's events, marked as inferred", () =
 });
 
 /** Change 40 with pushes A (before the opening) and B, a comment on A and a review on B, and C as its head now. */
-function lagging(s: Setup, updatedAt: string, pushes: Push[] = [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }]): void {
+function lagging(s: { host: LocalHost }, updatedAt: string, pushes: Push[] = [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }]): void {
   change(s, pushes, {
     head: { sha: SHA.c, at: at(26) },
     updatedAt,
@@ -220,13 +276,14 @@ test("#44: a change that waits keeps its head among the watched commits", () => 
   assert.deepEqual(second.map((e) => [e.type, e.sha]), [["checks.passed", SHA.a]]);
 });
 
-test("#44: a change still for five minutes with a head the list does not reach: that head is inferred, and what was made before it stands on the heads the pushes give", () => {
-  const s = setup();
+test("#44: a head the list does not reach five minutes after a round first found it missing: that head is inferred, and what was made before it stands on the heads the pushes give", async () => {
+  const d = direct();
   // The list holds A, B and a later push D; the head now, C, it does not hold. The review at :25 comes before D.
-  lagging(s, at(40), [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }, { id: "p3", sha: SHA.d, at: at(27), by: agent }]);
-  const events = round(s);
+  lagging(d, at(40), [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }, { id: "p3", sha: SHA.d, at: at(27), by: agent }]);
+  assert.deepEqual(await d.round(clock(0)), [], "the first round that finds the head missing waits, whatever the host's time");
+  const events = await d.round(clock(5));
   assert.deepEqual(
-    events.filter((e) => e.type === "change.updated").map((e) => [e.sha, e.time, e.data.inferred, e.actor?.id]),
+    events.filter((e) => e.type === "change.updated").map((e) => [e.sha, e.time, e.data?.inferred, e.actor?.id]),
     [
       [SHA.b, at(20), undefined, "agent-bot"],
       [SHA.c, at(26), true, undefined],
@@ -235,27 +292,123 @@ test("#44: a change still for five minutes with a head the list does not reach: 
   );
   assert.equal(events.find((e) => e.id === `${ID}review:ck1`)!.sha, SHA.a);
   assert.equal(events.find((e) => e.id === `${ID}review:r1`)!.sha, SHA.b);
+  d.close();
 });
 
-test("#44: an empty list, from a change still for five minutes: the old way, marked as inferred", () => {
-  const s = setup();
-  change(s, [], { head: { sha: SHA.a, at: at(5) } });
-  assert.equal(round(s).find((e) => e.type === "change.opened")!.data.inferred, true);
+test("#44: an empty list, five minutes after a round first found it so: the old way, marked as inferred", async () => {
+  const d = direct();
+  change(d, [], { head: { sha: SHA.a, at: at(5) } });
+  assert.deepEqual(await d.round(clock(0)), []);
+  assert.equal((await d.round(clock(5))).find((e) => e.type === "change.opened")!.data?.inferred, true);
+  d.close();
 });
 
-test("#44: a list of pushes the host refuses: the change is written with its heads inferred, and every round warns with the count", () => {
-  const s = setup();
-  change(s, undefined, { head: { sha: SHA.b, at: at(5) }, pushesRefused: true });
-  const first = roundSaid(s);
-  const opened = first.events.find((e) => e.type === "change.opened")!;
-  assert.equal(opened.data.inferred, true);
-  assert.match(first.stderr, /the list of pushes cannot be read[^\n]*1 head written as inferred/);
-  const second = roundSaid(s);
-  assert.deepEqual(second.events, []);
-  assert.match(second.stderr, /the list of pushes cannot be read[^\n]*1 head written as inferred/, "the next round warns again");
+test("#44: a list of pushes the host refuses in two rounds running: written in the second with its heads inferred, and every round after warns with the count", async () => {
+  const d = direct();
+  change(d, undefined, { head: { sha: SHA.b, at: at(5) }, pushesRefused: true });
+  assert.deepEqual(await d.round(clock(0)), [], "the first refusal is not believed");
+  assert.match(d.said(), /change 40: the list of pushes was refused once; it is asked again in the next round/);
+  const second = await d.round(clock(1));
+  assert.equal(second.find((e) => e.type === "change.opened")!.data?.inferred, true);
+  assert.match(d.said(), /the list of pushes cannot be read[^\n]*1 head written as inferred because of it since /);
+  assert.deepEqual(await d.round(clock(2)), []);
+  assert.match(d.said(), /the list of pushes cannot be read[^\n]*1 head written as inferred/, "the next round warns again");
   // The list can be read again: the warning stops.
-  change(s, [], { head: { sha: SHA.b, at: at(5) }, updatedAt: at(40) });
-  assert.doesNotMatch(roundSaid(s).stderr, /cannot be read/);
+  change(d, [], { head: { sha: SHA.b, at: at(5) }, updatedAt: at(40) });
+  await d.round(clock(3));
+  assert.doesNotMatch(d.said(), /cannot be read/);
+  d.close();
+});
+
+test("#44: a refusal in one round and the list in the next: nothing in the first, which says so and holds the cursor; the change with its pushers in the second", async () => {
+  const d = direct();
+  change(d, undefined, { head: { sha: SHA.b, at: at(20) }, updatedAt: at(30), pushesRefused: true });
+  // Another change, updated later: it is written, and the cursor must still not pass change 40.
+  d.host.change({ number: 41, branch: "other", openedAt: at(5), openedBy: agent, head: { sha: SHA.d, at: at(5) }, tasks: [], reviews: [], updatedAt: at(50) });
+  const first = await d.round(clock(0));
+  assert.deepEqual(first.filter((e) => e.change === "40"), []);
+  assert.ok(first.some((e) => e.change === "41"));
+  assert.match(d.said(), /change 40: the list of pushes was refused once/);
+  assert.ok(d.cursor().since <= at(30), `the cursor stays at the refused change: ${d.cursor().since}`);
+  change(d, [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }], { head: { sha: SHA.b, at: at(20) }, updatedAt: at(30) });
+  const second = (await d.round(clock(1))).filter((e) => e.change === "40");
+  assert.deepEqual(second.filter((e) => e.type === "change.updated").map((e) => [e.sha, e.actor?.id]), [[SHA.b, "agent-bot"]]);
+  assert.ok(second.every((e) => e.data?.inferred === undefined), "no head is inferred");
+  assert.doesNotMatch(d.said(), /cannot be read/);
+  d.close();
+});
+
+test("#44: a round that reads the list between two refusals starts the count again", async () => {
+  const d = direct();
+  change(d, undefined, { head: { sha: SHA.a, at: at(9) }, pushesRefused: true });
+  await d.round(clock(0));
+  change(d, [created], { head: { sha: SHA.a, at: at(9) }, updatedAt: at(11) });
+  assert.equal((await d.round(clock(1))).filter((e) => e.type === "change.opened").length, 1);
+  // A new head, and the list refused again: the first refusal of a new count.
+  change(d, undefined, { head: { sha: SHA.b, at: at(20) }, updatedAt: at(21), pushesRefused: true });
+  assert.deepEqual(await d.round(clock(2)), []);
+  assert.match(d.said(), /change 40: the list of pushes was refused once/);
+  d.close();
+});
+
+for (const [name, offset] of [["the same as the host's", 0], ["ten minutes ahead of the host's", 10], ["ten minutes behind the host's", -10]] as const) {
+  test(`#44: a change the host updates every two minutes while the list never reaches its head waits five minutes from the first round that found it, said each round; the machine's clock ${name}`, async () => {
+    const d = direct();
+    for (const minute of [0, 2, 4]) {
+      // The host updates the change in every round: its time follows the machine's, shifted.
+      lagging(d, new Date(clock(minute).getTime() - offset * 60_000).toISOString());
+      assert.deepEqual(await d.round(clock(minute)), [], `minute ${minute}`);
+      assert.match(d.said(), /waiting for the list of pushes to reach the head of change 40\b/, `minute ${minute}`);
+    }
+    lagging(d, new Date(clock(5).getTime() - offset * 60_000).toISOString());
+    const events = await d.round(clock(5));
+    assert.deepEqual(events.filter((e) => e.type === "change.updated" && e.data?.inferred === true).map((e) => e.sha), [SHA.c]);
+    assert.doesNotMatch(d.said(), /waiting for the list/);
+    d.close();
+  });
+}
+
+test("#44: a change waited for, then reached, then missing a later head: the five minutes start anew", async () => {
+  const d = direct();
+  lagging(d, at(30));
+  await d.round(clock(0));
+  // The list reaches C.
+  lagging(d, at(30), [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }, { id: "p3", sha: SHA.c, at: at(28), by: agent }]);
+  assert.ok((await d.round(clock(1))).some((e) => e.sha === SHA.c && e.type === "change.updated"));
+  // A later head D the list does not hold: the count starts at minute 2.
+  change(d, [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }, { id: "p3", sha: SHA.c, at: at(28), by: agent }], { head: { sha: SHA.d, at: at(35) }, updatedAt: at(36) });
+  assert.deepEqual(await d.round(clock(2)), []);
+  assert.deepEqual(await d.round(clock(6)), [], "six minutes after the first wait, but four after this one");
+  assert.deepEqual((await d.round(clock(7))).map((e) => [e.sha, e.data?.inferred]), [[SHA.d, true]]);
+  d.close();
+});
+
+test("#44: with observe.json removed, the refusal's count says from when it counts, and claims nothing of before", async () => {
+  const d = direct();
+  change(d, undefined, { head: { sha: SHA.b, at: at(5) }, pushesRefused: true });
+  await d.round(clock(0));
+  await d.round(clock(1));
+  rmSync(d.cursorPath);
+  // Nothing is remembered: the refusal is asked again, and believed in the round after; its count starts there.
+  await d.round(clock(2));
+  await d.round(clock(3));
+  assert.match(d.said(), new RegExp(`0 heads written as inferred because of it since ${clock(3).toISOString()}`));
+  d.close();
+});
+
+test("#44: a cursor written before this round's memory is read as nothing remembered, and the count it held is kept", async () => {
+  const d = direct();
+  change(d, undefined, { head: { sha: SHA.b, at: at(5) }, pushesRefused: true });
+  // observe.json as the howl of #130 wrote it: no waiting, no refusals, a count with no start.
+  writeFileSync(d.cursorPath, JSON.stringify({ since: null, watch: [], trace: [], refused: { heads: 2 } }));
+  assert.deepEqual(await d.round(clock(0)), [], "no refusal was remembered: this is the first");
+  await d.round(clock(1));
+  assert.match(d.said(), /3 heads written as inferred because of it since the cursor in observe\.json was made/);
+  // What this howl writes keeps the fields the howl of #130 reads, in the same form.
+  const cursor = d.cursor();
+  assert.equal(typeof cursor.refused.heads, "number");
+  assert.ok(Array.isArray(cursor.watch) && Array.isArray(cursor.trace));
+  d.close();
 });
 
 test("#44: a pusher whose account no longer exists gives no actor and says account_removed", () => {

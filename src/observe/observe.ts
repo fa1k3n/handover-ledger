@@ -72,16 +72,23 @@ interface Heads {
   headAt: string;
   /** The head that was there at a time. */
   at: (time: string) => string;
-  /** Whether the host gave a list of pushes that does not reach the head now, for a change updated a moment ago. */
-  waits: boolean;
+  /** Whether the host gave a list of pushes that does not reach the head now: the change may have to wait (#44). */
+  missing: boolean;
 }
 
 interface Cursor {
   since: string | null;
   watch: Watched[];
   trace: TracePending[];
-  /** #44: the host refuses the list of pushes: how many heads were written as inferred because of it, since it began. */
-  refused?: { heads: number };
+  /**
+   * #44: the host refuses the list of pushes: how many heads were written as inferred because of it, and from when
+   * that is counted (none in a cursor of #130, which kept no time).
+   */
+  refused?: { heads: number; since?: string };
+  /** #44: the changes whose head the list of pushes does not reach: from when, by the machine's clock. */
+  waiting?: Record<string, string>;
+  /** #44: the changes whose list of pushes was refused, and how many rounds running. */
+  refusals?: Record<string, number>;
 }
 
 export interface Round {
@@ -108,8 +115,8 @@ export interface ObserverParts {
 }
 
 /**
- * #44: how long a change must have been still at the host before a head its list of pushes does not hold is written as
- * inferred. Until then the list may only lag, and the change waits for the next round.
+ * #44: how long a change waits for its list of pushes to reach its head, from the first round that found the head
+ * missing, by the machine's clock. Until then the list may only lag; after it the head is written as inferred.
  */
 export const STILL_MS = 5 * 60_000;
 
@@ -226,6 +233,11 @@ export class Observer {
     let refused = false;
     let readable = false;
     const refusedIds = new Set<string>();
+    // #44: what the rounds remember of the lists of pushes, by change: since when a head is missing, refusals running.
+    const waiting = { ...(cursor.waiting ?? {}) };
+    const refusals = { ...(cursor.refusals ?? {}) };
+    const waited: number[] = [];
+    const refusedOnce: number[] = [];
     let refs: Awaited<ReturnType<CodeHost["listUpdated"]>> = [];
     try {
       refs = await this.host.listUpdated(cursor.since);
@@ -252,17 +264,38 @@ export class Observer {
           failed(`change ${ref.number}`, e);
           continue;
         }
-        const events = this.changeEvents(change, seen, now);
-        if (events === null) {
-          // #44: the list of pushes may lag: nothing of the change now, and the next round asks again.
+        // #44: a refusal is believed only when the next round gets it again; a list read starts the count anew. Until
+        // then, and while a head the list does not reach waits, nothing of the change is written and the cursor stays.
+        const key = String(change.number);
+        const heads = this.headsOf(change);
+        let later = false;
+        if (change.pushesRefused) {
+          refusals[key] = (refusals[key] ?? 0) + 1;
+          if (refusals[key] < 2) {
+            refusedOnce.push(change.number);
+            later = true;
+          }
+        } else if (change.pushes !== undefined) {
+          delete refusals[key];
+          readable = true;
+        }
+        if (heads.missing) {
+          waiting[key] ??= now.toISOString();
+          if (now.getTime() - Date.parse(waiting[key]) < STILL_MS) {
+            waited.push(change.number);
+            later = true;
+          }
+        } else delete waiting[key];
+        if (later) {
           if (hold === null || ref.updatedAt < hold) hold = ref.updatedAt;
           continue;
         }
+        const events = this.changeEvents(change, seen, heads);
         found.push(...events);
         if (change.pushesRefused) {
           refused = true;
           for (const e of events) if ((e.data as { inferred?: unknown } | undefined)?.inferred === true) refusedIds.add(e.id);
-        } else if (change.pushes !== undefined) readable = true;
+        }
         for (const [sha, w] of watch) if (w.change === change.number) watch.delete(sha);
         if (!this.known(`checks:${change.head.sha}`)) {
           watch.set(change.head.sha, {
@@ -315,20 +348,32 @@ export class Observer {
       if (e.type === "change.opened" && e.sha) this.openedHeads.set(Number(e.change), e.sha);
     }
 
-    // #44: a refused list of pushes is said on every round until a list is read again, with the heads it cost.
+    // #44: a refused list of pushes is said on every round until a list is read again, with the heads it cost since the
+    // count began. A count from a cursor that kept no time says only that it is since the cursor was made.
     let refusal = cursor.refused;
-    if (refused) refusal = { heads: (refusal?.heads ?? 0) + refusedHeads };
+    if (refused) refusal = { heads: (refusal?.heads ?? 0) + refusedHeads, since: refusal === undefined ? now.toISOString() : refusal.since };
     else if (readable) refusal = undefined;
+    const numbers = (list: number[]) => `change${list.length === 1 ? "" : "s"} ${list.sort((a, b) => a - b).join(", ")}`;
+    for (const n of refusedOnce) this.warn(`${this.host.repository}: change ${n}: the list of pushes was refused once; it is asked again in the next round`);
     if (refusal !== undefined) {
       this.warn(
         `${this.host.repository}: the list of pushes cannot be read: the host refuses it, perhaps for want of a permission; ` +
-          `${refusal.heads} head${refusal.heads === 1 ? "" : "s"} written as inferred because of it`,
+          `${refusal.heads} head${refusal.heads === 1 ? "" : "s"} written as inferred because of it ` +
+          `since ${refusal.since ?? "the cursor in observe.json was made"}`,
       );
     }
+    if (waited.length > 0) this.warn(`${this.host.repository}: waiting for the list of pushes to reach the head of ${numbers(waited)}`);
 
     this.people.save();
     const since = complete ? (hold !== null && (latest === null || hold < latest) ? hold : latest) : cursor.since;
-    this.writeCursor({ since, watch: [...watch.values()], trace: [...this.pendingTrace.values()], ...(refusal !== undefined ? { refused: refusal } : {}) });
+    this.writeCursor({
+      since,
+      watch: [...watch.values()],
+      trace: [...this.pendingTrace.values()],
+      ...(refusal !== undefined ? { refused: refusal } : {}),
+      ...(Object.keys(waiting).length > 0 ? { waiting } : {}),
+      ...(Object.keys(refusals).length > 0 ? { refusals } : {}),
+    });
     return { ingested, appended, complete };
   }
 
@@ -381,13 +426,11 @@ export class Observer {
     return found;
   }
 
-  /** The events of a change; null when it waits for its list of pushes (#44). */
-  private changeEvents(change: Change, seen: string, now: Date): LedgerEvent[] | null {
+  /** The events of a change, with its heads as `headsOf` reads them (#44). */
+  private changeEvents(change: Change, seen: string, heads: Heads): LedgerEvent[] {
     const n = change.number;
     const of = (sha: string) => ({ change: String(n), branch: change.branch, sha, task: this.taskOf(change) });
     const head = change.head.sha;
-    const heads = this.headsOf(change, now);
-    if (heads.waits) return null;
     const found = [
       this.event(`change:${n}:opened`, "change.opened", change.openedAt, change.openedBy, { ...of(heads.opening), ...(heads.openingInferred ? { data: { inferred: true } } : {}) }, seen),
     ];
@@ -461,11 +504,11 @@ export class Observer {
    * as inferred, as it rests on the list having dropped no push in between. The pushes after the opening, up to its end,
    * are its new heads. A push to the branch after the change was merged or closed is not of it.
    *
-   * Where the host's list does not reach the head now, the change waits while it was updated less than STILL_MS ago:
-   * the list may lag. After that, or where the host tells no list (a change from a fork, a list refused), the head now is
+   * Where the host's list does not reach the head now (`missing`), the round makes the change wait (STILL_MS): the
+   * list may lag. After that, or where the host tells no list (a change from a fork, a list refused), the head now is
    * the one a round sees, marked as inferred. It is never lost.
    */
-  private headsOf(change: Change, now: Date): Heads {
+  private headsOf(change: Change): Heads {
     const head = change.head.sha;
     const recorded = this.openedHeads.get(change.number);
     const time = (p: Push) => Date.parse(p.at);
@@ -496,7 +539,7 @@ export class Observer {
       pushes: after,
       unpushed,
       headAt: headPush?.at ?? change.head.at,
-      waits: given && unpushed && now.getTime() - Date.parse(change.updatedAt) < STILL_MS,
+      missing: given && unpushed,
       // What has no commit of its own is of the head of the last push before it, as the host's pushes say. Only what
       // comes after the last of those pushes can be of a head the host told no push for. With no list, the head now.
       at: (t) => {
@@ -585,7 +628,12 @@ export class Observer {
         since: typeof value.since === "string" ? value.since : null,
         watch: Array.isArray(value.watch) ? value.watch : [],
         trace: Array.isArray(value.trace) ? value.trace : [],
-        ...(value.refused && typeof value.refused.heads === "number" ? { refused: { heads: value.refused.heads } } : {}),
+        ...(value.refused && typeof value.refused.heads === "number"
+          ? { refused: { heads: value.refused.heads, ...(typeof value.refused.since === "string" ? { since: value.refused.since } : {}) } }
+          : {}),
+        // #44: a cursor with none of these, as one of #130, remembers nothing of them.
+        ...(isRecord(value.waiting, "string") ? { waiting: value.waiting } : {}),
+        ...(isRecord(value.refusals, "number") ? { refusals: value.refusals } : {}),
       };
     } catch {
       return { since: null, watch: [], trace: [] };
@@ -597,4 +645,9 @@ export class Observer {
     writeFileSync(temporary, `${JSON.stringify(cursor, null, 2)}\n`, { mode: 0o600 });
     renameSync(temporary, this.cursorPath);
   }
+}
+
+/** #44: an object of one kind of value, as a cursor keeps by change. */
+function isRecord<T extends "string" | "number">(value: unknown, kind: T): value is Record<string, T extends "string" ? string : number> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((v) => typeof v === kind);
 }
