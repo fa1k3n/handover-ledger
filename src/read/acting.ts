@@ -33,17 +33,17 @@ export interface Rule {
  * than one matches.
  */
 export function actingAgents(events: LedgerEvent[]): Map<string, Acting> {
-  return new Map([...matches(events)].map(([id, { rule: _, ...acting }]) => [id, acting]));
+  return new Map([...matches(events)].map(([id, { rule: _, sessions: __, ...acting }]) => [id, acting]));
 }
 
 /** The same matches, each with the rule that made it, for the bundle's `inferred.json` (#33). */
-export function matches(events: LedgerEvent[]): Map<string, Acting & { rule: Rule }> {
+export function matches(events: LedgerEvent[]): Map<string, Acting & { rule: Rule; sessions: string[] }> {
   // A session's own events. A claimed review or change is no session at the change (#51).
   // Each with its time read once (#85): the match below looks at every one of them for every observed event.
   const own = events
     .filter((e) => e.source.kind === "claimed" && e.actor?.kind === "agent" && !claimOfHost(e))
-    .map((e) => ({ t: Date.parse(e.time), agent: e.actor!.id, branch: e.branch, change: e.change }));
-  const found = new Map<string, Acting & { rule: Rule }>();
+    .map((e) => ({ t: Date.parse(e.time), agent: e.actor!.id, session: e.session, branch: e.branch, change: e.change }));
+  const found = new Map<string, Acting & { rule: Rule; sessions: string[] }>();
   for (const e of events) {
     if (e.source.kind !== "observed" || e.change === undefined) continue;
     // Through a person's account (#14), or a new head the code host names no one for (#21).
@@ -54,21 +54,20 @@ export function matches(events: LedgerEvent[]): Map<string, Acting & { rule: Rul
     if (!isChange && !e.type.startsWith("review.")) continue;
     if (isChange && e.branch === undefined) continue;
     const t = Date.parse(e.time);
-    const agents = new Set(
-      own
-        .filter((s) => {
+    const within = own.filter((s) => {
           const d = s.t - t;
           if (d < -BEFORE_MS || d > AFTER_MS) return false;
           return isChange ? s.branch === e.branch && (s.change === undefined || s.change === e.change) : s.change === e.change;
-        })
-        .map((s) => s.agent),
-    );
+    });
+    const agents = new Set(within.map((s) => s.agent));
     if (agents.size === 1) {
       const agent = [...agents][0]!;
+      // The sessions of that agent that fell in the window: what a reader checks the match by (#33).
+      const sessions = [...new Set(within.flatMap((s) => (s.session === undefined ? [] : [s.session])))].sort();
       const rule: Rule = isChange
         ? { by: "branch", branch: e.branch, change: e.change, before_ms: BEFORE_MS, after_ms: AFTER_MS }
         : { by: "change", change: e.change, before_ms: BEFORE_MS, after_ms: AFTER_MS };
-      found.set(e.id, throughPerson ? { agent, via: e.actor!.id, rule } : { agent, rule });
+      found.set(e.id, throughPerson ? { agent, via: e.actor!.id, rule, sessions } : { agent, rule, sessions });
     }
   }
   return found;

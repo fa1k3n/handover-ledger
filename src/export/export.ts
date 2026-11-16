@@ -54,8 +54,8 @@ export function buildBundle(ledger: string, selection: Selection, opts: { versio
   const events = whole.lines.map((r) => ({ n: r.n!, event: r.event }));
   const trial = events[0]?.event.data?.mode === "trial";
   const files = new Map<string, Buffer>();
-  // What howl matched, not what the events say (#33). Empty for a period, which has no timeline.
-  let inferred: unknown[] = [];
+  // What howl matched, not what the events say (#33). A period has no timeline, and so no inferred.json.
+  let inferred: unknown[] | undefined;
   // The bundle holds the ledger under the name it has in the project's folder.
   files.set(LEDGER_FILE, ledgerBytes);
 
@@ -71,7 +71,7 @@ export function buildBundle(ledger: string, selection: Selection, opts: { versio
     selected = events.filter((e) => ids.has(e.event.id)).map((e) => e.n);
     inferred = [...matches(inLedger)]
       .filter(([id]) => ids.has(id))
-      .map(([event, { agent, via, rule }]) => ({ event, agent, ...(via === undefined ? {} : { via }), rule }));
+      .map(([event, { agent, via, rule, sessions }]) => ({ event, agent, sessions, ...(via === undefined ? {} : { via }), rule }));
     files.set("timeline.json", Buffer.from(`${JSON.stringify(shown, null, 2)}\n`));
   } else {
     const from = Date.parse(selection.since);
@@ -80,7 +80,7 @@ export function buildBundle(ledger: string, selection: Selection, opts: { versio
     asked = `${selection.since}..${selection.until}`;
     selected = events.filter((e) => e.event.type !== "ledger.created" && Date.parse(e.event.time) >= from && Date.parse(e.event.time) <= to).map((e) => e.n);
   }
-  files.set("inferred.json", Buffer.from(`${JSON.stringify(inferred, null, 2)}\n`));
+  if (inferred !== undefined) files.set("inferred.json", Buffer.from(`${JSON.stringify(inferred, null, 2)}\n`));
   files.set("selection.json", Buffer.from(`${JSON.stringify({ asked, lines: selected }, null, 2)}\n`));
   for (const [name, bytes] of checkpointsOf(opts.repo, lines.length)) files.set(name, bytes);
 
@@ -88,13 +88,12 @@ export function buildBundle(ledger: string, selection: Selection, opts: { versio
   files.set(
     "README.txt",
     Buffer.from(
-      `An evidence bundle of Handover Ledger: ${asked}.\n` +
-        (trial ? "A trial: it does not count as evidence.\n" : "") +
-        "\n" +
+      (trial ? "A trial: it does not count as evidence.\n" : "") +
+        `${trial ? "A bundle" : "An evidence bundle"} of Handover Ledger: ${asked}.\n\n` +
         `${LEDGER_FILE}    the ledger from its first line up to its head\n` +
         "selection.json  what was asked, and the numbers of the lines it selected\n" +
         "timeline.json   the timeline of the change or task (not for a period)\n" +
-        "inferred.json  what howl matched (an agent behind a person's account), with the rule: howl's reading, not evidence\n" +
+        "inferred.json   what howl matched (the agent behind a person's account, or behind a head that named no one), with the session and the rule: howl's reading, not evidence (not for a period)\n" +
         "checkpoints/    the checkpoints that cover the head, kept outside the machine that wrote the ledger\n" +
         "manifest.json   the SHA-256 of every other file\n\n" +
         "Check it offline:  howl verify --bundle <this file> [--signers <allowed signers>]\n",
@@ -117,6 +116,7 @@ export function buildBundle(ledger: string, selection: Selection, opts: { versio
 export function verifyBundle(bytes: Buffer, signers?: string): { ok: boolean; messages: string[]; trial: boolean } {
   const messages: string[] = [];
   let ok = true;
+  let trial = false;
   const fail = (m: string) => {
     ok = false;
     messages.push(m);
@@ -152,6 +152,13 @@ export function verifyBundle(bytes: Buffer, signers?: string): { ok: boolean; me
     else {
       messages.push(`${LEDGER_FILE}: ${chain.lines} lines, the chain holds, head ${chain.head}`);
       if (chain.head !== manifest.head) fail(`${LEDGER_FILE}: its head is not the manifest's`);
+      // The trial is read from the ledger's first line, which the chain covers; the manifest is covered by no hash (#33).
+      trial = chain.trial;
+      // A manifest made before #33 has no trial and no inferred.json; it holds, and the trial shows from the ledger.
+      // One that lists inferred.json is of this step or later, and must say what the ledger says.
+      const modern = "inferred.json" in manifest.files;
+      const said = manifest.trial ?? (modern ? false : chain.trial);
+      if (said !== chain.trial) fail("manifest.json: trial does not say what the ledger says");
     }
     const selection = json<{ lines: number[] }>("selection.json", files.get("selection.json"), { lines: [] });
     const count = chain.ok ? chain.lines : 0;
@@ -176,5 +183,5 @@ export function verifyBundle(bytes: Buffer, signers?: string): { ok: boolean; me
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  return { ok, messages, trial: manifest.trial === true };
+  return { ok, messages, trial };
 }

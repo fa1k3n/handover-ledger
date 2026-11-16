@@ -28,8 +28,9 @@ const USAGE = `usage:
   verify    check every line of the ledger and the chain between the lines,
             then every signed claim against the key issued for it
   export    an evidence bundle (.tar.gz) of a change, a task or a period: the
-            ledger up to its head, the lines selected, the timeline, the
-            checkpoints and a manifest; never the activity file or people.json.
+            ledger up to its head, the lines selected, the timeline, what howl
+            matched (inferred.json, not for a period), the checkpoints and a
+            manifest; never the activity file or people.json.
             howl verify --bundle checks it offline
   anchor    keep the ledger's head outside this machine: a checkpoint (lines and
             head) as a commit on refs/howl/checkpoints, pushed to origin (the

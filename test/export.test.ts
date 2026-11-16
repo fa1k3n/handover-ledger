@@ -145,10 +145,11 @@ test("#33: a change opened through a person's account by a matched agent: the ti
   const shown = JSON.parse(timeline) as { changes: { opened?: { actor?: { id: string }; by?: string } }[] };
   assert.equal(shown.changes[0]!.opened!.actor!.id, REVIEWER);
   assert.ok(!/"by"/.test(timeline), "the timeline holds no matched agent");
-  const inferred = JSON.parse(files.get("inferred.json")!.toString()) as { event: string; agent: string; via?: string; rule: { by: string; branch?: string; before_ms: number; after_ms: number } }[];
+  const inferred = JSON.parse(files.get("inferred.json")!.toString()) as { event: string; agent: string; sessions: string[]; via?: string; rule: { by: string; branch?: string; before_ms: number; after_ms: number } }[];
   assert.equal(inferred.length, 1);
   assert.equal(inferred[0]!.event, "o-1");
   assert.equal(inferred[0]!.agent, "agent-1");
+  assert.deepEqual(inferred[0]!.sessions, ["s1"]);
   assert.equal(inferred[0]!.via, REVIEWER);
   assert.equal(inferred[0]!.rule.by, "branch");
   assert.equal(inferred[0]!.rule.branch, "task-5-x");
@@ -160,7 +161,60 @@ test("#33: a change opened through a person's account by a matched agent: the ti
 test("#33: a bundle with no match has an empty inferred.json, and the manifest lists it", () => {
   // Change 31 is opened by the agent itself: nothing to match.
   const { files } = exportOf(writeStory(), ["--change", "31"]);
+  assert.ok(files.has("inferred.json"), "a bundle of a change holds inferred.json");
   assert.deepEqual(JSON.parse(files.get("inferred.json")!.toString()), []);
   const manifest = JSON.parse(files.get("manifest.json")!.toString()) as { files: Record<string, string> };
   assert.equal(manifest.files["inferred.json"], sha(files.get("inferred.json")!));
+});
+
+/** The bundle with its manifest changed by `change`, and the manifest's own hashes left as they were. */
+function withManifest(files: Map<string, Buffer>, change: (m: Record<string, unknown>) => void): string {
+  const changed = new Map(files);
+  const manifest = JSON.parse(changed.get("manifest.json")!.toString()) as Record<string, unknown>;
+  change(manifest);
+  changed.set("manifest.json", Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`));
+  const file = join(folder(), "m.tar.gz");
+  writeFileSync(file, writeTar(changed, true));
+  return file;
+}
+
+test("#33: a manifest that has lost trial, or says false, while the ledger says trial: the bundle does not hold", () => {
+  const { files } = exportOf(writeStory(), ["--change", "30"]);
+  for (const edit of [(m: Record<string, unknown>) => delete m.trial, (m: Record<string, unknown>) => (m.trial = false)]) {
+    const r = howl(["verify", "--bundle", withManifest(files, edit)]);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stdout, /the bundle does not hold/);
+    assert.match(r.stdout, /manifest\.json: trial does not say what the ledger says/);
+    assert.match(r.stdout, /a trial: it does not count as evidence/);
+  }
+});
+
+test("#33: a bundle made before this step, with no trial in its manifest, holds and says trial from its ledger", () => {
+  const { files } = exportOf(writeStory(), ["--change", "30"]);
+  // As an older howl made it: no trial in the manifest, and no inferred.json.
+  const old = new Map(files);
+  old.delete("inferred.json");
+  const manifest = JSON.parse(old.get("manifest.json")!.toString()) as { files: Record<string, string>; trial?: boolean };
+  delete manifest.trial;
+  delete manifest.files["inferred.json"];
+  old.set("manifest.json", Buffer.from(JSON.stringify(manifest)));
+  const file = join(folder(), "old.tar.gz");
+  writeFileSync(file, writeTar(old, true));
+  const r = howl(["verify", "--bundle", file]);
+  assert.equal(r.status, 0, r.stdout);
+  assert.equal(r.stdout.trim().split("\n").at(-1), "a trial: it does not count as evidence");
+});
+
+test("#33: the README of a trial starts by saying so, and says what inferred.json holds and that neither file is of a period", () => {
+  const { files } = exportOf(writeStory(), ["--change", "30"]);
+  const readme = files.get("README.txt")!.toString();
+  assert.match(readme.split("\n")[0]!, /^A trial: it does not count as evidence/);
+  assert.match(readme, /inferred\.json +what howl matched[^\n]*head[^\n]*not for a period/);
+  assert.match(readme, /timeline\.json +[^\n]*not for a period/);
+});
+
+test("#33: a bundle of a period has no inferred.json, and its manifest does not list one", () => {
+  const { files } = exportOf(writeStory(), ["--since", "2026-01-01T00:00:00Z", "--until", "2026-01-02T00:00:00Z"]);
+  assert.ok(!files.has("inferred.json"));
+  assert.ok(!("inferred.json" in (JSON.parse(files.get("manifest.json")!.toString()) as { files: object }).files));
 });
