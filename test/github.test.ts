@@ -3,6 +3,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GitHub, closingTasks, originRepository } from "../src/observe/github.ts";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { events as ledgerEvents, openLedger } from "../src/ledger/ledger.ts";
+import { Observer } from "../src/observe/observe.ts";
+import { People } from "../src/observe/people.ts";
 
 type Reply = { status?: number; body?: unknown; headers?: Record<string, string> };
 
@@ -562,3 +568,76 @@ test("#44: the next page of the activity list is asked for by the link the host 
   assert.deepEqual(change.pushes!.map((p) => p.id), ["1", "2"]);
   assert.ok(asked.some((a) => a.url === next), "the link was followed as sent");
 });
+
+/** #44: an observer over the GitHub adapter, with a table of answers: change 7 of this repository, its activity as given. */
+function observed(activity: Reply | Reply[]) {
+  const sha = "b".repeat(40);
+  const repo = { id: 1234567, full_name: "team/product" };
+  const { host } = github({
+    [`${R}/issues?`]: { body: [{ number: 7, updated_at: "2026-01-01T00:30:00Z", pull_request: {} }] },
+    [`${R}/activity?`]: activity,
+    [`${R}/pulls/7/files`]: { body: [] },
+    [`${R}/issues/7/events`]: { body: [] },
+    [`${R}/pulls/7/reviews`]: { body: [] },
+    [`${R}/issues/7/comments`]: { body: [] },
+    [`${R}/pulls/7`]: {
+      body: { number: 7, user: { login: "agent-bot", type: "User" }, created_at: "2026-01-01T00:10:00Z", head: { ref: "task-5-x", sha, repo }, base: { ref: "main", repo }, updated_at: "2026-01-01T00:30:00Z" },
+    },
+    [`${R}/commits/${sha}/check-runs`]: { body: { check_runs: [] } },
+    [`${R}/commits/${sha}/status`]: { body: { statuses: [] } },
+    [`${R}/commits/${sha}`]: { body: { sha, commit: { committer: { date: "2026-01-01T00:05:00Z" } } } },
+    [R]: { body: { id: 1234567 } },
+  });
+  const dir = mkdtempSync(join(tmpdir(), "howl-github-"));
+  mkdirSync(join(dir, "inbox"));
+  const ledger = join(dir, "ledger.jsonl");
+  const writer = openLedger(ledger, { project: "example" });
+  let warnings: string[] = [];
+  const observer = new Observer({
+    host,
+    writer,
+    ledgerPath: ledger,
+    places: { project: "example", inbox: join(dir, "inbox"), activity: join(dir, "activity.jsonl") },
+    cursorPath: join(dir, "observe.json"),
+    people: new People(join(dir, "people.json")),
+    settings: { project: "example", activityDays: 30, agents: ["agent-bot"] },
+    warn: (m) => warnings.push(m),
+  });
+  let minute = 0;
+  return {
+    sha,
+    async round() {
+      const before = [...ledgerEvents(ledger)].length;
+      warnings = [];
+      await observer.round(new Date(Date.UTC(2026, 5, 1, 12, minute++)));
+      return { events: [...ledgerEvents(ledger)].slice(before), said: warnings.join("\n") };
+    },
+    close() {
+      writer.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+for (const status of [403, 404]) {
+  test(`#44: a ${status} for the list of pushes in one round and the list in the next: nothing in the first, which says so; the pushers in the second`, async () => {
+    const o = observed([{ status, body: { message: "Resource not accessible by integration" } }, { body: [entry(1, "push", H.a, "b".repeat(40), "2026-01-01T00:09:00Z")] }]);
+    const first = await o.round();
+    assert.deepEqual(first.events, []);
+    assert.match(first.said, /change 7: the list of pushes was refused once; it is asked again in the next round/);
+    const second = await o.round();
+    const opened = second.events.find((e) => e.type === "change.opened")!;
+    assert.equal(opened.sha, o.sha);
+    assert.equal(opened.data?.inferred, undefined, "no head is inferred");
+    o.close();
+  });
+
+  test(`#44: the same ${status} for the list of pushes in two rounds running: the change is written in the second, with its heads inferred and the warning`, async () => {
+    const o = observed({ status, body: { message: "Resource not accessible by integration" } });
+    assert.deepEqual((await o.round()).events, []);
+    const second = await o.round();
+    assert.equal(second.events.find((e) => e.type === "change.opened")!.data?.inferred, true);
+    assert.match(second.said, /the list of pushes cannot be read[^\n]*1 head written as inferred/);
+    o.close();
+  });
+}
