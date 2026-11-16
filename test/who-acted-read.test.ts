@@ -122,6 +122,23 @@ test("a summary is never negative: a task given only after its change had ended"
   assert.ok(Date.parse(shown.summary.from) <= Date.parse(shown.summary.to));
 });
 
+test("a task given only after its change had ended is measured from the first sign of work, with the label of that, not as 0s from a hand-over", () => {
+  const shown = ask([
+    observed("task.opened", 0, { task: "40", actor: person }),
+    observed("change.opened", 10, { ...of("63"), actor: agent }),
+    observed("change.merged", 40, { ...of("63"), actor: person }),
+    observed("task.assigned", 45, { task: "40", actor: other, to: agent }),
+  ]);
+  assert.equal(shown.summary.from, at(10));
+  assert.equal(shown.summary.to, at(40));
+  assert.equal(shown.summary.seconds, 30 * 60);
+  const text = render(shown, { utc: true });
+  assert.match(text, /first event to the end: 30m/);
+  assert.doesNotMatch(text, /hand-over to the end/);
+  // The giving is still in the hand-over.
+  assert.equal(shown.handover.length, 1);
+});
+
 test("a round whose change was closed, reopened and merged says what followed, in the order it happened", () => {
   const shown = ask([
     observed("task.opened", 0, { task: "40", actor: person }),
@@ -376,6 +393,26 @@ test("a dismissal is no review on its own: no round, and no matching to an agent
   assert.equal(handovers(alone.map((event) => ({ event }))).filter((h) => h.step !== "Review → merge").length, 0);
   assert.equal(keyFigures(alone, T0 + 3600_000).unattributed.count, 0);
   assert.equal(ask(alone).reviews.length, 0);
+});
+
+test("a dismissal that does not say which review: said so, nothing said of the ledger, and the summary does not guess that an approval was dismissed", () => {
+  const unnamed = observed("review.dismissed", 25, { ...of("63"), actor: person, data: { review_unnamed: true } });
+  const events = [
+    observed("change.opened", 10, { ...of("63"), actor: agent }),
+    review("review.approved", 20, "9"),
+    unnamed,
+    observed("change.merged", 40, { ...of("63"), actor: person }),
+  ];
+  const shown = ask(events);
+  assert.deepEqual(shown.unnamedDismissals, [{ time: at(25), actor: person, change: "63" }]);
+  assert.deepEqual(shown.unseenDismissals, []);
+  const text = render(shown, { utc: true });
+  assert.match(text, /a review was dismissed; the host did not say which \(by person-0a0a0a0a\)/);
+  assert.doesNotMatch(text, /not in the ledger/);
+  assert.equal(shown.reviews[0]!.reviews[0]!.dismissed, undefined, "the approval is not marked: which review it was is not known");
+  // The change is not said to wait for review on a guess: the approval stands, as before the dismissal.
+  const without = ask(events.filter((e) => e !== unnamed)).summary.parts;
+  assert.deepEqual(shown.summary.parts, without);
 });
 
 test("an approval that is dismissed: from then the summary counts waiting for review, not waiting for a person", () => {

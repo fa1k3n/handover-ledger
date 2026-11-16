@@ -249,9 +249,9 @@ The first round reads the whole history of the repository: on a repository with 
 
 **Known limit:** when the repository belongs to a person's account and not to an organisation, `repo`, and the ids of a ledger from before the lasting ids, hold that account's name. It names the repository, not who did what.
 
-**Known limit:** the observer reads the closing of a task or a change from the host's state now, and a reopening from its events. A change closed and opened again between two rounds is recorded as opened again with no closing before it. And the time a change lay closed counts as work in the summary of `howl show`, not as waiting.
+**Known limit:** the observer reads the closing of a task or a change from the host's state now, and a reopening from its events. A change closed and opened again between two rounds is recorded as opened again with no closing before it. And the time a change lay closed counts as work in the summary of `howl show`, not as waiting. A change that was approved, closed and opened again counts as waiting for review.
 
-**Known limit:** the GitHub adapter does not yet read which review a dismissal dismissed, or what that review was, because the fields have not been checked against the host. A dismissal is recorded with `data.review_unseen: true`, and `howl show` says that a review not in the ledger was dismissed. A review that is dismissed stays in the ledger as the review it was, marked as dismissed, only where the host names it (the local host does).
+**Known limit:** the GitHub adapter does not yet read which review a dismissal dismissed, or what that review was, because the fields have not been checked against the host (#127). A dismissal from GitHub is recorded with `data.review_unnamed: true` and no review, and `howl show` says "a review was dismissed; the host did not say which", and says nothing of whether the ledger holds that review. The review stays in its round as it was handed in, and is not marked as dismissed. An approval that was dismissed cannot be told, so the change is still shown waiting for a person, not for review, until #127. Where the host names the review and the ledger does not hold it (the local host can), the dismissal has `data.review` and `data.review_unseen: true`, and `howl show` says that a review not in the ledger was dismissed.
 
 ## One process: howl up
 
