@@ -3,16 +3,14 @@
 // rows out, the clock passed in. People are never a row.
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { agentTimeline, stateAt, type AgentState } from "./agent.ts";
 import { assignee } from "./assignee.ts";
 import { byTime } from "./order.ts";
-import { waitsFor } from "./wait.ts";
 
-export type AgentState = "needs-input" | "working" | "waiting" | "idle" | "ended";
+// #39: the state is told by the one fold in `agent.ts`; its words and its working window are those.
+export { WORKING_WITHIN_MS, type AgentState } from "./agent.ts";
 
 const DAY_MS = 24 * 3600_000;
-
-/** A tool call or a session event within this time counts as working. */
-export const WORKING_WITHIN_MS = 5 * 60_000;
 
 export interface AgentRow {
   agent: string;
@@ -71,7 +69,7 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     const own = list.filter((e) => e.source.kind === "claimed");
     const lastOwn = own.at(-1);
     const last = list.at(-1)!;
-    const row: AgentRow = { agent, state: stateOf(lastOwn, now), last: last.time, gaps: [] };
+    const row: AgentRow = { agent, state: stateOf(own, now), last: last.time, gaps: [] };
     if (lastOwn) {
       row.lastType = lastOwn.type;
       if (lastOwn.branch !== undefined) row.branch = lastOwn.branch;
@@ -111,19 +109,15 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
 }
 
 /**
- * Needs input: its last event is a wait for a person (a permission prompt, a
- * question from a tool), not the idle wait after a turn. An agent that asks in
- * the text of its answer and ends its turn cannot be told from one that is
- * done: that is waiting. Waiting: its last event is the idle wait, or a
- * stopped turn (it waits for its next prompt). Ended: its session ended and nothing followed. Working: its last
- * event is recent. Idle otherwise.
+ * The state now, from the fold (#39): needs input is a wait for a person (a permission prompt, a question from a
+ * tool), not the idle wait after a turn. An agent that asks in the text of its answer and ends its turn cannot be
+ * told from one that is done: that is waiting. An agent with no event of what it does is idle.
  */
-function stateOf(last: LedgerEvent | undefined, now: number): AgentState {
-  if (last === undefined) return "idle";
-  if (last.type === "agent.waiting") return waitsFor(last) === "instructions" ? "waiting" : "needs-input";
-  if (last.type === "session.stopped") return "waiting";
-  if (last.type === "session.ended") return "ended";
-  return now - Date.parse(last.time) <= WORKING_WITHIN_MS ? "working" : "idle";
+function stateOf(own: LedgerEvent[], now: number): AgentState {
+  const points = agentTimeline(own);
+  // An event stamped a moment ahead of this clock is read as now, as before.
+  const last = points.findLast((p) => p.state !== "idle");
+  return stateAt(points, Math.max(now, last === undefined ? now : Date.parse(last.time))) ?? "idle";
 }
 
 function taskOf(branch: string | undefined, pattern: RegExp | undefined): string | undefined {

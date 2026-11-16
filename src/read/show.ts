@@ -26,6 +26,7 @@ import { accountsGone, assignee, giver, givings } from "./assignee.ts";
 import { claimOfHost, isReview, observed } from "./observed.ts";
 import { byTime } from "./order.ts";
 import { waitsFor } from "./wait.ts";
+import { agentTimeline, movesAgent, type AgentState } from "./agent.ts";
 import { roundText } from "./rounds.ts";
 import { shortTime, zoneLine } from "./watch.ts";
 
@@ -131,8 +132,11 @@ export interface Summary {
   to: string;
   open: boolean;
   seconds: number;
-  /** How the time divides: every second belongs to exactly one part. */
-  parts: { work: number; person: number; instructions: number; checks: number; review: number };
+  /**
+   * How the time divides: every second belongs to exactly one part. `unknown` (#39): no session says what the agent
+   * does (none yet, idle, or ended) and the change waits for nothing.
+   */
+  parts: { work: number; person: number; instructions: number; checks: number; review: number; unknown: number };
   reviewRounds: number;
   actors: Actor[];
 }
@@ -643,9 +647,11 @@ function endOfTask(all: ChangePart[], events: LedgerEvent[]): End {
 
 /**
  * From the hand-over to the merge, every second in exactly one part, by the
- * state after the last event before it. The agent working comes first; then a
- * wait for a person; then what the change waits for; then an idle agent
- * waiting for instructions. What is left is work, by whoever does it.
+ * state after the last event before it. What the agent does is the one fold
+ * of `agent.ts` (#39), over the events of the sessions of the assignment. The
+ * agent working comes first; then a wait for a person; then what the change
+ * waits for; then an agent waiting for instructions. What is left is unknown:
+ * no session says what the agent does, and the change waits for nothing.
  *
  * #51: a claim of what the code host owns moves nothing here: not the start,
  * not the state of the change, not the end, and not who took part.
@@ -655,12 +661,12 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
   if (events.length === 0) {
     // Only claims name the assignment: nothing was seen, so nothing is measured.
     const at = all[0]!.time;
-    return { from: at, to: at, open: true, seconds: 0, parts: { work: 0, person: 0, instructions: 0, checks: 0, review: 0 }, reviewRounds: 0, actors: [] };
+    return { from: at, to: at, open: true, seconds: 0, parts: { work: 0, person: 0, instructions: 0, checks: 0, review: 0, unknown: 0 }, reviewRounds: 0, actors: [] };
   }
   // The first giving of the task, whether or not it was taken back (#45): a later giving does not rewrite how long the work took.
   const handover = events.find((e) => e.type === "task.assigned" && observed(e));
   // #22: without a hand-over, from the first sign of work, not from when the task was opened (it may wait for days).
-  const work = events.find((e) => e.type.startsWith("session.") || e.type.startsWith("change.") || e.type === "tool.used");
+  const work = events.find((e) => movesAgent(e) || e.type.startsWith("change."));
   // #117: a later change of a task is measured from its own first event. The hand-over is the task's
   // first change's, and the life of the changes before it is not its work.
   const own = events.find((e) => !e.type.startsWith("task."));
@@ -668,45 +674,44 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
   // A task given only after its change had ended is measured as one that was never given: from the first sign of work.
   const given = handover !== undefined && Date.parse(handover.time) <= Date.parse(to) ? handover : undefined;
   const from = (fromHandover ? (given ?? work ?? events[0]!) : (own ?? events[0]!)).time;
-  const parts = { work: 0, person: 0, instructions: 0, checks: 0, review: 0 };
+  const parts = { work: 0, person: 0, instructions: 0, checks: 0, review: 0, unknown: 0 };
   const checked = new Set(events.filter((e) => e.type.startsWith("checks.") && e.sha).map((e) => e.sha!));
 
   // Until a session of an agent is seen, nothing is known of it: the change says what is waited for.
-  let agent: "unknown" | "working" | "blocked" | "idle" = "unknown";
+  let agent: AgentState | undefined;
   let change: "none" | "checks" | "review" | "approved" | "done" = "none";
   const part = (): keyof typeof parts => {
     if (agent === "working") return "work";
-    if (agent === "blocked") return "person";
+    if (agent === "needs-input") return "person";
     if (change === "checks") return "checks";
     if (change === "review") return "review";
     if (change === "approved") return "person";
-    if (agent === "idle") return "instructions";
-    return "work";
+    if (agent === "waiting") return "instructions";
+    return "unknown";
   };
 
+  // The moments the state changes: the agent's from the fold, the change's from its events, in the order of time.
+  const moments: { time: string; agent?: AgentState; event?: LedgerEvent }[] = [
+    ...agentTimeline(events).map((p) => ({ time: p.time, agent: p.state })),
+    ...events.map((e) => ({ time: e.time, event: e })),
+  ];
   const stop = Date.parse(to);
   // A summary is never negative: a task given only after its change had ended is measured from that end.
   const start = Math.min(Date.parse(from), stop);
   let at = start;
-  for (const e of events) {
-    const t = Date.parse(e.time);
+  for (const { event: m } of byTime(moments.map((event) => ({ event })))) {
+    const t = Date.parse(m.time);
     if (t > stop) break;
     if (t > at) {
       parts[part()] += (t - at) / 1000;
       at = t;
     }
+    if (m.agent !== undefined) {
+      agent = m.agent;
+      continue;
+    }
+    const e = m.event!;
     switch (e.type) {
-      case "session.started":
-      case "tool.used":
-        agent = "working";
-        break;
-      case "agent.waiting":
-        agent = waitsFor(e) === "instructions" ? "idle" : "blocked";
-        break;
-      case "session.stopped":
-      case "session.ended":
-        agent = "idle";
-        break;
       case "change.opened":
       case "change.updated":
         change = e.sha && checked.has(e.sha) ? "checks" : "review";
@@ -893,7 +898,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   out.push(
     `  work ${duration(s.parts.work)}, waiting for a person ${duration(s.parts.person)}, waiting for instructions ${duration(
       s.parts.instructions,
-    )}, waiting for checks ${duration(s.parts.checks)}, waiting for review ${duration(s.parts.review)}`,
+    )}, waiting for checks ${duration(s.parts.checks)}, waiting for review ${duration(s.parts.review)}, unknown ${duration(s.parts.unknown)}`,
   );
   out.push(`  review rounds: ${s.reviewRounds}`);
   out.push(`  taking part: ${s.actors.map((a) => a.id).join(", ")}`);

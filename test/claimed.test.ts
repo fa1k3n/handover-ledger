@@ -188,7 +188,7 @@ test("a change that only a claim names does not keep the assignment open", () =>
 test("a claim moves no second of the summary: not its parts, its start, its end or who took part", () => {
   const merge = () => event("observed", "change.merged", 60, "agent-a", { task: "12" });
   const plain = show([opening(), merge()], { kind: "change", id: "30" }, null)!.summary;
-  assert.deepEqual(plain.parts, { work: 0, person: 0, instructions: 0, checks: 0, review: 3600 });
+  assert.deepEqual(plain.parts, { work: 0, person: 0, instructions: 0, checks: 0, review: 3600, unknown: 0 });
   for (const type of ["review.approved", "review.changes_requested", "change.merged", "change.closed", "change.updated"] as const) {
     const claim = event("claimed", type, 5, "agent-z", { task: "12" });
     const { summary } = show([opening(), claim, merge()], { kind: "change", id: "30" }, null)!;
@@ -305,7 +305,7 @@ test("an assignment that only claims name has an empty summary", () => {
     to: at(5),
     open: true,
     seconds: 0,
-    parts: { work: 0, person: 0, instructions: 0, checks: 0, review: 0 },
+    parts: { work: 0, person: 0, instructions: 0, checks: 0, review: 0, unknown: 0 },
     reviewRounds: 0,
     actors: [],
   });
