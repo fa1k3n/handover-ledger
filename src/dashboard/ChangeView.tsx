@@ -5,7 +5,7 @@ import { duration } from "../read/overview.ts";
 import { roundText } from "../read/rounds.ts";
 import type { Shown } from "../read/show.ts";
 import * as api from "./api.ts";
-import { claimText, hashFor, headText, otherChangeLinks, sessionText, whenShort } from "./format.ts";
+import { claimText, hashFor, headText, otherChangeLinks, traceText, sessionText, whenShort } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const t = texts.change;
@@ -140,6 +140,7 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
                 <div key={h.sha} className={`${row} ${h.checks === "failed" ? "text-error-ink" : ""}`}>
                   <span className="text-mute">{whenShort(h.time, now)}</span>
                   {headText(h, i === 0)}
+                  <span className="text-mute"> · {traceText(h.trace)}</span>
                 </div>
               ))}
               {c.comments > 0 && <div className={`${row} text-mute`}>{t.comments(c.comments)}</div>}

@@ -43,7 +43,8 @@ export interface LedgerEvent {
     | "key.issued"
     | "key.revoked"
     | "observe.started"
-    | "config.changed";
+    | "config.changed"
+    | "trace.read";
   /**
    * Where the event comes from.
    */

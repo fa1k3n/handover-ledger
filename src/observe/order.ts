@@ -21,6 +21,8 @@ const ORDER: string[][] = [
   ["change.updated"],
   // What a head holds is told with the head, before what is done to it.
   ["config.changed"],
+  // What the tests of a head name is told with the head, before its checks.
+  ["trace.read"],
   // A commit has one of the two.
   ["checks.passed", "checks.failed"],
   ["change.commented"],

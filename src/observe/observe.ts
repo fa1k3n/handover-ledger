@@ -19,6 +19,7 @@ import type { LedgerEvent } from "../ledger/schema.ts";
 import type { People } from "./people.ts";
 import type { Account, Change, ChecksState, CodeHost, Task } from "./port.ts";
 import { happensBefore } from "./order.ts";
+import type { TraceResult } from "../howl/trace-read.ts";
 
 export interface ObserveSettings {
   project: string;
@@ -37,9 +38,22 @@ interface Watched {
   open: boolean;
 }
 
+/** #38: a head whose tests have not been read yet: the commit was not on the machine, or the round had read enough. */
+interface TracePending {
+  sha: string;
+  change: number;
+  branch: string;
+  task?: string;
+  /** The head's time, which the event takes. */
+  at: string;
+  /** Whether the change was open when it was last read. A closed change is asked once more, then let go. */
+  open: boolean;
+}
+
 interface Cursor {
   since: string | null;
   watch: Watched[];
+  trace: TracePending[];
 }
 
 export interface Round {
@@ -61,7 +75,12 @@ export interface ObserverParts {
   warn: (message: string) => void;
   /** #6: where the first round starts, when there is no cursor yet; none reads from the beginning. */
   start?: string;
+  /** #38: what the tests of a commit name, read from the repository on this machine. */
+  traceAt?: (sha: string) => TraceResult;
 }
+
+/** #38: the most heads read in one round: the writer is held while they are, and the rest wait for the next round. */
+const MAX_TRACE_READS = 10;
 
 export class Observer {
   /** The head commit of each change when it was opened, as the ledger has it. */
@@ -75,9 +94,13 @@ export class Observer {
   private readonly settings: ObserveSettings;
   private readonly warn: (message: string) => void;
   private readonly start: string | undefined;
+  private readonly traceAt: ObserverParts["traceAt"];
+  /** #38: the heads waiting for their tests to be read, by change and commit; of the round that runs. */
+  private pendingTrace = new Map<string, TracePending>();
 
   constructor(parts: ObserverParts) {
     this.start = parts.start;
+    this.traceAt = parts.traceAt;
     ({
       host: this.host,
       writer: this.writer,
@@ -103,6 +126,7 @@ export class Observer {
     const cursor = this.readCursor();
     if (first && this.start !== undefined) cursor.since = this.start;
     const watch = new Map(cursor.watch.map((w) => [w.sha, w]));
+    this.pendingTrace = new Map(cursor.trace.map((p) => [`${p.change}:${p.sha}`, p]));
     const found: LedgerEvent[] = [];
     let complete = true;
     const failed = (call: string, e: unknown) => {
@@ -176,6 +200,8 @@ export class Observer {
       found.push(this.event("observe:started", "observe.started", seen, undefined, { data: { since: this.start } }, seen));
     }
 
+    found.push(...this.traceEvents(seen));
+
     let appended = 0;
     // #112: by time, and at the same time by what can happen first: opened before assigned.
     found.sort(happensBefore);
@@ -187,8 +213,40 @@ export class Observer {
     }
 
     this.people.save();
-    this.writeCursor({ since: complete ? latest : cursor.since, watch: [...watch.values()] });
+    this.writeCursor({ since: complete ? latest : cursor.since, watch: [...watch.values()], trace: [...this.pendingTrace.values()] });
     return { ingested, appended, complete };
+  }
+
+  /**
+   * #38: reads the tests of the heads that wait, at most MAX_TRACE_READS in a round. A head whose commit is not on
+   * the machine waits for the next round while its change is open, and once more after it is closed. A head that
+   * cannot be read at all, as a commit with no settings, is let go.
+   */
+  private traceEvents(seen: string): LedgerEvent[] {
+    const found: LedgerEvent[] = [];
+    if (this.traceAt === undefined) return found;
+    let reads = 0;
+    for (const [key, p] of this.pendingTrace) {
+      const id = `trace:${p.change}:${p.sha}`;
+      if (this.writer.has(this.id(id))) {
+        this.pendingTrace.delete(key);
+        continue;
+      }
+      if (reads >= MAX_TRACE_READS) break;
+      reads++;
+      const result = this.traceAt(p.sha);
+      if (result.state === "read") {
+        const fields = { change: String(p.change), branch: p.branch, sha: p.sha, task: p.task };
+        found.push(this.event(id, "trace.read", p.at, undefined, { ...fields, data: { ...result.summary } }, seen));
+        this.pendingTrace.delete(key);
+      } else if (result.state === "never") {
+        if (!result.quiet) this.warn(`trace ${p.sha.slice(0, 7)} of change ${p.change}: ${result.why}`);
+        this.pendingTrace.delete(key);
+      } else if (!p.open) {
+        this.pendingTrace.delete(key);
+      }
+    }
+    return found;
   }
 
   private taskEvents(task: Task, seen: string): LedgerEvent[] {
@@ -222,6 +280,12 @@ export class Observer {
     const config = (change.files ?? []).filter((f) => f === ".howl" || f.startsWith(".howl/"));
     if (config.length > 0) {
       found.push(this.event(`config:${n}:${head}`, "config.changed", change.head.at, undefined, { ...of(head), data: { paths: config } }, seen));
+    }
+
+    // #38: what the tests of this head name is read once the round has its events: the head waits for that.
+    if (this.traceAt !== undefined && !this.writer.has(this.id(`trace:${n}:${head}`))) {
+      const task = this.taskOf(change);
+      this.pendingTrace.set(`${n}:${head}`, { sha: head, change: n, branch: change.branch, ...(task !== undefined ? { task } : {}), at: change.head.at, open: change.closedAt === undefined });
     }
 
     for (const r of change.reviews) {
@@ -293,9 +357,13 @@ export class Observer {
   private readCursor(): Cursor {
     try {
       const value = JSON.parse(readFileSync(this.cursorPath, "utf8")) as Partial<Cursor>;
-      return { since: typeof value.since === "string" ? value.since : null, watch: Array.isArray(value.watch) ? value.watch : [] };
+      return {
+        since: typeof value.since === "string" ? value.since : null,
+        watch: Array.isArray(value.watch) ? value.watch : [],
+        trace: Array.isArray(value.trace) ? value.trace : [],
+      };
     } catch {
-      return { since: null, watch: [] };
+      return { since: null, watch: [], trace: [] };
     }
   }
 
