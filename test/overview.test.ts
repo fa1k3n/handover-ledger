@@ -96,7 +96,14 @@ test("#13: /api/overview gives the key figures and the latest handovers of the s
     assert.equal(body.figures.open, 1);
     assert.deepEqual(
       body.handovers.map((h) => `${h.from} → ${h.to}`),
-      [`${MERGER} → merged`, `agent-1 → ${REVIEWER}`, `${REVIEWER} → agent-1`],
+      [
+        `${MERGER} → merged`,
+        `agent-1 → ${REVIEWER}`,
+        `${REVIEWER} → agent-1`,
+        // #120: the story gives two tasks to the agent, in the form from before #45: the giver is not recorded.
+        "not recorded → agent-1",
+        "not recorded → agent-1",
+      ],
     );
     assert.ok(body.handovers.every((h) => /^[0-9a-f]{64}$/.test(h.hash)));
   } finally {

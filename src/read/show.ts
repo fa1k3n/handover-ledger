@@ -22,7 +22,7 @@
 import { traceText, type HeadTrace } from "./trace-text.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
-import { accountsGone, assignee, giver } from "./assignee.ts";
+import { accountsGone, assignee, giver, givings } from "./assignee.ts";
 import { claimOfHost, isReview, observed } from "./observed.ts";
 import { byTime } from "./order.ts";
 import { waitsFor } from "./wait.ts";
@@ -250,30 +250,6 @@ function goneOf(e: LedgerEvent): ("to" | "by")[] | undefined {
   const g = accountsGone(e);
   const list = [...(g.to ? (["to"] as const) : []), ...(g.by ? (["by"] as const) : [])];
   return list.length > 0 ? [...list] : undefined;
-}
-
-/**
- * #45: every giving of a task, in the order of time, and every taking back. A taking back marks the latest giving to
- * the same team member that is not taken back yet. Two givings to two members are both there, as before.
- * Observed events only: a claim of a giving or a taking back is a claim (#51).
- */
-function givings(events: LedgerEvent[]): { all: { event: LedgerEvent; takenBy?: LedgerEvent }[]; taken: LedgerEvent[] } {
-  const all: { event: LedgerEvent; takenBy?: LedgerEvent }[] = [];
-  const taken: LedgerEvent[] = [];
-  const same = (a: LedgerEvent, b: LedgerEvent) => {
-    const x = assignee(a);
-    const y = assignee(b);
-    return x === undefined || y === undefined ? x === y : x.kind === y.kind && x.id === y.id;
-  };
-  for (const e of inOrder(events.filter(observed))) {
-    if (e.type === "task.assigned") all.push({ event: e });
-    else if (e.type === "task.unassigned") {
-      taken.push(e);
-      const i = all.findLastIndex((g) => g.takenBy === undefined && same(g.event, e));
-      if (i >= 0) all[i]!.takenBy = e;
-    }
-  }
-  return { all, taken };
 }
 
 interface Found {

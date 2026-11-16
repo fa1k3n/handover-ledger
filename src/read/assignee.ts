@@ -4,6 +4,8 @@
 // No Node, so the page can use it.
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { observed } from "./observed.ts";
+import { byTime } from "./order.ts";
 
 type Member = NonNullable<LedgerEvent["actor"]>;
 
@@ -38,4 +40,30 @@ export function accountsGone(event: LedgerEvent): { to: boolean; by: boolean } {
   if (event.type !== "task.assigned" && event.type !== "task.unassigned") return { to: false, by: false };
   if (written(event)) return { to: event.to === undefined, by: said(event, "account_removed") };
   return { to: event.type === "task.assigned" && said(event, "account_removed"), by: false };
+}
+
+/**
+ * #45: every giving of a task, in the order of time, and every taking back. A taking back marks the latest giving to
+ * the same team member, of the same task, that is not taken back yet. Two givings to two members are both there, as before.
+ * Observed events only: a claim of a giving or a taking back is a claim (#51).
+ */
+export function givings(events: LedgerEvent[]): { all: { event: LedgerEvent; takenBy?: LedgerEvent }[]; taken: LedgerEvent[] } {
+  const all: { event: LedgerEvent; takenBy?: LedgerEvent }[] = [];
+  const taken: LedgerEvent[] = [];
+  // A taking back ends a giving of its own task only: the ledger holds many tasks, and one member may have several.
+  const same = (a: LedgerEvent, b: LedgerEvent) => {
+    if (a.task !== b.task) return false;
+    const x = assignee(a);
+    const y = assignee(b);
+    return x === undefined || y === undefined ? x === y : x.kind === y.kind && x.id === y.id;
+  };
+  for (const e of byTime(events.filter(observed).map((event) => ({ event }))).map((x) => x.event)) {
+    if (e.type === "task.assigned") all.push({ event: e });
+    else if (e.type === "task.unassigned") {
+      taken.push(e);
+      const i = all.findLastIndex((g) => g.takenBy === undefined && same(g.event, e));
+      if (i >= 0) all[i]!.takenBy = e;
+    }
+  }
+  return { all, taken };
 }
