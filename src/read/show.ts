@@ -86,7 +86,8 @@ export interface Round {
   followedBy: string | null;
 }
 
-export type End = { state: "merged" | "closed"; time: string; actor?: Actor } | { state: "open" };
+/** `change`: #118: for a task of several changes, the change whose end it is, the last to end. */
+export type End = { state: "merged" | "closed"; time: string; actor?: Actor; change?: string } | { state: "open" };
 
 /** #51: an event of a task, a change or a review that a session or a script sent, and no adapter read. */
 export interface Claim {
@@ -170,9 +171,8 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   const first = firstChange(all, linked);
   const fromHandover = !asksChange || first === undefined || first === asked.id;
   const parts = changeParts(events, changes, acting);
-  // The end of a change that is asked for is its own. A task with several changes keeps the end it had
-  // (the first merge) until #118.
-  const end = asksChange ? (parts[0]?.end ?? endOf(events)) : endOf(events);
+  // The end of a change that is asked for is its own; the end of a task is that of its last change (#118).
+  const end = asksChange ? (parts[0]?.end ?? { state: "open" as const }) : endOfTask(parts);
   return {
     task,
     asked: asksChange ? "change" : "task",
@@ -512,19 +512,23 @@ function endOfChange(own: LedgerEvent[]): End {
   return { state: "open" };
 }
 
-/** The end of the assignment as the code host showed it: a claimed merge or closing ends nothing (#51). */
-function endOf(events: LedgerEvent[]): End {
-  const merged = events.find((e) => e.type === "change.merged" && observed(e));
-  if (merged) return defined({ state: "merged" as const, time: merged.time, actor: merged.actor });
-  // The changes the code host showed: one that only a claim names keeps nothing open.
-  const changes = new Set(events.filter((e) => e.change && observed(e)).map((e) => e.change));
-  const closed = events.filter((e) => e.type === "change.closed" && observed(e));
-  // Closed only when every change of the assignment is closed without merge.
-  if (closed.length > 0 && new Set(closed.map((e) => e.change)).size === changes.size) {
-    const last = closed.at(-1)!;
-    return defined({ state: "closed" as const, time: last.time, actor: last.actor });
+/**
+ * #118: the end of a task, from the ends of its changes. Open while a change has no end; merged when every
+ * change has ended and one was merged; closed when every change was closed without a merge. The time is the
+ * last end, and `change` is the change it is of. A claim ends nothing: `endOfChange` reads observed events only.
+ * With one change the end is that change's and names none: `change` is for a task of several. The tracker's
+ * closing of the task is not read here.
+ */
+function endOfTask(parts: ChangePart[]): End {
+  if (parts.length === 0 || parts.some((p) => p.end.state === "open")) return { state: "open" };
+  let last: ChangePart | undefined;
+  for (const p of parts) {
+    const e = p.end;
+    if (e.state !== "open" && (last === undefined || Date.parse(e.time) >= Date.parse((last.end as { time: string }).time))) last = p;
   }
-  return { state: "open" };
+  const e = last!.end as Exclude<End, { state: "open" }>;
+  const merged = parts.some((p) => p.end.state === "merged");
+  return defined({ state: merged ? ("merged" as const) : ("closed" as const), time: e.time, actor: e.actor, change: parts.length > 1 ? last!.change : undefined });
 }
 
 /**

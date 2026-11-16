@@ -271,7 +271,7 @@ howl watch --filter 'has(event.change) && (event.source.kind == "claimed" || eve
 
 `--filter` can be given more than once, and all must match. `--since <time>` passes over what came before (without an offset it is local time); `--json` prints the lines as they stand in the files; `--no-follow` stops after what is there. A wait for a person, failed checks and a review that asks for changes stand out in colour; not when the output is not a terminal, or when `NO_COLOR` is set.
 
-**`howl show <task or change>`** gives the timeline of one assignment: `12`, `task:12` or `change:30`. Asked for a task, it gathers what names the task, its changes, the hook events on their branches and commits, and the rest of those sessions; never what names another task. Where the task has more than one change, each review round and each end says which change it is of.
+**`howl show <task or change>`** gives the timeline of one assignment: `12`, `task:12` or `change:30`. Asked for a task, it gathers what names the task, its changes, the hook events on their branches and commits, and the rest of those sessions; never what names another task. Where the task has more than one change, each review round and each end says which change it is of. The end of a task is the end of its last change: the task is open while one of its changes is open, merged when every change has ended and one was merged, and closed when every change was closed without a merge. The summary measures to that end. The tracker's closing of the task is shown as `task closed` and decides neither the state nor the time.
 
 ```
 $ howl show 12 --utc
