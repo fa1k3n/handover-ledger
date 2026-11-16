@@ -112,6 +112,25 @@ export function isReviewComment(body: unknown, pattern: RegExp | undefined): boo
   return pattern.test(body.split(/\r?\n/, 1)[0]!);
 }
 
+/**
+ * #44: a push to the branch of a change, as the host records it: the head it made, when, and who pushed. One push of
+ * several commits is one push, with the last as its head.
+ */
+export interface Push {
+  /** The host's own id of the push. */
+  id: string;
+  /** The head after the push. */
+  sha: string;
+  /** The head before it, when the host says and there was one. */
+  before?: string;
+  /** When it was pushed: the host's time of the push, not the commit's. */
+  at: string;
+  /** The account that pushed, when the host says; not the agent behind it. */
+  by?: Account;
+  /** A push that replaced the head with one that does not follow from it. */
+  forced?: boolean;
+}
+
 export interface Change {
   number: number;
   branch: string;
@@ -119,6 +138,11 @@ export interface Change {
   openedBy: Account;
   /** The head commit now, and when it was made. */
   head: { sha: string; at: string };
+  /**
+   * #44: the pushes to the change's branch, oldest first, as far back as the host keeps them. None when the host
+   * tells none: a change from a fork, or a host that has no record of pushes. Its heads are then the ones a round sees.
+   */
+  pushes?: Push[];
   /** The tasks the host links the change to. */
   tasks: number[];
   /** The paths the change touches, as the host lists them (#25). */

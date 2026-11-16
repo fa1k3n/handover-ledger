@@ -17,6 +17,14 @@ export interface Acting {
   via?: string;
 }
 
+/**
+ * A new head the code host named no one for (#21): from a ledger before #44, or the fall-back of #44 where the host
+ * told no push. A head whose pusher's account no longer exists was named by the host, and is not one.
+ */
+export function namelessHead(e: LedgerEvent): boolean {
+  return e.type === "change.updated" && e.actor === undefined && (e.data as { account_removed?: unknown } | undefined)?.account_removed !== true;
+}
+
 /** The rule that matched an agent to an event (#33): the branch or the change, and the window of time. */
 export interface Rule {
   by: "branch" | "change";
@@ -46,9 +54,10 @@ export function matches(events: LedgerEvent[]): Map<string, Acting & { rule: Rul
   const found = new Map<string, Acting & { rule: Rule; sessions: string[] }>();
   for (const e of events) {
     if (e.source.kind !== "observed" || e.change === undefined) continue;
-    // Through a person's account (#14), or a new head the code host names no one for (#21).
+    // Through a person's account (#14), or a new head the code host names no one for (#21). #44: a head the host
+    // names a pusher for is matched only through a person's account; pushed by an agent's account, it needs no match.
     const throughPerson = e.actor?.kind === "person";
-    const nameless = e.actor === undefined && e.type === "change.updated";
+    const nameless = namelessHead(e);
     if (!throughPerson && !nameless) continue;
     const isChange = e.type === "change.opened" || e.type === "change.updated";
     if (!isChange && !isReview(e)) continue;

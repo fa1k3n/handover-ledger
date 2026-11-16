@@ -93,9 +93,18 @@ test("a task: who opened it, every assignment with its own id, who closed it", a
   });
 });
 
-test("a change: its branch, its head with the time of the commit, the tasks it closes, and its reviews", async () => {
+test("a change: its branch, its head with the time of the commit, the tasks it closes, its reviews, and its pushes", async () => {
   const sha = "a".repeat(40);
+  const first = "c".repeat(40);
   const { host } = github({
+    // #44: the repository's activity list of the change's branch: who pushed each head, and when. The newest first, as GitHub gives it.
+    [`${R}/activity?`]: {
+      body: [
+        { id: 7003, before: sha, after: "0".repeat(40), ref: "refs/heads/task-5-x", timestamp: "2026-01-01T00:31:00Z", activity_type: "branch_deletion", actor: { login: "carol", type: "User" } },
+        { id: 7002, before: first, after: sha, ref: "refs/heads/task-5-x", timestamp: "2026-01-01T00:05:03Z", activity_type: "push", actor: { login: "agent-bot", type: "User" } },
+        { id: 7001, before: "0".repeat(40), after: first, ref: "refs/heads/task-5-x", timestamp: "2025-12-31T23:59:00Z", activity_type: "branch_creation", actor: { login: "agent-bot", type: "User" } },
+      ],
+    },
     // #25: and the files; before `pulls/7`, which the fake matches as a prefix.
     [`${R}/pulls/7/files`]: { body: [{ filename: ".howl/howl.yml" }, { filename: "src/a.ts" }] },
     // #45: the events of the issue, for the reopenings and the dismissals: none here.
@@ -114,7 +123,8 @@ test("a change: its branch, its head with the time of the commit, the tasks it c
         number: 7,
         user: { login: "agent-bot", type: "User" },
         created_at: "2026-01-01T00:00:00Z",
-        head: { ref: "task-5-x", sha },
+        head: { ref: "task-5-x", sha, repo: { id: 1234567, full_name: "team/product" } },
+        base: { ref: "main", repo: { id: 1234567, full_name: "team/product" } },
         body: "Does the thing.\n\nCloses #5, fixes #6 and resolves team/product#8. Not #9.",
         merged_at: "2026-01-01T00:30:00Z",
         merged_by: { login: "carol", type: "User" },
@@ -141,6 +151,10 @@ test("a change: its branch, its head with the time of the commit, the tasks it c
       { id: "5", by: { login: "bob", bot: false }, state: "approved", at: "2026-01-01T00:20:00Z", sha },
     ],
     comments: [],
+    pushes: [
+      { id: "7001", sha: first, at: "2025-12-31T23:59:00Z", by: { login: "agent-bot", bot: false } },
+      { id: "7002", sha, before: first, at: "2026-01-01T00:05:03Z", by: { login: "agent-bot", bot: false } },
+    ],
     mergedAt: "2026-01-01T00:30:00Z",
     mergedBy: { login: "carol", bot: false },
     closedAt: "2026-01-01T00:30:00Z",
@@ -410,4 +424,99 @@ test("#45: a change: when it was opened again, and which reviews were dismissed 
   ]);
   assert.ok(!JSON.stringify(change).includes("secret words"), "the text of a dismissal is never kept");
   assert.ok(asked.some((a) => a.url.startsWith(`${R}/issues/7/events`)), "from the events it already knows how to ask for");
+});
+
+/** #44: a change of the repository itself on branch `task-5-x`, with the answer of the activity list given. */
+function withActivity(activity: Reply | Reply[], pull: Record<string, unknown> = {}) {
+  const sha = "a".repeat(40);
+  const repo = { id: 1234567, full_name: "team/product" };
+  return github({
+    [`${R}/activity?`]: activity,
+    [`${R}/pulls/7/files`]: { body: [] },
+    [`${R}/issues/7/events`]: { body: [] },
+    [`${R}/pulls/7/reviews`]: { body: [] },
+    [`${R}/issues/7/comments`]: { body: [] },
+    [`${R}/pulls/7`]: {
+      body: { number: 7, user: { login: "agent-bot", type: "User" }, created_at: "2026-01-01T00:00:00Z", head: { ref: "task-5-x", sha, repo }, base: { ref: "main", repo }, updated_at: "2026-01-01T00:30:00Z", ...pull },
+    },
+    [`${R}/commits/${sha}`]: { body: { sha, commit: { committer: { date: "2026-01-01T00:05:00Z" } } } },
+  });
+}
+
+const H = { a: "a".repeat(40), b: "b".repeat(40), c: "c".repeat(40), zero: "0".repeat(40) };
+const entry = (id: number, type: string, before: string, after: string, timestamp: string, actor: unknown = { login: "agent-bot", type: "User" }) => ({
+  id,
+  activity_type: type,
+  before,
+  after,
+  ref: "refs/heads/task-5-x",
+  timestamp,
+  actor,
+});
+
+test("#44: the pushes are asked of the activity list of the change's branch, every page, in the order they were made", async () => {
+  const { host, asked } = withActivity([
+    {
+      body: [entry(3, "push", H.b, H.a, "2026-01-01T00:20:00Z"), entry(2, "push", H.c, H.b, "2026-01-01T00:10:00Z")],
+      headers: { link: `<https://api.github.com${R}/activity?ref=refs%2Fheads%2Ftask-5-x&per_page=100&after=xyz>; rel="next"` },
+    },
+    { body: [entry(1, "branch_creation", H.zero, H.c, "2026-01-01T00:00:00Z")] },
+  ]);
+  const change = await host.change(7);
+  assert.deepEqual(change.pushes!.map((p) => [p.id, p.sha, p.at]), [
+    ["1", H.c, "2026-01-01T00:00:00Z"],
+    ["2", H.b, "2026-01-01T00:10:00Z"],
+    ["3", H.a, "2026-01-01T00:20:00Z"],
+  ]);
+  const activity = asked.filter((a) => a.url.startsWith(`${R}/activity?`));
+  assert.equal(activity.length, 2);
+  assert.match(activity[0]!.url, /ref=refs%2Fheads%2Ftask-5-x/);
+  assert.match(activity[0]!.url, /per_page=100/);
+});
+
+test("#44: a force push is a push that was forced; the deletion of the branch and a merge are no heads", async () => {
+  // Not seen in a real answer: built from the type the host's documents name, in the form of the entries that were seen.
+  const { host } = withActivity({
+    body: [
+      entry(5, "branch_deletion", H.a, H.zero, "2026-01-01T00:40:00Z"),
+      entry(4, "pr_merge", H.b, H.a, "2026-01-01T00:35:00Z"),
+      entry(3, "force_push", H.b, H.a, "2026-01-01T00:20:00Z", { login: "alice", type: "User" }),
+      entry(2, "push", H.a, H.b, "2026-01-01T00:10:00Z"),
+      entry(1, "branch_creation", H.zero, H.a, "2025-12-31T23:50:00Z"),
+    ],
+  });
+  const change = await host.change(7);
+  assert.deepEqual(change.pushes, [
+    { id: "1", sha: H.a, at: "2025-12-31T23:50:00Z", by: { login: "agent-bot", bot: false } },
+    { id: "2", sha: H.b, before: H.a, at: "2026-01-01T00:10:00Z", by: { login: "agent-bot", bot: false } },
+    { id: "3", sha: H.a, before: H.b, at: "2026-01-01T00:20:00Z", by: { login: "alice", bot: false }, forced: true },
+  ]);
+});
+
+test("#44: a pusher whose account is gone is no one; an entry that names no actor names no pusher", async () => {
+  const { host } = withActivity({
+    body: [entry(2, "push", H.a, H.b, "2026-01-01T00:10:00Z", null), { ...entry(1, "push", H.c, H.a, "2026-01-01T00:05:00Z"), actor: undefined }],
+  });
+  const change = await host.change(7);
+  assert.deepEqual(change.pushes!.map((p) => [p.id, p.by]), [
+    ["1", undefined],
+    ["2", { removed: true }],
+  ]);
+  assert.equal("by" in change.pushes![0]!, false);
+});
+
+test("#44: a change from a fork has no pushes, and its activity is not asked for", async () => {
+  const { host, asked } = withActivity({ body: [entry(1, "push", H.c, H.a, "2026-01-01T00:05:00Z")] }, { head: { ref: "task-5-x", sha: H.a, repo: { id: 999, full_name: "someone/product" } } });
+  const change = await host.change(7);
+  assert.equal(change.pushes, undefined);
+  assert.ok(!asked.some((a) => a.url.startsWith(`${R}/activity`)));
+  // A fork that was deleted: the host gives no repository for the head.
+  const gone = withActivity({ body: [] }, { head: { ref: "task-5-x", sha: H.a, repo: null } });
+  assert.equal((await gone.host.change(7)).pushes, undefined);
+});
+
+test("#44: a list with no pushes of the branch, or a host with no activity list, gives no pushes; another failure is thrown", async () => {
+  assert.equal((await withActivity({ body: [] }).host.change(7)).pushes, undefined);
+  assert.equal((await withActivity({ status: 404, body: { message: "Not Found" } }).host.change(7)).pushes, undefined);
+  await assert.rejects(withActivity({ status: 502 }).host.change(7), /502/);
 });

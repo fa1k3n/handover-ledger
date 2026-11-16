@@ -137,7 +137,7 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
                 </div>
               )}
               {c.heads.map((h, i) => (
-                <div key={h.sha} className={`${row} ${h.checks === "failed" ? "text-error-ink" : ""}`}>
+                <div key={`${i}:${h.sha}`} className={`${row} ${h.checks === "failed" ? "text-error-ink" : ""}`}>
                   <span className="text-mute">{whenShort(h.time, now)}</span>
                   {headText(h, i === 0)}
                   <span className="text-mute"> · {traceText(h.trace)}</span>

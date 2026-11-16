@@ -59,8 +59,17 @@ export interface Session {
 export interface Head {
   sha: string;
   time: string;
-  /** Who pushed it, when the code host does not say and one agent matches (#21). */
+  /**
+   * The agent matched to it: who pushed it when the code host does not say (#21), or the agent behind the person's
+   * account the host names (#44).
+   */
   by?: string;
+  /** #44: who pushed it, as the code host says. */
+  actor?: Actor;
+  /** #44: the host named a pusher whose account no longer exists. */
+  gone?: true;
+  /** #44: the head is the one a round of howl saw, not one the host told a push for. */
+  inferred?: true;
   checks?: "passed" | "failed";
   checksTime?: string;
   /** #38: what the tests of this commit name, as the code host's repository shows it; none when it was not read. */
@@ -499,7 +508,18 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
     const opened = seen.find((e) => e.type === "change.opened");
     const heads: Head[] = seen
       .filter((e) => (e.type === "change.opened" || e.type === "change.updated") && e.sha)
-      .map((e) => defined({ sha: e.sha!, time: e.time, by: e.type === "change.updated" ? acting.get(e.id)?.agent : undefined }));
+      .map((e) => {
+        const data = e.data as { inferred?: unknown; account_removed?: unknown } | undefined;
+        const updated = e.type === "change.updated";
+        return defined<Head>({
+          sha: e.sha!,
+          time: e.time,
+          by: updated ? acting.get(e.id)?.agent : undefined,
+          actor: updated ? e.actor : undefined,
+          gone: updated && e.actor === undefined && data?.account_removed === true ? true : undefined,
+          inferred: data?.inferred === true ? true : undefined,
+        });
+      });
     for (const head of heads) {
       const checks = own.find((e) => (e.type === "checks.passed" || e.type === "checks.failed") && e.sha === head.sha);
       if (checks) {
@@ -822,9 +842,14 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
     if (c.opened) out.push(`  ${t(c.opened.time)}  observed  opened by ${by(c.opened.by, c.opened.actor)}`);
     for (const [i, h] of c.heads.entries()) {
       const checks = h.checks ? `, checks ${h.checks} at ${t(h.checksTime!)}` : "";
-      out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${h.by ? ` by ${h.by} (matched)` : ""}${checks}`);
+      // #44: who pushed it where the host says; the agent matched where it names a person or no one.
+      const pusher = h.actor ? ` pushed by ${by(h.by, h.actor)}` : h.gone ? " pushed by an account that no longer exists" : h.by ? ` by ${h.by} (matched)` : "";
+      out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${checks}`);
       out.push(`      ${traceText(h.trace)}`);
     }
+    // #44: the heads the host told no push for are as a round of howl saw them; a new one at the time of its commit.
+    const inferred = c.heads.filter((h) => h.inferred).map((h) => h.sha.slice(0, 7));
+    if (inferred.length > 0) out.push(`  the host told no push for ${inferred.join(", ")}: as a round of howl saw ${inferred.length === 1 ? "it" : "them"}, a new head at the time of its commit`);
     if (c.comments > 0) out.push(`  comments: ${c.comments}, not counted as reviews`);
   }
 

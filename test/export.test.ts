@@ -158,6 +158,24 @@ test("#33: a change opened through a person's account by a matched agent: the ti
   assert.match(files.get("README.txt")!.toString(), /inferred\.json[^\n]*not evidence/);
 });
 
+test("#44: a head pushed through a person's account: the timeline names the pusher, inferred.json the agent behind it", () => {
+  const path = join(folder(), "ledger.jsonl");
+  const writer = openLedger(path, { project: PROJECT });
+  const base = { v: 0 as const, project: PROJECT };
+  const observed = { adapter: "local", kind: "observed" as const };
+  writer.append({ ...base, id: "s-1", time: m(1), type: "session.started", source: { adapter: "claude-code-hook", kind: "claimed" }, actor: { kind: "agent", id: "agent-1" }, session: "s1", branch: "task-5-x", data: { source: "startup" } });
+  writer.append({ ...base, id: "o-1", time: m(2), type: "change.opened", source: observed, actor: { kind: "agent", id: "agent-1" }, change: "40", branch: "task-5-x", sha: SHA.a, task: "5", data: { seen: m(2) } });
+  writer.append({ ...base, id: "u-1", time: m(5), type: "change.updated", source: observed, actor: { kind: "person", id: REVIEWER }, change: "40", branch: "task-5-x", sha: SHA.b, task: "5", data: { seen: m(6) } });
+  writer.close();
+  const { files } = exportOf(path, ["--change", "40"]);
+  const timeline = files.get("timeline.json")!.toString();
+  const shown = JSON.parse(timeline) as { changes: { heads: { sha: string; actor?: { id: string }; by?: string }[] }[] };
+  assert.equal(shown.changes[0]!.heads[1]!.actor!.id, REVIEWER);
+  assert.ok(!/"by"/.test(timeline), "the timeline holds no matched agent");
+  const inferred = JSON.parse(files.get("inferred.json")!.toString()) as { event: string; agent: string; via?: string; rule: { by: string } }[];
+  assert.deepEqual(inferred.map((i) => [i.event, i.agent, i.via, i.rule.by]), [["u-1", "agent-1", REVIEWER, "branch"]]);
+});
+
 test("#33: a bundle with no match has an empty inferred.json, and the manifest lists it", () => {
   // Change 31 is opened by the agent itself: nothing to match.
   const { files } = exportOf(writeStory(), ["--change", "31"]);

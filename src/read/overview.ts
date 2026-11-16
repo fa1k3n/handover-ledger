@@ -3,7 +3,7 @@
 // No figure is given per person.
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
-import { actingAgents } from "./acting.ts";
+import { actingAgents, namelessHead } from "./acting.ts";
 import { isReview, observed } from "./observed.ts";
 import { byTime } from "./order.ts";
 
@@ -166,7 +166,7 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
       e.change !== undefined &&
       now - Date.parse(e.time) <= PERIOD_MS &&
       (e.type === "change.opened" || e.type === "change.updated" || isReview(e)) &&
-      (e.actor?.kind === "person" || (e.actor === undefined && e.type === "change.updated")) &&
+      (e.actor?.kind === "person" || namelessHead(e)) &&
       !acting.has(e.id),
   );
   const configChanges = sorted

@@ -199,6 +199,8 @@ test("each row of the table gives one event of its type, kind: observed, with th
   assert.equal(time("change.closed"), at(40));
   assert.equal(time("checks.passed"), at(5));
   assert.equal(time("change.updated"), at(70));
+  // #44: the local host here gives no pushes: the new head is the one a round saw, at the time of its commit, and says so.
+  assert.equal(all.find((e) => e.type === "change.updated")?.data.inferred, true);
   assert.equal(time("task.unassigned"), at(55));
   assert.equal(time("task.reopened"), at(56));
   assert.equal(time("change.reopened"), at(75));
@@ -293,6 +295,8 @@ test("a new head commit gives change.updated once; its checks give one checks.* 
   change(SHA.b, 10).checks(SHA.b, "pending");
   const updated = round(s);
   assert.deepEqual(updated.map((e) => [e.type, e.sha]), [["change.updated", SHA.b]]);
+  // #44: with no pushes from the host, the fall-back says so.
+  assert.equal(updated[0]?.data.inferred, true);
   assert.deepEqual(round(s), [], "pending checks give nothing, and the head is not given again");
 
   // The checks finish without the change being updated: the head is watched.
