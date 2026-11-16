@@ -28,8 +28,9 @@ const USAGE = `usage:
   verify    check every line of the ledger and the chain between the lines,
             then every signed claim against the key issued for it
   export    an evidence bundle (.tar.gz) of a change, a task or a period: the
-            ledger up to its head, the lines selected, the timeline, the
-            checkpoints and a manifest; never the activity file or people.json.
+            ledger up to its head, the lines selected, the timeline, what howl
+            matched (inferred.json, not for a period), the checkpoints and a
+            manifest; never the activity file or people.json.
             howl verify --bundle checks it offline
   anchor    keep the ledger's head outside this machine: a checkpoint (lines and
             head) as a commit on refs/howl/checkpoints, pushed to origin (the
@@ -211,6 +212,7 @@ async function verifyCommand(args: string[]): Promise<number> {
     console.log(values.bundle);
     for (const m of r.messages) console.log(m);
     console.log(r.ok ? "ok: the bundle holds" : "the bundle does not hold");
+    if (r.trial) console.log("a trial: it does not count as evidence");
     return r.ok ? 0 : 1;
   }
   const { ledgerPath } = await import("../ledger/place.ts");
@@ -301,6 +303,7 @@ async function exportCommand(args: string[]): Promise<number> {
   const out = values.out ?? `howl-${values.change !== undefined ? "change" : values.task !== undefined ? "task" : "period"}-${name}.tar.gz`;
   writeFileSync(out, writeTar(files, true));
   console.log(`${out}: ${files.size} files; check it with howl verify --bundle ${out}`);
+  if (JSON.parse(files.get("manifest.json")!.toString()).trial === true) console.log("a trial: it does not count as evidence");
   return 0;
 }
 
