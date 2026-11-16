@@ -5,6 +5,7 @@ import { test } from "node:test";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
 import { parseAsked, show, type Shown } from "../src/read/show.ts";
 import { agentStates } from "../src/read/state.ts";
+import { texts } from "../src/dashboard/texts.ts";
 import { PROJECT } from "./helpers.ts";
 import { activityEvents, ledgerEvents } from "./story.ts";
 
@@ -23,7 +24,13 @@ function hook(type: string, minute: number, branch: string, extra: Record<string
   return { v: 0, id: `ev-${++n}`, time: at(minute), type, source: { adapter: "claude-code-hook", kind: "claimed" }, project: PROJECT, actor: agent, session: "s1", branch, ...extra } as LedgerEvent;
 }
 const of = (change: string, branch: string, sha: string) => ({ task: "40", change, branch, sha });
-const ask = (events: LedgerEvent[], what = "task:40"): Shown => show(events, parseAsked(what), null)!;
+/** Every summary this file asks for, so that the last test can look at them all. */
+const asked: { what: string; summary: Shown["summary"] }[] = [];
+const ask = (events: LedgerEvent[], what = "task:40"): Shown => {
+  const shown = show(events, parseAsked(what), null)!;
+  asked.push({ what, summary: shown.summary });
+  return shown;
+};
 const parts = (events: LedgerEvent[], what = "task:40") => ask(events, what).summary.parts as Record<string, number>;
 const sum = (s: Shown["summary"]) => Object.values(s.parts as Record<string, number>).reduce((a, b) => a + b, 0);
 
@@ -67,6 +74,7 @@ test("the story, minute by minute: work, the waits and unknown", () => {
   const all = [...ledgerEvents(), ...activityEvents()].map((event, i) => ({ event, i }));
   all.sort((a, b) => Date.parse(a.event.time) - Date.parse(b.event.time) || a.i - b.i);
   const s = show(all.map((x) => x.event), { kind: "task", id: "12" }, null)!.summary;
+  asked.push({ what: "the story", summary: s });
   assert.equal(s.seconds, 3600);
   assert.deepEqual(s.parts, {
     // 2 to 5 (started, tool calls at 3 and 4), 6 to 8 (tool calls at 6 and 7, the stopped turn at 8), 22 to 30 (a tool call at 25, ended at 30).
@@ -203,5 +211,35 @@ test("the view of one change, the view of its task, and the overview's state of 
     assert.equal(row!.state, stateOf[ending], ending);
     assert.equal(lastPart(build, 73, "change:65"), PART[row!.state], `${ending}: the view of the change`);
     assert.equal(lastPart(build, 73, "task:40"), PART[row!.state], `${ending}: the view of the task`);
+  }
+});
+
+test("agent.waiting as the first sign of work starts a summary that has no hand-over", () => {
+  const events = [
+    observed("task.opened", 0, { task: "40", actor: person }),
+    hook("agent.waiting", 10, "b1", { task: "40", data: { waits_for: "person" } }),
+    hook("tool.used", 12, "b1", { task: "40", data: { tool: "Edit", target: "src/a.ts", outcome: "succeeded" } }),
+    hook("session.stopped", 20, "b1", { task: "40" }),
+  ];
+  const s = ask(events).summary;
+  assert.equal(s.from, at(10), "from the wait, not from the tool call after it");
+  // 10 to 12 the wait for a person; 12 to 17 work; 17 to 20 nothing for five minutes.
+  assert.deepEqual(s.parts, { ...none, person: 120, work: 300, unknown: 180 });
+});
+
+test("the dashboard's summary line keeps unknown apart from what is waited for", () => {
+  assert.equal(
+    texts.change.summary("1h 0m", "13m", "10m", "18m", "8m", "11m", 2),
+    "1h 0m in all: work 13m, waiting for checks 10m, for review 18m, for a person or instructions 8m; not known 11m (no sign of what the agent does); 2 review rounds",
+  );
+  assert.match(texts.change.summary("5m", "5m", "0s", "0s", "0s", "0s", 1), /; 1 review round$/);
+});
+
+// Last: every summary the tests above asked for.
+test("no part of a summary is negative, in any case above", () => {
+  assert.ok(asked.length > 40, `${asked.length} summaries`);
+  for (const { what, summary } of asked) {
+    for (const [part, seconds] of Object.entries(summary.parts)) assert.ok(seconds >= 0, `${what}: ${part} ${seconds}`);
+    assert.ok(summary.seconds >= 0, what);
   }
 });
