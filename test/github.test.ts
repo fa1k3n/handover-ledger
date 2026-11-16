@@ -249,3 +249,44 @@ test("#20, #28: a change's comments are read apart from its reviews, with their 
   ]);
   assert.ok(!JSON.stringify(change).includes("round 1"), "no comment text is kept");
 });
+
+test("#48: the lasting id of the repository is its numeric id, as text, asked once for as long as the host lives", async () => {
+  const { host, asked } = github({ [R]: { body: { id: 1234567, full_name: "team/product" } } });
+  assert.equal(await host.repositoryId(), "1234567");
+  assert.equal(await host.repositoryId(), "1234567");
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0]!.url, R);
+});
+
+test("#48: an answer with no id for the repository is an error, not an id made from the name", async () => {
+  const { host } = github({ [R]: { body: { full_name: "team/product" } } });
+  await assert.rejects(host.repositoryId(), /id/);
+});
+
+test("#48: an account that no longer exists is no one: no user, or the ghost the host puts in its place", async () => {
+  const { host } = github({
+    [`${R}/issues/5/events`]: { body: [{ id: 900, event: "assigned", assignee: null, created_at: "2026-01-01T00:01:00Z" }] },
+    [`${R}/issues/5`]: {
+      body: {
+        number: 5,
+        user: null,
+        created_at: "2026-01-01T00:00:00Z",
+        closed_at: "2026-01-01T01:00:00Z",
+        closed_by: { login: "ghost", id: 10137, type: "User" },
+        updated_at: "2026-01-01T01:00:00Z",
+      },
+    },
+  });
+  const task = await host.task(5);
+  assert.deepEqual(task.openedBy, { removed: true });
+  assert.deepEqual(task.closedBy, { removed: true });
+  assert.deepEqual(task.assignments, [{ id: "900", assignee: { removed: true }, at: "2026-01-01T00:01:00Z" }], "given to an account that is gone: it was still given");
+});
+
+test("#48: a user who is called ghost and is not the host's ghost is an account like another", async () => {
+  const { host } = github({
+    [`${R}/issues/5/events`]: { body: [] },
+    [`${R}/issues/5`]: { body: { number: 5, user: { login: "ghost", id: 42, type: "User" }, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" } },
+  });
+  assert.deepEqual((await host.task(5)).openedBy, { login: "ghost", bot: false });
+});

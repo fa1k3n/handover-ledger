@@ -4,6 +4,7 @@
 //   tasks/<number>.json     a Task
 //   changes/<number>.json   a Change; a comment may have a `body` in place of `review`, tested as GitHub's is
 //   checks/<sha>.json       a ChecksState; no file is no checks
+//   repository.json         {"id": ...}: the repository's lasting id (#48); without the file, its name
 //   fail.json               calls that fail: "list", "task <n>", "change <n>", "checks <sha>"
 // @code_class recording
 import { readdirSync, readFileSync } from "node:fs";
@@ -23,6 +24,24 @@ export class LocalHost implements CodeHost {
     this.dir = dir;
     this.repository = repository;
     this.reviewCommentPattern = reviewCommentPattern;
+  }
+
+  async repositoryId(): Promise<string> {
+    let text: string;
+    try {
+      text = readFileSync(join(this.dir, "repository.json"), "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return this.repository;
+      throw e;
+    }
+    let id: unknown;
+    try {
+      id = (JSON.parse(text) as { id?: unknown }).id;
+    } catch {
+      throw new Error("repository.json is not JSON");
+    }
+    if ((typeof id === "string" && id !== "" && !/[\s:]/.test(id)) || (typeof id === "number" && Number.isSafeInteger(id) && id >= 0)) return String(id);
+    throw new Error('repository.json needs {"id": ...}: a number, or text without spaces or colons');
   }
 
   async listUpdated(since: string | null): Promise<Ref[]> {

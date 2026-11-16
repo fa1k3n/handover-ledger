@@ -31,6 +31,7 @@ export class GitHub implements CodeHost {
   private readonly warn: (message: string) => void;
   private readonly reviewCommentPattern: RegExp | undefined;
   private readonly cache = new Map<string, { etag: string; body: unknown; next: string | null }>();
+  private lastingId: string | undefined;
 
   constructor(options: GitHubOptions) {
     this.repository = options.repository;
@@ -39,6 +40,16 @@ export class GitHub implements CodeHost {
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.warn = options.warn ?? ((m) => console.error(`howl: ${m}`));
     this.reviewCommentPattern = options.reviewCommentPattern;
+  }
+
+  /** #48: the numeric id GitHub gives the repository: it stays when the repository is renamed or moved. */
+  async repositoryId(): Promise<string> {
+    if (this.lastingId === undefined) {
+      const id = (await this.one(this.url(""))).id;
+      if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0) throw new Error(`GitHub gave no id for ${this.repository}`);
+      this.lastingId = String(id);
+    }
+    return this.lastingId;
   }
 
   async listUpdated(since: string | null): Promise<Ref[]> {
@@ -60,7 +71,8 @@ export class GitHub implements CodeHost {
       openedAt: issue.created_at,
       openedBy: account(issue.user),
       assignments: events
-        .filter((e) => e.event === "assigned" && e.assignee)
+        // #48: given to an account that is gone, the host may tell no one: it was still given.
+        .filter((e) => e.event === "assigned")
         .map((e) => ({ id: String(e.id), assignee: account(e.assignee), at: e.created_at })),
       closedAt: issue.closed_at ?? undefined,
       closedBy: issue.closed_at && issue.closed_by ? account(issue.closed_by) : undefined,
@@ -126,7 +138,7 @@ export class GitHub implements CodeHost {
 
   private url(path: string, params: Record<string, string> = {}): string {
     const query = new URLSearchParams(params).toString();
-    return `${API}/repos/${this.repository}/${path}${query ? `?${query}` : ""}`;
+    return `${API}/repos/${this.repository}${path ? `/${path}` : ""}${query ? `?${query}` : ""}`;
   }
 
   private async one(url: string): Promise<Json> {
@@ -183,8 +195,13 @@ const REVIEW_STATES: Record<string, Review["state"]> = {
   COMMENTED: "commented",
 };
 
+/** The id GitHub gives `ghost`, the account it shows in place of one that was deleted. */
+const GHOST_ID = 10137;
+
+/** #48: no user, or the host's ghost, is an account that no longer exists: it is no one, and not a person called ghost. */
 function account(user: Json | null | undefined): Account {
-  return { login: user?.login ?? "ghost", bot: user?.type === "Bot" };
+  if (!user || typeof user.login !== "string" || (user.login === "ghost" && user.id === GHOST_ID)) return { removed: true };
+  return { login: user.login, bot: user.type === "Bot" };
 }
 
 /** How long to wait before asking again, when the answer says the limit is reached; else null. */

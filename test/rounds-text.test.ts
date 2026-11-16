@@ -20,3 +20,8 @@ test("different reviewers or outcomes stay apart, in order; a single one has no 
 test("the agent behind an account is named, and folds by agent", () => {
   assert.equal(roundText([r("person-aaaa", "commented", "agent-1"), r("person-aaaa", "commented", "agent-1"), r("person-aaaa", "commented")]), "agent-1 via person-aaaa commented ×2, person-aaaa commented");
 });
+
+test("#48: reviews with no actor are not one reviewer: they do not fold", () => {
+  const nobody = (outcome: string) => ({ time: "2026-01-01T00:00:00Z", outcome });
+  assert.equal(roundText([nobody("approved"), nobody("approved"), r("bob", "approved")]), "someone approved, someone approved, bob approved");
+});

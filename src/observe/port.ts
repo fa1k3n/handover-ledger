@@ -6,11 +6,17 @@
 // same state twice is harmless.
 // @code_class recording
 
-export interface Account {
-  login: string;
-  /** An app account of the host, not a person's. */
-  bot?: boolean;
-}
+/**
+ * Who did a thing at the host. An account that no longer exists (#48) is `{ removed: true }`: the host tells no
+ * one, and the ledger names no one for it. Every removed account is not one person.
+ */
+export type Account =
+  | {
+      login: string;
+      /** An app account of the host, not a person's. */
+      bot?: boolean;
+    }
+  | { removed: true };
 
 export interface Assignment {
   /** The host's own id of the assignment: the same every time it is read. */
@@ -97,8 +103,13 @@ export interface Ref {
 export interface CodeHost {
   /** The adapter, as it stands in `source.adapter` and at the start of every id. */
   readonly name: string;
-  /** The repository, as `owner/name`. */
+  /** The repository, as `owner/name`: what people read, and what `repo` of an event holds. It can change. */
   readonly repository: string;
+  /**
+   * The host's own id of the repository (#48), as text: the same after a rename or a move to another owner. The ids
+   * of events are made from it. It may need a call to the host, so it is asked for once the observer starts.
+   */
+  repositoryId(): Promise<string>;
   /** The tasks and changes updated at or after `since`, or all of them. */
   listUpdated(since: string | null): Promise<Ref[]>;
   task(number: number): Promise<Task>;

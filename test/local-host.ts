@@ -28,6 +28,12 @@ export class LocalHost {
     return this;
   }
 
+  /** #48: the lasting id of the repository, as the file `repository.json` of the folder holds it. */
+  repository(id: string | number): this {
+    writeFileSync(join(this.dir, "repository.json"), JSON.stringify({ id }));
+    return this;
+  }
+
   /** The calls that fail, as `list`, `task <n>`, `change <n>` or `checks <sha>`. */
   fail(...calls: string[]): this {
     if (calls.length === 0) rmSync(join(this.dir, "fail.json"), { force: true });
