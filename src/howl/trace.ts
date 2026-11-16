@@ -535,3 +535,32 @@ export function countsLine(report: TraceReport): string {
   ];
   return `${s(requirements, "requirement")}, ${s(tests, "test")}${apart.length === 0 ? "" : ` (${apart.join(", ")})`}`;
 }
+
+/** What `howl observe` records of a commit (#38): IDs and counts, never a test's name. */
+export interface TraceSummary {
+  /** The IDs a test covers, as the tables write them, sorted. */
+  covered: string[];
+  /** The IDs a test only touches and none covers, sorted. */
+  touched: string[];
+  /** The tests that name a requirement, covering or touching. */
+  tests: number;
+  /** The tests that cover one: the number `covered` stands on. */
+  covering: number;
+  /**
+   * The SHA-256 of the sorted lines `file<TAB>name<TAB>covers<TAB>touches` of the tests that name a requirement.
+   * The same tests give the same hash, and `howl trace --at <sha> --json` gives the lines to hash again. With one
+   * test the line is short: whoever knows its file and its IDs can test a guess of its name.
+   */
+  list: string;
+}
+
+/** The summary of what `howl trace` read of a commit. */
+export function summaryOf(report: TraceReport): TraceSummary {
+  const covered = report.requirements.filter((r) => r.covered_by.length > 0).map((r) => r.id);
+  const touched = report.requirements.filter((r) => r.covered_by.length === 0 && r.touched_by.length > 0).map((r) => r.id);
+  const naming = report.tests.filter((t) => t.covers.length > 0 || t.touches.length > 0);
+  const list = createHash("sha256")
+    .update(naming.map((t) => `${t.file}\t${t.name}\t${t.covers.join(",")}\t${t.touches.join(",")}`).sort().join("\n"), "utf8")
+    .digest("hex");
+  return { covered: covered.sort(), touched: touched.sort(), tests: naming.length, covering: report.tests.filter((t) => t.covers.length > 0).length, list };
+}

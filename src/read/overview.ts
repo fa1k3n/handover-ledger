@@ -105,6 +105,11 @@ export interface KeyFigures {
   configChanges: { change: string; time: string; paths: string[] }[];
   /** #26: changes and reviews through a person's account that no agent was matched to, in the period: where the chain may be broken. */
   unattributed: { count: number; changes: string[] };
+  /**
+   * #38: of the changes merged in the period, those whose merged head names a requirement in its tests,
+   * as the repository showed it; `without` names the others that were read, `unrecorded` those never read.
+   */
+  requirementsNamed: { merged: number; named: number; without: string[]; unrecorded: number };
 }
 
 export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
@@ -114,11 +119,19 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
   const reviews = new Map<string, number>();
   const leadTimes: number[] = [];
   const rounds: number[] = [];
+  // #38: what the tests of each head name, and the head each merged change was merged at.
+  const traced = new Map<string, boolean>();
+  const mergedAt = new Map<string, string>();
   for (const e of sorted) {
     // #51: the figures count what the code host showed, never a claim.
     if (e.change === undefined || !observed(e)) continue;
     const t = Date.parse(e.time);
     const work = e.task ?? `change ${e.change}`;
+    if (e.type === "trace.read" && e.sha !== undefined) {
+      const d = e.data as { covered?: unknown; touched?: unknown } | undefined;
+      traced.set(`${e.change}:${e.sha}`, Array.isArray(d?.covered) && Array.isArray(d?.touched) && d.covered.length + d.touched.length > 0);
+      continue;
+    }
     if (e.type === "change.opened") {
       state.set(e.change, "open");
       if (!firstOpened.has(work)) firstOpened.set(work, t);
@@ -129,6 +142,8 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
     } else if (e.type === "change.merged") {
       state.set(e.change, "done");
       if (now - t <= PERIOD_MS) {
+        if (e.sha !== undefined) mergedAt.set(e.change, e.sha);
+        else mergedAt.set(e.change, "");
         const opened = firstOpened.get(work);
         if (opened !== undefined) leadTimes.push(t - opened);
         rounds.push(reviews.get(e.change) ?? 0);
@@ -157,6 +172,7 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
     leadTimeMedianMs: median(leadTimes),
     reviewRoundsMean: rounds.length === 0 ? null : rounds.reduce((a, b) => a + b, 0) / rounds.length,
     periodDays: PERIOD_MS / DAY,
+    requirementsNamed: requirementsNamed(mergedAt, traced),
   };
 }
 
@@ -174,4 +190,17 @@ export function duration(ms: number): string {
   const h = Math.floor(min / 60);
   if (h < 48) return `${h} h ${String(min % 60).padStart(2, "0")} min`;
   return `${(ms / DAY).toFixed(1)} d`;
+}
+
+function requirementsNamed(mergedAt: Map<string, string>, traced: Map<string, boolean>): KeyFigures["requirementsNamed"] {
+  const without: string[] = [];
+  let named = 0;
+  let unrecorded = 0;
+  for (const [change, sha] of mergedAt) {
+    const seen = traced.get(`${change}:${sha}`);
+    if (seen === undefined) unrecorded++;
+    else if (seen) named++;
+    else without.push(change);
+  }
+  return { merged: mergedAt.size, named, without: without.sort((a, b) => Number(a) - Number(b) || a.localeCompare(b)), unrecorded };
 }

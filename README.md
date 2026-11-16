@@ -388,7 +388,15 @@ src/diag/mod.rs:43 req_brk_051_a_fault_is_counted_once: names REQ-BRK-051, which
 
 In `howl.yml` a `#` after white space starts a comment, also inside quotes, and a list in square brackets is split at every comma. A pattern with a comma goes on a line of its own under the key, as above. A quote inside a quoted value is taken as it stands: `''` is two quotes and not one, so write a pattern that needs a `'` between double quotes.
 
-Not read yet: the changes that name no requirement, the results of a test run, and requirements kept in a tool of their own (#38).
+**In the ledger.** When `howl observe` or `howl up` writes a change's head and the repository it runs in has the settings above, it reads the requirements and the tests of that commit with the same code and writes one `trace.read` for the head: the IDs covered, the IDs only touched, the number of tests that name a requirement and a hash of the sorted list of them. It is observed, not a claim, and holds no test name and no file name. The hash is the SHA-256 of the sorted lines `file<TAB>name<TAB>covers<TAB>touches` of the tests that name a requirement: `howl trace --at <sha> --json` gives those lines, so an auditor can make the hash again and see that the names are the list that was recorded. With a single test the line is short, and whoever knows its file and its IDs could test a guess of its name. `howl show` prints it under each head (`requirements: R-1, R-3 covered by 2 tests`, `no test names a requirement`, or `requirements: not recorded`), the change view in the page the same, and the overview has a figure for the share of the changes merged in the last 30 days whose merged head names a requirement.
+
+The settings are the commit's own, and a pull request's author writes them, so each commit is read in a process of its own with a time limit of 20 seconds (`HOWL_TRACE_LIMIT_MS`): a pattern that never ends, or a file that overflows the stack, stops that one reading, is said once in the output of `howl observe` and is not tried again, and the round goes on. At most ten heads are read in one round; the rest wait for the next.
+
+Nothing is written when the commit's settings do not have `howl trace`, or when its tables cannot be read. A commit that is not on the machine (howl only reads: it never fetches) waits: it is asked for again at every round while its change is open and once more after it is closed, so a branch that is fetched later is read then; until it is, the head is `not recorded`. A fault in the settings of the working tree is said once. A `trace.read` that a session or a script sends is a claim and counts for nothing.
+
+The type is new in schema version 0: a `howl` from before it refuses a ledger that holds one, and `howl verify` names the line.
+
+Not read yet: whether the tests passed, which needs a test run, and requirements kept in a tool of their own.
 
 ## Documents
 
