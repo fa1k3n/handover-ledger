@@ -213,6 +213,12 @@ Put an agent's account on the right of `=`, never a person's. The account is wri
 
 A list that cannot be read as meant is refused as a whole. It is refused when an entry has an empty side or more than one `=`, or when a name or an account holds anything but letters, digits, `-`, `_` and `.` (an account may end in `[bot]`, as a code host names an app), so that a missing comma, bracket or quote is never read as a name. It is also refused when two entries give the same account (a plain entry gives its name), or when an account is the name of another entry. One name with two accounts is allowed. `howl observe` and `howl up` then do not start: they name the entry, end with a status that is not 0 and write nothing. A wrong entry would turn an agent into a person, with a pseudonym, in a ledger that cannot be mended. `howl hook` stays quick, silent and status 0. `howl status` and `howl serve` still read the ledger, say that the settings were refused, and show no gap.
 
+A list of `agents` on lines of its own is read whole or refused. Under `agents:`, an indented line with no `- ` in front, an item that is not indented, and a second `agents:` key are each refused, with the line named. The other settings are read as before.
+
+A plain `reviewer[bot]` is read: an entry with no `=` may end in `[bot]`, as an app's account does. An app's account needs no entry, as it is an agent already. `[bot]` in the middle, or on the left of `=`, is refused.
+
+No check can tell some slips. An entry with its `=` missing is a plain name. Two entries joined by a dot or a dash are one plain name. Both are still lists of plain names, and the agents on them are written as people. After the first round, look at `howl status`. Every agent of the list must be there under its name. No account of an agent may stand among the people.
+
 `howl observe` and `howl up` read `agents` once, when they start. A change takes effect when they are started again.
 
 A session whose actor is no name in `agents` is marked "not a known agent" in `howl status` and on the dashboard, when the project lists any agents. The mark is shown only for the project of the working directory, the one whose `.howl/howl.yml` is at hand. With `--project` for another project, with `--ledger`, or from a folder with no project, no mark is shown. For `howl up`, it is shown for the project it runs in. `howl hook` refuses nothing.

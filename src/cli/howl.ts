@@ -510,7 +510,7 @@ async function observeCommand(args: string[]): Promise<number> {
 async function observing(command: "observe" | "up", values: { once?: boolean; interval?: string; since?: string; "anchor-every"?: string }) {
   const anchorEvery = values["anchor-every"] === undefined ? null : Number(values["anchor-every"]);
   if (anchorEvery !== null && !(anchorEvery > 0)) throw new UsageError("--anchor-every must be a number of minutes above 0");
-  const { findProject, agentFaults } = await import("../howl/project.ts");
+  const { findProject, agentsProblems } = await import("../howl/project.ts");
   const { activityPath, cursorPath, inboxPath, ledgerPath, peoplePath } = await import("../ledger/place.ts");
   const { openLedger } = await import("../ledger/ledger.ts");
   const { People } = await import("../observe/people.ts");
@@ -521,7 +521,7 @@ async function observing(command: "observe" | "up", values: { once?: boolean; in
   if (!found) throw new UsageError(`${command} needs a .howl/howl.yml above the working directory`);
   // #46: a list of agents that cannot be read as meant is refused before anything is written: a wrong entry would
   // write an agent as a person, in a ledger that cannot be mended.
-  const faults = agentFaults(found.agents);
+  const faults = agentsProblems(found);
   if (faults.length > 0) throw new LedgerError(`${command} does not start: ${faults.join("; ")}`);
   const interval = values.interval === undefined ? 60 : Number(values.interval);
   if (!(interval > 0)) throw new UsageError("--interval must be a number of seconds above 0");
@@ -941,10 +941,10 @@ async function serveCommand(args: string[]): Promise<number> {
  */
 async function knownAgents(reading: { project?: string; ledger?: string } = {}): Promise<ReadonlySet<string> | undefined> {
   if (reading.ledger !== undefined) return undefined;
-  const { findProject, agentFaults, agentNames } = await import("../howl/project.ts");
+  const { findProject, agentsProblems, agentNames } = await import("../howl/project.ts");
   const found = findProject(process.cwd());
   if (found === null || (reading.project !== undefined && reading.project !== found.project)) return undefined;
-  const faults = agentFaults(found.agents);
+  const faults = agentsProblems(found);
   if (faults.length > 0) {
     console.error(`howl: the settings of agents in .howl/howl.yml are refused, so no gap "not a known agent" is shown:\n${faults.map((f) => `  ${f}`).join("\n")}`);
     return undefined;

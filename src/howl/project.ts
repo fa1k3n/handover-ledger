@@ -29,6 +29,8 @@ export interface Project {
   local?: string;
   /** The agents, as written: `name` (the name and the account are the same) or `name=account` (#46). */
   agents: string[];
+  /** #46: what keeps the lines of `agents` from being read whole (only when there is any); see `agentLineFaults`. */
+  agentLineFaults?: string[];
 }
 
 export const DEFAULT_ACTIVITY_DAYS = 30;
@@ -68,6 +70,8 @@ function read(root: string, text: string): Project | null {
     activityDays,
     agents: agents === undefined ? [] : typeof agents === "string" ? [agents] : agents,
   };
+  const lineFaults = agentLineFaults(text);
+  if (lineFaults.length > 0) found.agentLineFaults = lineFaults;
   for (const [key, field] of [
     ["host", "host"],
     ["repository", "repository"],
@@ -79,6 +83,40 @@ function read(root: string, text: string): Project | null {
     if (v !== undefined) found[field] = v;
   }
   return found;
+}
+
+/**
+ * #46: what keeps `agents` from being read whole, in the lines of the file, one sentence for each: under `agents:` with
+ * its items on lines of their own, an indented line that is no item (no `- `), an item that is not indented; and a
+ * second `agents:` key. The shared reader passes such lines over, and the agent on one would be written as a person.
+ * Only `agents` is read strictly here: the reader of the other settings is as it was.
+ */
+export function agentLineFaults(text: string): string[] {
+  const faults: string[] = [];
+  let keys = 0;
+  let under = false;
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.replace(/(^|\s)#.*$/, "");
+    const key = /^agents:(.*)$/.exec(line);
+    if (key) {
+      keys++;
+      if (keys > 1) faults.push(`agents: line ${i + 1} is a second agents: key`);
+      under = key[1]!.trim() === "";
+      return;
+    }
+    if (line.trim() === "") return;
+    if (!under) return;
+    if (/^\s+-\s+\S/.test(line)) return;
+    if (/^-(\s|$)/.test(line)) faults.push(`agents: line ${i + 1}, "${raw.trim()}", is an item that is not indented`);
+    else if (/^\s/.test(line)) faults.push(`agents: line ${i + 1}, "${raw.trim()}", is no item (no "- " in front)`);
+    else under = false;
+  });
+  return faults;
+}
+
+/** #46: every fault of the settings of `agents` of a project: its lines, then its entries. */
+export function agentsProblems(project: Pick<Project, "agents" | "agentLineFaults">): string[] {
+  return [...(project.agentLineFaults ?? []), ...agentFaults(project.agents)];
 }
 
 /** #46: an entry of `agents` as a name and an account; none when a side is empty or there is more than one `=`. */
@@ -106,8 +144,10 @@ export function agentFaults(entries: string[]): string[] {
     }
     // The reader hands over a broken list as odd entries (a missing comma joins two, a missing bracket or quote stays
     // in the text), so the plain characters are checked here: such an entry is never read as a name.
-    if (!/^[A-Za-z0-9._-]+$/.test(e.name) || !/^[A-Za-z0-9._-]+(\[bot\])?$/.test(e.account)) {
-      faults.push(`agents: the entry "${entry}" holds more than letters, digits, - _ . in a name or an account (and [bot] at the end of an account): a comma, a bracket or a quote may be missing`);
+    // A plain entry is an account too, so it may end in [bot], as an app's account does.
+    const plainEntry = !entry.includes("=");
+    if (!(plainEntry ? /^[A-Za-z0-9._-]+(\[bot\])?$/ : /^[A-Za-z0-9._-]+$/).test(e.name) || !/^[A-Za-z0-9._-]+(\[bot\])?$/.test(e.account)) {
+      faults.push(`agents: the entry "${entry}" holds more than letters, digits, - _ . in a name or an account (and [bot] at the end of an account): a comma, a bracket or a quote may be missing; [bot] stands only at the end of an account`);
       continue;
     }
     const other = parsed.find((o) => o.e !== null && o.e.name.toLowerCase() === e.account.toLowerCase() && o.e.name.toLowerCase() !== e.name.toLowerCase());
