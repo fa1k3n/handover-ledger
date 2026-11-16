@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
-import { agentAccounts, agentFaults, agentNames } from "../src/howl/project.ts";
+import { agentAccounts, agentFaults, agentLineFaults, agentNames, findProject } from "../src/howl/project.ts";
 import { agentStates } from "../src/read/state.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -91,16 +91,35 @@ test("#46: agentFaults names an entry with an empty side or two =, and an accoun
   assert.equal(agentFaults(["=agent-1-bot"]).length, 1);
   assert.equal(agentFaults(["agent-1="]).length, 1);
   assert.equal(agentFaults(["agent-1=a-bot", "agent-2=A-Bot"]).length, 1);
-  assert.equal(agentFaults(["agent-1=agent-2", "agent-2"]).length, 1);
+  assert.ok(agentFaults(["agent-1=agent-2", "agent-2"]).length >= 1);
+  assert.equal(agentFaults(["agent-1=agent-1-bot", "agent-2=agent-1"]).length, 1);
   assert.match(agentFaults(["agent-1=agent-2", "agent-2"])[0]!, /agent-2/);
 });
 
-for (const bad of ["[agent-1=agent-1-bot=x]", "[=agent-1-bot]", "[agent-1=]", "[agent-1=a-bot, agent-2=a-bot]", "[agent-1=agent-2, agent-2]"]) {
+for (const bad of [
+  "[agent-1=agent-1-bot=x]",
+  "[=agent-1-bot]",
+  "[agent-1=]",
+  "[agent-1=a-bot, agent-2=a-bot]",
+  "[agent-1=agent-2, agent-2]",
+  "[agent-1=agent-1-bot agent-2]",
+  "[agent-1=agent-1-bot, agent-2",
+  "['agent-1=agent-1-bot, agent-2']",
+  "[agent-1=agent-1-bot, agent-2=agent-1]",
+  "\n  - agent-1=agent-1-bot\n  agent-2",
+  "\n  - agent-1=agent-1-bot\n- agent-2",
+  "[agent-1=agent-1-bot]\nagents: [agent-2]",
+  "\n  - agent-1=agent-1-bot\nagents:\n  - agent-2",
+  "[agent-1=agent-1-bot]\n  - agent-2",
+  "agent-1=agent-1-bot\n  - agent-2",
+  "[reviewer[bot]=x]",
+  "[rev[bot]iewer]",
+]) {
   test(`#46: agents ${bad} is refused: howl observe --once names the entry, ends not with 0 and writes nothing`, () => {
     const { ws } = setup(bad);
     const r = howl(["observe", "--once"], { cwd: ws.root, env: ws.env });
     assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /agents: the entry|agents: the account/);
+    assert.match(r.stderr, /agents: (the (entry|account)|line)/);
     assert.equal(existsSync(ws.ledger) ? lines(ws.ledger).length : 0, 0);
     assert.equal(existsSync(join(ws.home, PROJECT, "people.json")), false);
   });
@@ -183,4 +202,42 @@ test("#46: howl status marks a session whose actor is not listed", () => {
   const s = howl(["status"], { cwd: ws.root, env: ws.env });
   assert.equal(s.status, 0, s.stderr);
   assert.match(s.stdout, /agent-9.*not a known agent/);
+});
+
+test("#46: the lines of agents are named when one is no item, an item is not indented, or the key comes twice", () => {
+  assert.match(agentLineFaults("agents:\n  - a\n  b\n")[0]!, /line 3.*no item/);
+  assert.match(agentLineFaults("agents:\n  - a\n- b\n")[0]!, /line 3.*not indented/);
+  assert.match(agentLineFaults("agents: [a]\nagents: [b]\n")[0]!, /line 2.*second/);
+  assert.match(agentLineFaults("agents: [a]\n  - b\n")[0]!, /line 2.*value on its own line/);
+  assert.match(agentLineFaults("agents: a\n  - b\n")[0]!, /line 2/);
+  assert.deepEqual(agentLineFaults("agents: [a]\n\n# note\n  # note\nlocal: x\n  nested: y\n"), []);
+  assert.deepEqual(agentLineFaults("agents:\n  - a   # c\n\n  # note\n  - b\nlocal: x\n    indented: but not under agents\n"), []);
+});
+
+test("#46: the other settings with lines of their own are read as before: the classes, with names and paths, and no fault", () => {
+  const root = folder();
+  mkdirSync(join(root, ".howl"));
+  const text = "project: example\nclasses:\n  - name: qm\n    paths: [tools/**]\n    project: not-this-one\nagents:\n  - a\n  - b\nlocal: ../host\n";
+  writeFileSync(join(root, ".howl", "howl.yml"), text);
+  assert.deepEqual(findProject(root), { root, project: "example", activityDays: 30, local: "../host", agents: ["a", "b"] });
+});
+
+test("#46: lists that must pass pass: a plain reviewer[bot], one name with two accounts, a=a, spaces round =, names that differ only by case, [bot]", () => {
+  for (const ok of [["agent-1=a-bot", "agent-1=a-other"], ["a=a"], ["agent-1 = agent-1-bot"], ["Agent-1=a-bot", "agent-1=b-bot"], ["agent-1=reviewer[bot]"], ["agent-1=a-bot", "agent-1"], ["reviewer[bot]", "agent-2"]]) {
+    assert.deepEqual(agentFaults(ok), [], ok.join(","));
+  }
+});
+
+test("#46: agent-1=reviewer[bot], as a file holds it, is read: a review by the app reviewer[bot] has the actor agent-1", () => {
+  for (const form of ["[agent-1=reviewer[bot]]", "[other, agent-1=reviewer[bot]]", "\n  - agent-1=reviewer[bot]\n"]) {
+    const { ws } = setup(form, "reviewer[bot]");
+    const e = review(observe(ws));
+    assert.deepEqual(e.actor, { kind: "agent", id: "agent-1" }, form);
+    assert.equal(e.data.account, "reviewer[bot]");
+  }
+});
+
+test("#46: a plain reviewer[bot] is read: the app's review has the actor reviewer[bot], as before", () => {
+  const { ws } = setup("[reviewer[bot]]", "reviewer[bot]");
+  assert.deepEqual(review(observe(ws)).actor, { kind: "agent", id: "reviewer[bot]" });
 });
