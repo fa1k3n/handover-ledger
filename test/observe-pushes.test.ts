@@ -63,6 +63,8 @@ interface Direct {
   said(): string;
   cursor(): Record<string, any>;
   close(): void;
+  /** The observer stopped and started again over the same ledger, cursor and host. */
+  restart(): void;
 }
 
 /** An observer run directly, so that each round is given the machine's time. */
@@ -74,18 +76,22 @@ function direct(): Direct {
   const ledger = join(state, "ledger.jsonl");
   const cursorPath = join(state, "observe.json");
   const host = new LocalHost(hostDir);
-  const writer = openLedger(ledger, { project: PROJECT });
   let warnings: string[] = [];
-  const observer = new Observer({
-    host: new LocalReader(hostDir, "team/product"),
-    writer,
-    ledgerPath: ledger,
-    places: { project: PROJECT, inbox: join(state, "inbox"), activity: join(state, "activity.jsonl") },
-    cursorPath,
-    people: new People(join(state, "people.json")),
-    settings: { project: PROJECT, activityDays: 30, agents: ["agent-bot"] },
-    warn: (m) => warnings.push(m),
-  });
+  const start = () => {
+    const writer = openLedger(ledger, { project: PROJECT });
+    const observer = new Observer({
+      host: new LocalReader(hostDir, "team/product"),
+      writer,
+      ledgerPath: ledger,
+      places: { project: PROJECT, inbox: join(state, "inbox"), activity: join(state, "activity.jsonl") },
+      cursorPath,
+      people: new People(join(state, "people.json")),
+      settings: { project: PROJECT, activityDays: 30, agents: ["agent-bot"] },
+      warn: (m) => warnings.push(m),
+    });
+    return { writer, observer };
+  };
+  let { writer, observer } = start();
   return {
     host,
     cursorPath,
@@ -98,6 +104,10 @@ function direct(): Direct {
     said: () => warnings.join("\n"),
     cursor: () => JSON.parse(readFileSync(cursorPath, "utf8")),
     close: () => writer.close(),
+    restart() {
+      writer.close();
+      ({ writer, observer } = start());
+    },
   };
 }
 
@@ -380,6 +390,77 @@ test("#44: a change waited for, then reached, then missing a later head: the fiv
   assert.deepEqual(await d.round(clock(2)), []);
   assert.deepEqual(await d.round(clock(6)), [], "six minutes after the first wait, but four after this one");
   assert.deepEqual((await d.round(clock(7))).map((e) => [e.sha, e.data?.inferred]), [[SHA.d, true]]);
+  d.close();
+});
+
+/** A head of its own for each round of a test: commits that are none of SHA's. */
+const nth = (i: number) => (i + 1).toString(16).padStart(2, "0").repeat(20);
+/** The push of `nth(i)`, a minute apart from minute 20. */
+const pushOf = (i: number): Push => ({ id: `q${i}`, sha: nth(i), at: at(20 + i), by: agent });
+
+test("#44: the wait is for one head: when the list holds it and a newer head is missing, the newer head waits from then, and is not inferred a minute later", async () => {
+  const d = direct();
+  lagging(d, at(30));
+  assert.deepEqual(await d.round(clock(0)), [], "C is waited for");
+  // Four minutes on, the list holds C; the head now is D, pushed a moment ago, which the list does not hold yet.
+  const withC = [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }, { id: "p3", sha: SHA.c, at: at(28), by: agent }];
+  change(d, withC, { head: { sha: SHA.d, at: at(33) }, updatedAt: at(34) });
+  assert.deepEqual(await d.round(clock(4)), [], "D is waited for from now");
+  assert.deepEqual(await d.round(clock(5)), [], "five minutes after C was first missing, one after D was");
+  assert.deepEqual(await d.round(clock(8)), []);
+  assert.deepEqual((await d.round(clock(9))).filter((e) => e.data?.inferred === true).map((e) => e.sha), [SHA.d], "D, five minutes after it was first missing");
+  d.close();
+});
+
+test("#44: an observer stopped while it waited and started an hour later: a head pushed just now is waited for; the same head still missing is inferred at once", async () => {
+  const d = direct();
+  lagging(d, at(30));
+  await d.round(clock(0));
+  d.restart();
+  // An hour later the list holds C, and D was pushed a second ago.
+  const withC = [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }, { id: "p3", sha: SHA.c, at: at(28), by: agent }];
+  change(d, withC, { head: { sha: SHA.d, at: at(33) }, updatedAt: at(34) });
+  assert.deepEqual(await d.round(clock(60)), [], "D is waited for, not inferred at once");
+  d.close();
+
+  const e = direct();
+  lagging(e, at(30));
+  await e.round(clock(0));
+  e.restart();
+  // An hour later C is still missing.
+  assert.deepEqual((await e.round(clock(60))).filter((x) => x.data?.inferred === true).map((x) => x.sha), [SHA.c]);
+  e.close();
+});
+
+test("#44: a change with a new head in every round while the list is one round behind: no head is inferred, and the change is written whole when the pushing stops", async () => {
+  const d = direct();
+  for (let i = 0; i < 8; i++) {
+    const pushes = [created, ...Array.from({ length: i }, (_, j) => pushOf(j))];
+    change(d, pushes, { head: { sha: nth(i), at: at(20 + i) }, updatedAt: at(20 + i) });
+    assert.deepEqual(await d.round(clock(i)), [], `round ${i}: the head of this round is waited for`);
+  }
+  change(d, [created, ...Array.from({ length: 8 }, (_, j) => pushOf(j))], { updatedAt: at(28) });
+  const events = await d.round(clock(8));
+  assert.deepEqual(events.filter((e) => e.type === "change.updated").map((e) => e.sha), Array.from({ length: 8 }, (_, j) => nth(j)));
+  assert.ok(events.every((e) => e.data?.inferred === undefined), "no head is inferred");
+  d.close();
+});
+
+test("#44: after an inferred head is written, and after a merge, the cursor holds no entry of the change", async () => {
+  const d = direct();
+  lagging(d, at(30));
+  await d.round(clock(0));
+  assert.ok((await d.round(clock(5))).some((e) => e.data?.inferred === true));
+  assert.equal(d.cursor().waiting?.["40"], undefined, "the wait is over once the head is written");
+  // Refused twice and written; then merged, still refused.
+  change(d, undefined, { number: 41, branch: "other", head: { sha: SHA.d, at: at(5) }, updatedAt: at(41), pushesRefused: true });
+  await d.round(clock(6));
+  await d.round(clock(7));
+  assert.equal(d.cursor().refusals?.["41"], 2);
+  change(d, undefined, { number: 41, branch: "other", head: { sha: SHA.d, at: at(5) }, updatedAt: at(45), mergedAt: at(45), mergedBy: agent, closedAt: at(45), pushesRefused: true });
+  assert.ok((await d.round(clock(8))).some((e) => e.type === "change.merged"));
+  assert.equal(d.cursor().refusals?.["41"], undefined, "a change that has ended keeps no count");
+  assert.equal(d.cursor().waiting?.["41"], undefined);
   d.close();
 });
 

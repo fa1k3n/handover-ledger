@@ -85,8 +85,11 @@ interface Cursor {
    * that is counted (none in a cursor of #130, which kept no time).
    */
   refused?: { heads: number; since?: string };
-  /** #44: the changes whose head the list of pushes does not reach: from when, by the machine's clock. */
-  waiting?: Record<string, string>;
+  /**
+   * #44: the changes whose head the list of pushes does not reach: the head waited for, and from when, by the machine's
+   * clock. The wait is for that head: once the list holds it, the wait is over.
+   */
+  waiting?: Record<string, { sha: string; since: string }>;
   /** #44: the changes whose list of pushes was refused, and how many rounds running. */
   refusals?: Record<string, number>;
 }
@@ -279,17 +282,24 @@ export class Observer {
           delete refusals[key];
           readable = true;
         }
+        // #44: the wait is for one head. Once the list holds the head it waited for, that wait is over, and a later head
+        // that is missing starts a wait of its own.
+        const wait = waiting[key];
+        if (wait !== undefined && (change.pushes ?? []).some((p) => p.sha === wait.sha)) delete waiting[key];
         if (heads.missing) {
-          waiting[key] ??= now.toISOString();
-          if (now.getTime() - Date.parse(waiting[key]) < STILL_MS) {
+          waiting[key] ??= { sha: change.head.sha, since: now.toISOString() };
+          if (now.getTime() - Date.parse(waiting[key].since) < STILL_MS) {
             waited.push(change.number);
             later = true;
           }
-        } else delete waiting[key];
+        }
         if (later) {
           if (hold === null || ref.updatedAt < hold) hold = ref.updatedAt;
           continue;
         }
+        // Written: nothing of the change is waited for, and a change that has ended keeps no count of refusals.
+        delete waiting[key];
+        if (change.closedAt !== undefined || change.mergedAt !== undefined) delete refusals[key];
         const events = this.changeEvents(change, seen, heads);
         found.push(...events);
         if (change.pushesRefused) {
@@ -632,7 +642,7 @@ export class Observer {
           ? { refused: { heads: value.refused.heads, ...(typeof value.refused.since === "string" ? { since: value.refused.since } : {}) } }
           : {}),
         // #44: a cursor with none of these, as one of #130, remembers nothing of them.
-        ...(isRecord(value.waiting, "string") ? { waiting: value.waiting } : {}),
+        ...(isWaiting(value.waiting) ? { waiting: value.waiting } : {}),
         ...(isRecord(value.refusals, "number") ? { refusals: value.refusals } : {}),
       };
     } catch {
@@ -647,7 +657,17 @@ export class Observer {
   }
 }
 
-/** #44: an object of one kind of value, as a cursor keeps by change. */
-function isRecord<T extends "string" | "number">(value: unknown, kind: T): value is Record<string, T extends "string" ? string : number> {
+/** #44: an object of numbers by change, as a cursor keeps the refusals. */
+function isRecord(value: unknown, kind: "number"): value is Record<string, number> {
   return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((v) => typeof v === kind);
+}
+
+/** #44: the waits of a cursor, each a head and a time. Any other form (as a draft of #131 wrote) is nothing remembered. */
+function isWaiting(value: unknown): value is Record<string, { sha: string; since: string }> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((v) => typeof v === "object" && v !== null && typeof v.sha === "string" && typeof v.since === "string")
+  );
 }
