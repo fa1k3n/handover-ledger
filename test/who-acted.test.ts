@@ -251,3 +251,54 @@ test("a ledger written before this step is read as it is: the same task read aga
   s.host.task({ number: 1, openedAt: at(0), openedBy: alice, assignments: [{ id: "a1", assignee: agent, by: lead, at: at(1) }], updatedAt: at(2) });
   assert.deepEqual(round(s), []);
 });
+
+test("one team member taken back and given the task again in the same second holds it: the host's ids are not numbers, so the taking back comes first", () => {
+  const s = setup();
+  s.host.task({ number: 1, openedAt: at(0), openedBy: alice, assignments: [{ id: "a1", assignee: agent, by: lead, at: at(1) }], updatedAt: at(1) });
+  round(s);
+  s.host.task({
+    number: 1,
+    openedAt: at(0),
+    openedBy: alice,
+    assignments: [
+      { id: "a1", assignee: agent, by: lead, at: at(1) },
+      { id: "a2", assignee: agent, by: lead, at: at(5) },
+    ],
+    unassignments: [{ id: "u1", assignee: agent, by: lead, at: at(5) }],
+    updatedAt: at(5),
+  });
+  const written = round(s).map((e) => e.type);
+  assert.deepEqual(written, ["task.unassigned", "task.assigned"]);
+  const json = JSON.parse(howl(["show", "task:1", "--json", "--ledger", s.ws.ledger]).stdout);
+  assert.deepEqual(json.handover.map((h: Row) => h.time), [at(5)], "agent-bot holds it from the second giving");
+  assert.doesNotMatch(show(s, "task:1"), /given to no one now/);
+});
+
+test("the host's own order is kept when its ids are numbers: given and taken back in one second leaves it with no one; taken back and given again leaves it with the one", () => {
+  const s = setup();
+  s.host.task({
+    number: 1,
+    openedAt: at(0),
+    openedBy: alice,
+    assignments: [{ id: "902", assignee: agent, by: lead, at: at(5) }],
+    unassignments: [{ id: "903", assignee: agent, by: lead, at: at(5) }],
+    updatedAt: at(5),
+  });
+  s.host.task({
+    number: 2,
+    openedAt: at(0),
+    openedBy: alice,
+    assignments: [{ id: "912", assignee: agent, by: lead, at: at(5) }],
+    unassignments: [{ id: "911", assignee: agent, by: lead, at: at(5) }],
+    updatedAt: at(5),
+  });
+  const written = round(s).filter((e) => e.type.startsWith("task.") && e.type !== "task.opened");
+  assert.deepEqual(written.map((e) => [e.task, e.type]), [
+    ["1", "task.assigned"],
+    ["1", "task.unassigned"],
+    ["2", "task.unassigned"],
+    ["2", "task.assigned"],
+  ]);
+  const holds = (n: string) => JSON.parse(howl(["show", `task:${n}`, "--json", "--ledger", s.ws.ledger]).stdout).handover.length;
+  assert.deepEqual([holds("1"), holds("2")], [0, 1]);
+});

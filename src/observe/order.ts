@@ -16,9 +16,8 @@
  */
 const ORDER: string[][] = [
   ["task.opened"],
-  ["task.assigned"],
-  // Taken back after it was given.
-  ["task.unassigned"],
+  // Given and taken back share a place: which comes first is told by `givingFirst`.
+  ["task.assigned", "task.unassigned"],
   ["change.opened"],
   ["change.updated"],
   // What a head holds is told with the head, before what is done to it.
@@ -69,7 +68,27 @@ function byId(a: string, b: string): number {
   return x.length - y.length;
 }
 
+/** `<start>:assigned:<host id>` or `…:unassigned:<host id>`: the thing a giving or a taking back is of, and the host's own id of it. */
+function giving(e: { type: string; id: string }): { of: string; host: string } | null {
+  const found = /^(.*):(?:un)?assigned:([^:]+)$/.exec(e.id);
+  return (e.type === "task.assigned" || e.type === "task.unassigned") && found ? { of: found[1]!, host: found[2]! } : null;
+}
+
+/**
+ * Of a giving and a taking back at one moment, which comes first (#45). The host's own order when it has one: its ids
+ * are numbers and it numbered them as they happened (GitHub). Without one, the taking back first: it can only take
+ * back what was given before, and a task taken back and given again in one second must end with the one who holds it.
+ */
+function givingFirst(a: { type: string; id: string }, b: { type: string; id: string }): number {
+  if (a.type === b.type) return 0;
+  const x = giving(a);
+  const y = giving(b);
+  if (x === null || y === null || x.of !== y.of) return 0;
+  if (/^\d+$/.test(x.host) && /^\d+$/.test(y.host)) return Number(x.host) - Number(y.host) || 0;
+  return a.type === "task.unassigned" ? -1 : 1;
+}
+
 /** For `sort`: negative when `a` is written before `b`. */
 export function happensBefore(a: { time: string; type: string; id: string }, b: { time: string; type: string; id: string }): number {
-  return instants(a.time, b.time) || place(a.type) - place(b.type) || byId(a.id, b.id);
+  return instants(a.time, b.time) || place(a.type) - place(b.type) || givingFirst(a, b) || byId(a.id, b.id);
 }

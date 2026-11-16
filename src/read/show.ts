@@ -85,6 +85,8 @@ export interface Round {
   reviews: { time: string; actor?: Actor; outcome: string; by?: string }[];
   /** The type of what came next: a new head, the merge, or none yet. */
   followedBy: string | null;
+  /** #45: when the change was closed and then went on (opened again, closed again, merged): what came after, in the order it happened. */
+  then?: string[];
 }
 
 export interface Giving {
@@ -535,6 +537,10 @@ function roundsOf(events: LedgerEvent[], acting: Map<string, Acting>, change: st
     }
     if (current && i > lastReview && current.followedBy === null && /^change\.(updated|merged|closed)$/.test(e.type)) {
       current.followedBy = e.type;
+      if (e.type === "change.closed") {
+        const after = events.slice(i + 1).filter((x) => /^change\.(reopened|closed|merged)$/.test(x.type));
+        if (after.length > 0) current.then = after.map((x) => x.type);
+      }
     }
   }
   return found;
@@ -601,8 +607,8 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
     const at = all[0]!.time;
     return { from: at, to: at, open: true, seconds: 0, parts: { work: 0, person: 0, instructions: 0, checks: 0, review: 0 }, reviewRounds: 0, actors: [] };
   }
-  // #45: from the giving that stands; one that was taken back is no hand-over.
-  const handover = givings(events).standing[0];
+  // The first giving of the task, whether or not it was taken back (#45): a later giving does not rewrite how long the work took.
+  const handover = events.find((e) => e.type === "task.assigned" && observed(e));
   // #22: without a hand-over, from the first sign of work, not from when the task was opened (it may wait for days).
   const work = events.find((e) => e.type.startsWith("session.") || e.type.startsWith("change.") || e.type === "tool.used");
   // #117: a later change of a task is measured from its own first event. The hand-over is the task's
@@ -626,8 +632,9 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
     return "work";
   };
 
-  const start = Date.parse(from);
   const stop = Date.parse(to);
+  // A summary is never negative: a task given only after its change had ended is measured from that end.
+  const start = Math.min(Date.parse(from), stop);
   let at = start;
   for (const e of events) {
     const t = Date.parse(e.time);
@@ -681,7 +688,7 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
     for (const a of [e.actor, e.type === "task.assigned" ? assignee(e) : undefined]) if (a) actors.set(`${a.kind}:${a.id}`, a);
   }
   return {
-    from,
+    from: Date.parse(from) > stop ? to : from,
     to,
     open: end.state === "open",
     seconds: (stop - start) / 1000,
@@ -766,7 +773,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
     const key = r.change ?? "";
     counted.set(key, (counted.get(key) ?? 0) + 1);
     const reviews = roundText(r.reviews);
-    const next = r.followedBy === null ? "" : `; followed by ${FOLLOWED[r.followedBy] ?? r.followedBy}`;
+    const next = r.followedBy === null ? "" : `; followed by ${[r.followedBy, ...(r.then ?? [])].map((t) => FOLLOWED[t] ?? t).join(", then ")}`;
     // #117: where the view has more than one change, a round says which change it is of.
     const of = several && r.change !== undefined ? ` of change ${r.change}` : "";
     out.push(`  round ${counted.get(key)}${of}: ${reviews}${next}`);
@@ -790,7 +797,8 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   const s = shown.summary;
   out.push("", "Summary");
   // #117: a later change is measured from its own first event, not from the hand-over.
-  const from = shown.handover.some((h) => h.time === s.from) ? "hand-over" : "first event";
+  // The first giving is the start, also when it was taken back.
+  const from = shown.events.some((e) => e.type === "task.assigned" && observed(e) && e.time === s.from) ? "hand-over" : "first event";
   out.push(`  ${s.open ? `${from} to the last event, still open` : `${from} to the end`}: ${duration(s.seconds)}`);
   out.push(
     `  work ${duration(s.parts.work)}, waiting for a person ${duration(s.parts.person)}, waiting for instructions ${duration(
@@ -812,6 +820,7 @@ const FOLLOWED: Record<string, string> = {
   "change.updated": "a new head",
   "change.merged": "the merge",
   "change.closed": "closing the change",
+  "change.reopened": "opening it again",
 };
 
 function seconds(from: string, to: string): number {

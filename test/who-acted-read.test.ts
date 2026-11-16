@@ -4,7 +4,7 @@
 // @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decodedFields } from "../src/dashboard/format.ts";
+import { concerns, decodedFields } from "../src/dashboard/format.ts";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
 import { happensBefore } from "../src/observe/order.ts";
 import { handovers, keyFigures } from "../src/read/overview.ts";
@@ -66,8 +66,71 @@ test("a task given, taken back and given to another: the hand-over is the last g
   assert.match(text, /given to agent-2 by person-0b0b0b0b/);
   assert.match(text, /taken from agent-1 by person-0b0b0b0b/);
   assert.doesNotMatch(text, /given to agent-1/);
-  // The summary is measured from the giving that stands.
-  assert.equal(shown.summary.from, at(3));
+  // The summary is measured from the first giving, whether or not it was taken back, as before this step.
+  assert.equal(shown.summary.from, at(1));
+});
+
+test("the summary starts at the first giving: a task given to one agent, its change merged, then taken back and given to another", () => {
+  const shown = ask([
+    observed("task.opened", 0, { task: "40", actor: person }),
+    observed("task.assigned", 1, { task: "40", actor: other, to: agent }),
+    observed("change.opened", 2, { ...of("63"), actor: agent }),
+    observed("change.merged", 4, { ...of("63"), actor: person }),
+    observed("task.unassigned", 6, { task: "40", actor: other, to: agent }),
+    observed("task.assigned", 6, { task: "40", actor: other, to: second }),
+  ]);
+  assert.equal(shown.summary.from, at(1));
+  assert.equal(shown.summary.to, at(4));
+  assert.equal(shown.summary.seconds, 180);
+  assert.match(render(shown, { utc: true }), /hand-over to the end: 3m/);
+});
+
+test("the summary starts at the first giving: taken back after the merge, it does not start at the change's opening", () => {
+  const shown = ask([
+    observed("task.assigned", 1, { task: "40", actor: other, to: agent }),
+    observed("change.opened", 10, { ...of("63"), actor: agent }),
+    observed("change.merged", 20, { ...of("63"), actor: person }),
+    observed("task.unassigned", 30, { task: "40", actor: other, to: agent }),
+  ]);
+  assert.equal(shown.summary.from, at(1));
+  assert.equal(shown.summary.seconds, 19 * 60);
+});
+
+test("the summary starts at the first giving: given to a second agent, the first agent's time is not lost", () => {
+  const shown = ask([
+    observed("task.assigned", 1, { task: "40", actor: other, to: agent }),
+    observed("task.assigned", 2, { task: "40", actor: other, to: second }),
+    observed("task.unassigned", 3, { task: "40", actor: other, to: agent }),
+    observed("change.opened", 10, { ...of("63"), actor: second }),
+  ]);
+  assert.equal(shown.summary.from, at(1));
+});
+
+test("a summary is never negative: a task given only after its change had ended", () => {
+  const shown = ask([
+    observed("change.opened", 2, { ...of("63"), actor: agent }),
+    observed("change.merged", 4, { ...of("63"), actor: person }),
+    observed("task.assigned", 6, { task: "40", actor: other, to: agent }),
+  ]);
+  assert.ok(shown.summary.seconds >= 0, String(shown.summary.seconds));
+  assert.ok(Date.parse(shown.summary.from) <= Date.parse(shown.summary.to));
+});
+
+test("a round whose change was closed, reopened and merged says what followed, in the order it happened", () => {
+  const shown = ask([
+    observed("task.opened", 0, { task: "40", actor: person }),
+    observed("change.opened", 10, { ...of("63"), actor: agent }),
+    observed("review.changes_requested", 15, { ...of("63"), actor: other }),
+    observed("change.closed", 20, { ...of("63"), actor: other }),
+    observed("change.reopened", 25, { ...of("63"), actor: other }),
+    observed("change.merged", 40, { ...of("63"), actor: person }),
+  ]);
+  assert.equal(shown.reviews[0]!.followedBy, "change.closed");
+  const text = render(shown, { utc: true });
+  assert.match(text, /followed by closing the change, then opening it again, then the merge/);
+  // With no reopening it reads as before.
+  const plain = render(ask([observed("change.opened", 10, { ...of("63") }), observed("review.approved", 15, { ...of("63"), actor: other }), observed("change.merged", 20, { ...of("63") })]), { utc: true });
+  assert.match(plain, /; followed by the merge\n/);
 });
 
 test("a task taken back from the one who had it and given to the same again: it stands", () => {
@@ -300,6 +363,14 @@ test("the line of the stream and the decoded view name the receiver of a giving"
   const e = observed("task.assigned", 1, { task: "40", actor: other, to: agent });
   const line = formatLine(e, false, true);
   assert.match(line, /person-0b0b0b0b +task\.assigned +task 40 +to agent-1/);
+  const back = observed("task.unassigned", 2, { task: "40", actor: other, to: agent });
+  assert.match(formatLine(back, false, true), /task\.unassigned +task 40 +taken from agent-1/);
+  assert.doesNotMatch(formatLine(back, false, true), / to agent-1/);
+  assert.equal(concerns({ event: back } as any), "task 40 · taken from agent-1");
+  assert.equal(concerns({ event: e } as any), "task 40 · to agent-1");
+  const unassigned = decodedFields({ event: back, from: "ledger", n: 3, prev: null } as any);
+  assert.deepEqual(unassigned.find((f) => f.k === "Taken from"), { k: "Taken from", v: "agent-1 (agent)" });
+  assert.equal(unassigned.some((f) => f.k === "To"), false);
   const fields = decodedFields({ event: e, from: "ledger", n: 2, prev: null } as any);
   assert.deepEqual(fields.find((f) => f.k === "To"), { k: "To", v: "agent-1 (agent)" });
   assert.equal(decodedFields({ event: observed("task.assigned", 1, { task: "40", actor: agent }), from: "ledger", n: 2, prev: null } as any).some((f) => f.k === "To"), false);
@@ -307,10 +378,17 @@ test("the line of the stream and the decoded view name the receiver of a giving"
 
 // The order of one moment.
 
-test("#112: at one moment a taking back follows the giving, a reopening follows the closing, a dismissal follows a review", () => {
+test("#112: at one moment a taking back comes before a giving, a reopening follows the closing, a dismissal follows a review", () => {
   const e = (type: string, id: string) => ({ type, time: at(1), id });
   const sorted = (events: { type: string; time: string; id: string }[]) => [...events].sort(happensBefore).map((x) => x.type);
-  assert.deepEqual(sorted([e("task.unassigned", "a"), e("task.assigned", "z")]), ["task.assigned", "task.unassigned"]);
+  // With no order of the host's own (ids that are no numbers), a taking back comes before a giving: it can only take back what was given before.
+  assert.deepEqual(sorted([e("task.assigned", "z"), e("task.unassigned", "a")]), ["task.unassigned", "task.assigned"]);
+  // With the host's ids, its order: it numbered them as they happened.
+  const host = (type: string, id: number) => e(type, `github:1:task:5:${type === "task.assigned" ? "assigned" : "unassigned"}:${id}`);
+  const ids = (events: { type: string; time: string; id: string }[]) => [...events].sort(happensBefore).map((x) => x.id.split(":").at(-1));
+  assert.deepEqual(ids([{ ...host("task.unassigned", 902) }, { ...host("task.assigned", 901) }]), ["901", "902"]);
+  assert.deepEqual(ids([{ ...host("task.assigned", 902) }, { ...host("task.unassigned", 901) }]), ["901", "902"]);
+  assert.deepEqual(ids([{ ...host("task.assigned", 9) }, { ...host("task.unassigned", 10) }]), ["9", "10"], "ids as numbers");
   assert.deepEqual(sorted([e("change.reopened", "a"), e("change.closed", "z")]), ["change.closed", "change.reopened"]);
   assert.deepEqual(sorted([e("task.reopened", "a"), e("task.closed", "z")]), ["task.closed", "task.reopened"]);
   assert.deepEqual(sorted([e("review.dismissed", "a"), e("review.approved", "z")]), ["review.approved", "review.dismissed"]);
