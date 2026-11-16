@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 import { ingestPass, type Pass, type Places } from "../inbox/ingest.ts";
 import { events as ledgerEvents, type LedgerWriter } from "../ledger/ledger.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { agentAccounts } from "../howl/project.ts";
 import type { People } from "./people.ts";
 import type { Account, Change, ChecksState, CodeHost, Task } from "./port.ts";
 import { happensBefore } from "./order.ts";
@@ -30,6 +31,7 @@ import type { TraceResult } from "../howl/trace-read.ts";
 export interface ObserveSettings {
   project: string;
   activityDays: number;
+  /** The agents as written in `howl.yml`: `name` or `name=account` (#46). */
   agents: string[];
   taskFromBranch?: string;
 }
@@ -102,6 +104,8 @@ export class Observer {
   /** #48: the starts of every id this repository's events have had, the lasting form first. */
   private prefixes: string[] = [];
   private readonly taskPattern: RegExp | null;
+  /** #46: the name of an agent by its account at the host. */
+  private readonly names: Map<string, string>;
   private readonly host: CodeHost;
   private readonly writer: LedgerWriter;
   private readonly places: Places;
@@ -127,6 +131,7 @@ export class Observer {
       warn: this.warn,
     } = parts);
     const { host, settings } = parts;
+    this.names = agentAccounts(settings.agents);
     this.taskPattern = settings.taskFromBranch === undefined ? null : new RegExp(settings.taskFromBranch);
     for (const e of ledgerEvents(parts.ledgerPath)) {
       if (e.source?.adapter !== host.name || e.source.kind !== "observed" || typeof e.id !== "string") continue;
@@ -377,6 +382,9 @@ export class Observer {
   ): LedgerEvent {
     // #48: an account that is gone names no one, and the event says so, so it is not taken for an event nobody did.
     const gone = by !== undefined && "removed" in by;
+    // #46: an agent that has a name other than its account keeps the account in data, as it is no person's.
+    const named = by && !gone ? this.names.get(by.login.toLowerCase()) : undefined;
+    const account = by && !gone && named !== undefined && named !== by.login ? { account: by.login } : {};
     return JSON.parse(
       JSON.stringify({
         v: 0,
@@ -388,7 +396,7 @@ export class Observer {
         actor: by && !gone ? this.actor(by) : undefined,
         repo: this.host.repository,
         ...fields,
-        data: { ...(fields.data ?? {}), ...(gone ? { account_removed: true } : {}), seen },
+        data: { ...(fields.data ?? {}), ...account, ...(gone ? { account_removed: true } : {}), seen },
       }),
     ) as LedgerEvent;
   }
@@ -405,7 +413,9 @@ export class Observer {
 
   /** An agent is named by its account; a person by a pseudonym, never by the account. */
   private actor(account: Exclude<Account, { removed: true }>): NonNullable<LedgerEvent["actor"]> {
-    if (account.bot || this.settings.agents.includes(account.login)) return { kind: "agent", id: account.login };
+    const named = this.names.get(account.login.toLowerCase());
+    if (named !== undefined) return { kind: "agent", id: named };
+    if (account.bot) return { kind: "agent", id: account.login };
     return { kind: "person", id: this.people.pseudonym(account.login) };
   }
 

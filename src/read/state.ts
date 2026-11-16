@@ -38,6 +38,8 @@ export interface AgentRow {
 export interface StateOptions {
   /** Takes a task's number from a branch name: its first group, else the whole match. */
   taskFromBranch?: RegExp;
+  /** #46: the names in `agents` of the project. When there are any, a session of another name has a gap. */
+  agents?: ReadonlySet<string>;
 }
 
 /** One row per agent, the most recent first. */
@@ -94,6 +96,7 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     if (lastOwn) {
       if (row.change === undefined && row.task === undefined) row.gaps.push("no change or task named");
       if (row.role === undefined) row.gaps.push("no role");
+      if (options.agents !== undefined && options.agents.size > 0 && !options.agents.has(agent)) row.gaps.push("not a known agent");
       const signedBefore = own.some((e) => e.sig !== undefined && e.session !== lastOwn.session && now - Date.parse(e.time) <= DAY_MS);
       if (signedBefore && !current.some((e) => e.sig !== undefined)) row.gaps.push("unsigned");
     }
