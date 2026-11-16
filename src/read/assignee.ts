@@ -44,13 +44,15 @@ export function accountsGone(event: LedgerEvent): { to: boolean; by: boolean } {
 
 /**
  * #45: every giving of a task, in the order of time, and every taking back. A taking back marks the latest giving to
- * the same team member that is not taken back yet. Two givings to two members are both there, as before.
+ * the same team member, of the same task, that is not taken back yet. Two givings to two members are both there, as before.
  * Observed events only: a claim of a giving or a taking back is a claim (#51).
  */
 export function givings(events: LedgerEvent[]): { all: { event: LedgerEvent; takenBy?: LedgerEvent }[]; taken: LedgerEvent[] } {
   const all: { event: LedgerEvent; takenBy?: LedgerEvent }[] = [];
   const taken: LedgerEvent[] = [];
+  // A taking back ends a giving of its own task only: the ledger holds many tasks, and one member may have several.
   const same = (a: LedgerEvent, b: LedgerEvent) => {
+    if (a.task !== b.task) return false;
     const x = assignee(a);
     const y = assignee(b);
     return x === undefined || y === undefined ? x === y : x.kind === y.kind && x.id === y.id;

@@ -175,3 +175,74 @@ test("#120: no figure is given per person: a row holds no count, whoever the per
   for (const row of rows) assert.equal(row.n, undefined);
   assert.deepEqual(Object.keys(keyFigures([given(1, person, agent)], T0)).sort(), Object.keys(keyFigures([], T0)).sort());
 });
+
+// The review of #132: a taking back ends a giving of its own task only.
+
+test("#120: task 8 and task 9 given to one agent, task 8 taken back: only task 8 is marked", () => {
+  const rows = handovers(items([given(1, person, agent, { task: "8" }), given(2, person, agent, { task: "9" }), event("task.unassigned", 3, { task: "8", actor: person, to: agent })]));
+  assert.equal(rows.find((r) => r.task === "8")!.takenBack, at(3));
+  assert.equal(rows.find((r) => r.task === "9")!.takenBack, undefined);
+});
+
+test("#120: two tasks given to one agent and each taken back, in the other order: each giving has its own taking back", () => {
+  const rows = handovers(
+    items([
+      given(1, person, agent, { task: "8" }),
+      given(2, person, agent, { task: "9" }),
+      event("task.unassigned", 3, { task: "8", actor: person, to: agent }),
+      event("task.unassigned", 4, { task: "9", actor: person, to: agent }),
+    ]),
+  );
+  assert.equal(rows.find((r) => r.task === "8")!.takenBack, at(3));
+  assert.equal(rows.find((r) => r.task === "9")!.takenBack, at(4));
+  const back = handovers(items([given(1, person, agent, { task: "8" }), given(2, person, agent, { task: "9" }), event("task.unassigned", 3, { task: "9", actor: person, to: agent })]));
+  assert.equal(back.find((r) => r.task === "9")!.takenBack, at(3));
+  assert.equal(back.find((r) => r.task === "8")!.takenBack, undefined);
+});
+
+test("#120: a taking back that names a task the member was never given on marks nothing", () => {
+  const rows = handovers(items([given(1, person, agent, { task: "8" }), event("task.unassigned", 2, { task: "9", actor: person, to: agent })]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.takenBack, undefined);
+});
+
+// A word that stands in for a name is never read as one.
+
+test("#120: agents really named `someone` and `not recorded` keep their model on their own rows and lend it to no other", () => {
+  const named = (id: string, model: string, effort: string, minute: number) => event("session.started", minute, { actor: { kind: "agent", id }, model, effort }, "claimed");
+  const sessions = [named("someone", "m-y", "low", 0), named("not recorded", "m-x", "high", 0)];
+  const toGone = event("task.assigned", 3, { task: "41", actor: person, data: { to_account_removed: true } });
+  const byGone = event("task.assigned", 4, { task: "42", to: agent, data: { account_removed: true } });
+  const noGiver = event("task.assigned", 5, { task: "43", to: agent });
+  const own = [given(6, { kind: "agent", id: "someone" }, agent, { task: "44" }), given(7, { kind: "agent", id: "not recorded" }, agent, { task: "45" })];
+  const rows = handovers(items([...sessions, toGone, byGone, noGiver, ...own]));
+  const of = (task: string) => rows.find((r) => r.task === task)!;
+  assert.equal(of("44").model, "m-y");
+  assert.equal(of("44").effort, "low");
+  assert.equal(of("45").model, "m-x");
+  for (const task of ["41", "42", "43"]) {
+    assert.equal(of(task).model, undefined, `task ${task}`);
+    assert.equal(of(task).effort, undefined, `task ${task}`);
+  }
+  // The words stay as they are in the row, and the row says that they are no name.
+  assert.equal(of("42").from, "someone");
+  assert.deepEqual(of("42").standIn, ["from"]);
+  assert.equal(of("43").from, "not recorded");
+  assert.deepEqual(of("43").standIn, ["from"]);
+  assert.deepEqual(of("41").standIn, ["to"]);
+  assert.equal(of("44").standIn, undefined);
+});
+
+test("#120: the `someone` of a review by a removed account lends no model either", () => {
+  const of = { task: "40", change: "7" };
+  const rows = handovers(
+    items([
+      event("session.started", 0, { actor: { kind: "agent", id: "someone" }, model: "m-y", effort: "low" }, "claimed"),
+      event("change.opened", 1, { ...of, actor: agent }),
+      event("review.changes_requested", 2, { ...of, data: { account_removed: true } }),
+    ]),
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.from, "someone");
+  assert.equal(rows[0]!.model, undefined);
+});

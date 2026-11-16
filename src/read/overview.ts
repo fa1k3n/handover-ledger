@@ -21,6 +21,8 @@ export interface Handover {
   /** An actor, or `merged` when the merge ends the chain. */
   to: string;
   step: "Task → implementation" | "Implementation → review" | "Review → fix" | "Review → merge";
+  /** #120: which of `from` and `to` is a word standing in for a name (`someone`, `not recorded`), never a name to look anything up by. */
+  standIn?: ("from" | "to")[];
   /** #120: when the giving of a task was taken back, as `howl show` marks it. */
   takenBack?: string;
   /** The person's account the agents acted through, when the code host named a person (#14). */
@@ -89,19 +91,20 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     if (isReview(e) && reviewer !== undefined && by !== undefined && reviewer !== by) {
       add(
         e.type === "review.changes_requested"
-          ? { ...base, from: reviewer, to: by, step: "Review → fix" }
-          : { ...base, from: by, to: reviewer, step: "Implementation → review" },
+          ? { ...base, from: reviewer, to: by, step: "Review → fix", ...(actor === undefined ? { standIn: ["from" as const] } : {}) }
+          : { ...base, from: by, to: reviewer, step: "Implementation → review", ...(actor === undefined ? { standIn: ["to" as const] } : {}) },
         !gone,
       );
     } else if (e.type === "change.merged") {
-      add({ ...base, from: actor ?? by ?? "-", to: "merged", step: "Review → merge" });
+      add({ ...base, from: actor ?? by ?? "-", to: "merged", step: "Review → merge", ...(actor === undefined && by === undefined ? { standIn: ["from" as const] } : {}) });
     }
   }
   // The model of the agent who hands over, as its own sessions last said before the handover.
   const sessions = sorted.filter((i) => i.event.source.kind === "claimed" && i.event.model !== undefined).map((i) => i.event);
   for (const row of rows) {
     const t = Date.parse(row.time);
-    const last = sessions.filter((e) => e.actor?.id === row.from && Date.parse(e.time) <= t).at(-1);
+    // A word that stands in for a name is no agent's name: it lends no model.
+    const last = row.standIn?.includes("from") ? undefined : sessions.filter((e) => e.actor?.id === row.from && Date.parse(e.time) <= t).at(-1);
     if (last?.model !== undefined) row.model = last.model;
     if (last?.effort !== undefined) row.effort = last.effort;
     if (row.task === undefined) delete row.task;
@@ -117,9 +120,12 @@ function givingRow(e: LedgerEvent, hash: string | undefined, takenBack: string |
   const to = assignee(e);
   if (by !== undefined && to !== undefined && by.kind === to.kind && by.id === to.id) return null;
   // An account that no longer exists has no pseudonym here, as in a review by one (#48); a giver the host did not name is not recorded.
+  const fromWord = gone.by || by === undefined;
+  const toWord = gone.to || to === undefined;
   const from = gone.by ? "someone" : (by?.id ?? "not recorded");
   const receiver = gone.to ? "someone" : (to?.id ?? "someone");
-  return { time: e.time, task: e.task, hash, from, to: receiver, step: "Task → implementation", ...(takenBack !== undefined ? { takenBack } : {}) };
+  const standIn = [...(fromWord ? (["from"] as const) : []), ...(toWord ? (["to"] as const) : [])];
+  return { time: e.time, task: e.task, hash, from, to: receiver, step: "Task → implementation", ...(standIn.length > 0 ? { standIn } : {}), ...(takenBack !== undefined ? { takenBack } : {}) };
 }
 
 export interface KeyFigures {

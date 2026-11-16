@@ -83,7 +83,7 @@ export const texts = {
     note: "Derived from the ledger: given to one, opened by one, reviewed by another, sent back, merged",
     toStream: "Open the event stream",
     empty: "No handover in the ledger yet.",
-    cols: { time: "Time", change: "Change", fromTo: "From → to", step: "Step", model: "Model · effort", hash: "Line hash" },
+    cols: { time: "Time", change: "Change or task", fromTo: "From → to", step: "Step", model: "Model · effort", hash: "Line hash" },
     change: (n: string) => `Change ${n}`,
     task: (n: string) => `Task ${n}`,
     takenBack: (when: string) => `taken back ${when}`,
