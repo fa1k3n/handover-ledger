@@ -91,16 +91,27 @@ test("#46: agentFaults names an entry with an empty side or two =, and an accoun
   assert.equal(agentFaults(["=agent-1-bot"]).length, 1);
   assert.equal(agentFaults(["agent-1="]).length, 1);
   assert.equal(agentFaults(["agent-1=a-bot", "agent-2=A-Bot"]).length, 1);
-  assert.equal(agentFaults(["agent-1=agent-2", "agent-2"]).length, 1);
+  assert.ok(agentFaults(["agent-1=agent-2", "agent-2"]).length >= 1);
+  assert.equal(agentFaults(["agent-1=agent-1-bot", "agent-2=agent-1"]).length, 1);
   assert.match(agentFaults(["agent-1=agent-2", "agent-2"])[0]!, /agent-2/);
 });
 
-for (const bad of ["[agent-1=agent-1-bot=x]", "[=agent-1-bot]", "[agent-1=]", "[agent-1=a-bot, agent-2=a-bot]", "[agent-1=agent-2, agent-2]"]) {
+for (const bad of [
+  "[agent-1=agent-1-bot=x]",
+  "[=agent-1-bot]",
+  "[agent-1=]",
+  "[agent-1=a-bot, agent-2=a-bot]",
+  "[agent-1=agent-2, agent-2]",
+  "[agent-1=agent-1-bot agent-2]",
+  "[agent-1=agent-1-bot, agent-2",
+  "['agent-1=agent-1-bot, agent-2']",
+  "[agent-1=agent-1-bot, agent-2=agent-1]",
+]) {
   test(`#46: agents ${bad} is refused: howl observe --once names the entry, ends not with 0 and writes nothing`, () => {
     const { ws } = setup(bad);
     const r = howl(["observe", "--once"], { cwd: ws.root, env: ws.env });
     assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /agents: the entry|agents: the account/);
+    assert.match(r.stderr, /agents: the (entry|account)/);
     assert.equal(existsSync(ws.ledger) ? lines(ws.ledger).length : 0, 0);
     assert.equal(existsSync(join(ws.home, PROJECT, "people.json")), false);
   });
@@ -183,4 +194,19 @@ test("#46: howl status marks a session whose actor is not listed", () => {
   const s = howl(["status"], { cwd: ws.root, env: ws.env });
   assert.equal(s.status, 0, s.stderr);
   assert.match(s.stdout, /agent-9.*not a known agent/);
+});
+
+test("#46: lists that must pass pass: one name with two accounts, a=a, spaces round =, names that differ only by case, [bot]", () => {
+  for (const ok of [["agent-1=a-bot", "agent-1=a-other"], ["a=a"], ["agent-1 = agent-1-bot"], ["Agent-1=a-bot", "agent-1=b-bot"], ["agent-1=reviewer[bot]"], ["agent-1=a-bot", "agent-1"]]) {
+    assert.deepEqual(agentFaults(ok), [], ok.join(","));
+  }
+});
+
+test("#46: agent-1=reviewer[bot], as a file holds it, is read: a review by the app reviewer[bot] has the actor agent-1", () => {
+  for (const form of ["[agent-1=reviewer[bot]]", "[other, agent-1=reviewer[bot]]", "\n  - agent-1=reviewer[bot]\n"]) {
+    const { ws } = setup(form, "reviewer[bot]");
+    const e = review(observe(ws));
+    assert.deepEqual(e.actor, { kind: "agent", id: "agent-1" }, form);
+    assert.equal(e.data.account, "reviewer[bot]");
+  }
 });

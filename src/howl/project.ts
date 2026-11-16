@@ -98,12 +98,20 @@ function agentEntry(entry: string): { name: string; account: string } | null {
 export function agentFaults(entries: string[]): string[] {
   const faults: string[] = [];
   const taken = new Map<string, string>();
-  for (const entry of entries) {
-    const e = agentEntry(entry);
+  const parsed = entries.map((entry) => ({ entry, e: agentEntry(entry) }));
+  for (const { entry, e } of parsed) {
     if (e === null) {
       faults.push(`agents: the entry "${entry}" is not name or name=account (a side is empty, or there is more than one =)`);
       continue;
     }
+    // The reader hands over a broken list as odd entries (a missing comma joins two, a missing bracket or quote stays
+    // in the text), so the plain characters are checked here: such an entry is never read as a name.
+    if (!/^[A-Za-z0-9._-]+$/.test(e.name) || !/^[A-Za-z0-9._-]+(\[bot\])?$/.test(e.account)) {
+      faults.push(`agents: the entry "${entry}" holds more than letters, digits, - _ . in a name or an account (and [bot] at the end of an account): a comma, a bracket or a quote may be missing`);
+      continue;
+    }
+    const other = parsed.find((o) => o.e !== null && o.e.name.toLowerCase() === e.account.toLowerCase() && o.e.name.toLowerCase() !== e.name.toLowerCase());
+    if (other !== undefined) faults.push(`agents: the account ${e.account} of the entry "${entry}" is the name of the entry "${other.entry}"`);
     const key = e.account.toLowerCase();
     const before = taken.get(key);
     if (before !== undefined) faults.push(`agents: the account ${e.account} is given by the entry "${before}" and by the entry "${entry}"`);
