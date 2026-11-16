@@ -23,6 +23,8 @@ export interface LedgerEvent {
   type:
     | "ledger.created"
     | "task.assigned"
+    | "task.unassigned"
+    | "task.reopened"
     | "change.opened"
     | "change.updated"
     | "change.merged"
@@ -38,8 +40,10 @@ export interface LedgerEvent {
     | "task.opened"
     | "task.closed"
     | "change.closed"
+    | "change.reopened"
     | "change.commented"
     | "review.commented"
+    | "review.dismissed"
     | "key.issued"
     | "key.revoked"
     | "observe.started"
@@ -63,9 +67,19 @@ export interface LedgerEvent {
    */
   project: string;
   /**
-   * The team member who did it.
+   * The team member who did it. On a task given or taken back: the one who gave it or took it back. (A task.assigned written before `to` existed names the one who got the task here: read it with assignee.)
    */
   actor?: {
+    kind: "person" | "agent";
+    /**
+     * The identity of the team member.
+     */
+    id: string;
+  };
+  /**
+   * Only on task.assigned and task.unassigned: the team member the event is about, when that is not the one who did it. On task.assigned: the one who got the task. On task.unassigned: the one it was taken from.
+   */
+  to?: {
     kind: "person" | "agent";
     /**
      * The identity of the team member.

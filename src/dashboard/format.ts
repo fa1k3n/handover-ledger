@@ -114,6 +114,8 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
     { k: "Time", v: `${localTime(e.time, timeZone)} local · ${utcTime(e.time)}` },
     { k: "Type", v: e.type },
     actor ? { k: "Actor", v: actor } : null,
+    // #45: who a task was given to, or taken from.
+    e.to ? { k: e.type === "task.unassigned" ? "Taken from" : "To", v: `${e.to.id} (${e.to.kind === "person" ? "person, pseudonym" : e.to.kind})` } : null,
     item.by !== undefined ? { k: "Acted by", v: `${item.by} (matched to its session)` } : null,
     { k: "Source", v: `${e.source.kind} · ${e.source.adapter}` },
     e.repo !== undefined ? { k: "Repository", v: e.repo } : null,
@@ -160,7 +162,8 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
 /** What an event concerns, short: task 12 · change 30. */
 export function concerns(item: Item): string {
   const e = item.event;
-  return [e.task !== undefined ? `task ${e.task}` : null, e.change !== undefined ? `change ${e.change}` : null].filter(Boolean).join(" · ");
+  // #45: the actor column is the one who acted; who a task was given to or taken from is told here.
+  return [e.task !== undefined ? `task ${e.task}` : null, e.change !== undefined ? `change ${e.change}` : null, e.to !== undefined ? `${e.type === "task.unassigned" ? "taken from" : "to"} ${e.to.id}` : null].filter(Boolean).join(" · ");
 }
 
 /** The short of an event's data for the stream. */

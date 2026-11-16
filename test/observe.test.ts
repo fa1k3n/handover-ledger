@@ -53,7 +53,8 @@ function everything(s: Setup): void {
       number: 1,
       openedAt: at(0),
       openedBy: person("alice"),
-      assignments: [{ id: "as-1", assignee: agent, at: at(1) }],
+      // #45: the host's file names who assigned.
+      assignments: [{ id: "as-1", assignee: agent, by: person("alice"), at: at(1) }],
       closedAt: at(50),
       closedBy: person("alice"),
       updatedAt: at(50),
@@ -119,8 +120,31 @@ test("each row of the table gives one event of its type, kind: observed, with th
     updatedAt: at(70),
   });
   const third = round(s);
+  // #45: the task is taken from its agent and opened again; the change is opened again and a review of it is dismissed.
+  s.host.task({
+    number: 1,
+    openedAt: at(0),
+    openedBy: person("alice"),
+    assignments: [{ id: "as-1", assignee: agent, by: person("alice"), at: at(1) }],
+    unassignments: [{ id: "un-1", assignee: agent, by: person("alice"), at: at(55) }],
+    reopenings: [{ id: "ro-1", by: person("alice"), at: at(56) }],
+    updatedAt: at(80),
+  });
+  s.host.change({
+    number: 12,
+    branch: "task-2-more",
+    openedAt: at(60),
+    openedBy: agent,
+    head: { sha: SHA.d, at: at(70) },
+    tasks: [],
+    reviews: [],
+    reopenings: [{ id: "ro-2", by: person("bob"), at: at(75) }],
+    dismissals: [{ id: "ds-1", review: "r-9", by: person("bob"), at: at(76) }],
+    updatedAt: at(80),
+  });
+  const fourth = round(s);
 
-  const all = [...first, ...second, ...third];
+  const all = [...first, ...second, ...third, ...fourth];
   const count = (type: string) => all.filter((e) => e.type === type).length;
   assert.deepEqual(
     Object.fromEntries(
@@ -137,6 +161,10 @@ test("each row of the table gives one event of its type, kind: observed, with th
         "review.changes_requested",
         "review.commented",
         "change.merged",
+        "task.unassigned",
+        "task.reopened",
+        "change.reopened",
+        "review.dismissed",
       ].map((t) => [t, count(t)]),
     ),
     {
@@ -152,6 +180,10 @@ test("each row of the table gives one event of its type, kind: observed, with th
       "review.changes_requested": 1,
       "review.commented": 1,
       "change.merged": 1,
+      "task.unassigned": 1,
+      "task.reopened": 1,
+      "change.reopened": 1,
+      "review.dismissed": 1,
     },
   );
   for (const e of all) {
@@ -167,6 +199,10 @@ test("each row of the table gives one event of its type, kind: observed, with th
   assert.equal(time("change.closed"), at(40));
   assert.equal(time("checks.passed"), at(5));
   assert.equal(time("change.updated"), at(70));
+  assert.equal(time("task.unassigned"), at(55));
+  assert.equal(time("task.reopened"), at(56));
+  assert.equal(time("change.reopened"), at(75));
+  assert.equal(time("review.dismissed"), at(76));
 });
 
 test("an event of a change holds change, branch and sha; task comes from the host's link, else from task_from_branch, else it is absent", () => {
@@ -191,6 +227,11 @@ test("an account in agents, or an app account, is an agent named by its account;
   const actor = (type: string, events = first) => events.find((e) => e.type === type)?.actor;
 
   assert.deepEqual(actor("change.opened"), { kind: "agent", id: "agent-bot" });
+  // #45: the actor of a giving is the one who gave the task, and `to` the one who got it.
+  const given = first.find((e) => e.type === "task.assigned")!;
+  assert.deepEqual(given.to, { kind: "agent", id: "agent-bot" });
+  assert.equal(given.actor?.kind, "person");
+  assert.deepEqual(given.actor, actor("task.opened"), "the same person gets the same pseudonym");
   assert.deepEqual(actor("review.commented"), { kind: "agent", id: "ci-helper[bot]" });
   const bob = actor("review.approved");
   assert.equal(bob?.kind, "person");

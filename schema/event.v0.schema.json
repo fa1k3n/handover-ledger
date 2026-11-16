@@ -32,6 +32,8 @@
       "enum": [
         "ledger.created",
         "task.assigned",
+        "task.unassigned",
+        "task.reopened",
         "change.opened",
         "change.updated",
         "change.merged",
@@ -47,8 +49,10 @@
         "task.opened",
         "task.closed",
         "change.closed",
+        "change.reopened",
         "change.commented",
         "review.commented",
+        "review.dismissed",
         "key.issued",
         "key.revoked",
         "observe.started",
@@ -83,7 +87,28 @@
       "$ref": "#/$defs/name"
     },
     "actor": {
-      "description": "The team member who did it.",
+      "description": "The team member who did it. On a task given or taken back: the one who gave it or took it back. (A task.assigned written before `to` existed names the one who got the task here: read it with assignee.)",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "person",
+            "agent"
+          ]
+        },
+        "id": {
+          "description": "The identity of the team member.",
+          "$ref": "#/$defs/name"
+        }
+      }
+    },
+    "to": {
+      "description": "Only on task.assigned and task.unassigned: the team member the event is about, when that is not the one who did it. On task.assigned: the one who got the task. On task.unassigned: the one it was taken from.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -211,6 +236,24 @@
               "trial"
             ]
           }
+        }
+      }
+    }
+  },
+  "not": {
+    "description": "`to` stands only where it means something: on a task given or taken back.",
+    "type": "object",
+    "required": [
+      "to"
+    ],
+    "properties": {
+      "to": true,
+      "type": {
+        "not": {
+          "enum": [
+            "task.assigned",
+            "task.unassigned"
+          ]
         }
       }
     }

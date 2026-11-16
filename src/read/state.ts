@@ -3,6 +3,7 @@
 // rows out, the clock passed in. People are never a row.
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
+import { assignee } from "./assignee.ts";
 import { byTime } from "./order.ts";
 import { waitsFor } from "./wait.ts";
 
@@ -56,10 +57,13 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
 
   const byAgent = new Map<string, LedgerEvent[]>();
   for (const e of sorted) {
-    if (e.actor?.kind !== "agent") continue;
-    const list = byAgent.get(e.actor.id) ?? [];
-    list.push(e);
-    byAgent.set(e.actor.id, list);
+    // #45: an agent has a row for what it did, and for a task it got: the actor of a giving is the giver, the receiver is `assignee`.
+    const ids = new Set([e.actor, e.type === "task.assigned" ? assignee(e) : undefined].flatMap((a) => (a?.kind === "agent" ? [a.id] : [])));
+    for (const id of ids) {
+      const list = byAgent.get(id) ?? [];
+      list.push(e);
+      byAgent.set(id, list);
+    }
   }
 
   const rows: AgentRow[] = [];

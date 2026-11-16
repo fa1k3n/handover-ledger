@@ -18,6 +18,8 @@ function github(pattern?: RegExp) {
   const table: Record<string, unknown> = {
     [`${R}/pulls/9/reviews`]: [{ id: 7, user: { login: "dave", type: "User" }, state: "APPROVED", submitted_at: "2026-01-01T01:40:00Z", commit_id: sha }],
     [`${R}/pulls/9/files`]: [],
+    // #45: the events of the issue tell when a change was opened again and which reviews were dismissed: none here.
+    [`${R}/issues/9/events`]: [],
     [`${R}/issues/9/comments`]: [
       { id: 501, user: { login: "carol", type: "User" }, created_at: "2026-01-01T01:10:00Z", body: "[review] round 1\nmore words" },
       { id: 502, user: { login: "helper[bot]", type: "Bot" }, created_at: "2026-01-01T01:20:00Z", body: "thanks, fixed" },

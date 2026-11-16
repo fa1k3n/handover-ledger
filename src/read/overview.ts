@@ -4,7 +4,7 @@
 // @code_class reading
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents } from "./acting.ts";
-import { observed } from "./observed.ts";
+import { isReview, observed } from "./observed.ts";
 import { byTime } from "./order.ts";
 
 const DAY = 24 * 3600_000;
@@ -57,7 +57,7 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     const matched = acting.get(e.id);
     const actor = matched?.agent ?? e.actor?.id;
     // #48: a review by an account that no longer exists is a handover to someone: no pseudonym, and no two of them are one reviewer.
-    const gone = e.type.startsWith("review.") && e.actor === undefined && (e.data as { account_removed?: unknown } | undefined)?.account_removed === true;
+    const gone = isReview(e) && e.actor === undefined && (e.data as { account_removed?: unknown } | undefined)?.account_removed === true;
     if (e.type === "change.opened" && actor !== undefined) {
       author.set(e.change, actor);
       if (matched?.via) authorVia.set(e.change, matched.via);
@@ -70,9 +70,9 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     }
     const by = author.get(e.change);
     const via = matched?.via ?? authorVia.get(e.change);
-    const base = { time: e.time, change: e.change, task: e.task ?? task.get(e.change), hash, ...(via !== undefined && e.type.startsWith("review.") ? { via } : {}) };
+    const base = { time: e.time, change: e.change, task: e.task ?? task.get(e.change), hash, ...(via !== undefined && isReview(e) ? { via } : {}) };
     const reviewer = actor ?? (gone ? "someone" : undefined);
-    if (e.type.startsWith("review.") && reviewer !== undefined && by !== undefined && reviewer !== by) {
+    if (isReview(e) && reviewer !== undefined && by !== undefined && reviewer !== by) {
       add(
         e.type === "review.changes_requested"
           ? { ...base, from: reviewer, to: by, step: "Review → fix" }
@@ -119,6 +119,7 @@ export interface KeyFigures {
 export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
   const sorted = byTime(events.map((event) => ({ event }))).map((i) => i.event);
   const state = new Map<string, "open" | "done">();
+  const mergedChanges = new Set<string>();
   const firstOpened = new Map<string, number>();
   const reviews = new Map<string, number>();
   const leadTimes: number[] = [];
@@ -141,10 +142,14 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
       if (!firstOpened.has(work)) firstOpened.set(work, t);
     } else if (e.type === "change.closed") {
       state.set(e.change, "done");
-    } else if (e.type.startsWith("review.")) {
+    } else if (e.type === "change.reopened") {
+      // #45: open again until it ends again. A merge is never undone.
+      if (!mergedChanges.has(e.change)) state.set(e.change, "open");
+    } else if (isReview(e)) {
       reviews.set(e.change, (reviews.get(e.change) ?? 0) + 1);
     } else if (e.type === "change.merged") {
       state.set(e.change, "done");
+      mergedChanges.add(e.change);
       if (now - t <= PERIOD_MS) {
         if (e.sha !== undefined) mergedAt.set(e.change, e.sha);
         else mergedAt.set(e.change, "");
@@ -160,7 +165,7 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
       observed(e) &&
       e.change !== undefined &&
       now - Date.parse(e.time) <= PERIOD_MS &&
-      (e.type === "change.opened" || e.type === "change.updated" || e.type.startsWith("review.")) &&
+      (e.type === "change.opened" || e.type === "change.updated" || isReview(e)) &&
       (e.actor?.kind === "person" || (e.actor === undefined && e.type === "change.updated")) &&
       !acting.has(e.id),
   );

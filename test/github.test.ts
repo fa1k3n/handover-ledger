@@ -62,9 +62,10 @@ test("a task: who opened it, every assignment with its own id, who closed it", a
   const { host } = github({
     [`${R}/issues/5/events`]: {
       body: [
-        { id: 900, event: "assigned", assignee: { login: "agent-bot", type: "User" }, created_at: "2026-01-01T00:01:00Z" },
+        // #45: who assigned is the actor of the event.
+        { id: 900, event: "assigned", actor: { login: "alice", type: "User" }, assignee: { login: "agent-bot", type: "User" }, created_at: "2026-01-01T00:01:00Z" },
         { id: 901, event: "labeled", created_at: "2026-01-01T00:02:00Z" },
-        { id: 902, event: "assigned", assignee: { login: "helper[bot]", type: "Bot" }, created_at: "2026-01-01T00:03:00Z" },
+        { id: 902, event: "assigned", actor: { login: "agent-bot", type: "User" }, assignee: { login: "helper[bot]", type: "Bot" }, created_at: "2026-01-01T00:03:00Z" },
       ],
     },
     [`${R}/issues/5`]: {
@@ -83,8 +84,8 @@ test("a task: who opened it, every assignment with its own id, who closed it", a
     openedAt: "2026-01-01T00:00:00Z",
     openedBy: { login: "alice", bot: false },
     assignments: [
-      { id: "900", assignee: { login: "agent-bot", bot: false }, at: "2026-01-01T00:01:00Z" },
-      { id: "902", assignee: { login: "helper[bot]", bot: true }, at: "2026-01-01T00:03:00Z" },
+      { id: "900", assignee: { login: "agent-bot", bot: false }, by: { login: "alice", bot: false }, at: "2026-01-01T00:01:00Z" },
+      { id: "902", assignee: { login: "helper[bot]", bot: true }, by: { login: "agent-bot", bot: false }, at: "2026-01-01T00:03:00Z" },
     ],
     closedAt: "2026-01-01T01:00:00Z",
     closedBy: { login: "alice", bot: false },
@@ -97,6 +98,8 @@ test("a change: its branch, its head with the time of the commit, the tasks it c
   const { host } = github({
     // #25: and the files; before `pulls/7`, which the fake matches as a prefix.
     [`${R}/pulls/7/files`]: { body: [{ filename: ".howl/howl.yml" }, { filename: "src/a.ts" }] },
+    // #45: the events of the issue, for the reopenings and the dismissals: none here.
+    [`${R}/issues/7/events`]: { body: [] },
     [`${R}/pulls/7/reviews`]: {
       body: [
         { id: 1, user: { login: "bob", type: "User" }, state: "CHANGES_REQUESTED", submitted_at: "2026-01-01T00:10:00Z", commit_id: sha },
@@ -223,6 +226,7 @@ test("#20, #28: a change's comments are read apart from its reviews, with their 
   const { host } = github({
     [`${R}/pulls/9/reviews`]: { body: [] },
     [`${R}/pulls/9/files`]: { body: [] },
+    [`${R}/issues/9/events`]: { body: [] },
     [`${R}/issues/9/comments`]: {
       body: [
         { id: 501, user: { login: "carol", type: "User" }, created_at: "2026-01-01T01:10:00Z", body: "[review] round 1" },
@@ -295,6 +299,7 @@ test("#48: a review with no user, and a comment by the host's ghost, are of an a
   const sha = "a".repeat(40);
   const { host } = github({
     [`${R}/pulls/7/files`]: { body: [] },
+    [`${R}/issues/7/events`]: { body: [] },
     [`${R}/pulls/7/reviews`]: {
       body: [
         { id: 1, user: null, state: "APPROVED", submitted_at: "2026-01-01T00:10:00Z", commit_id: sha },
@@ -341,4 +346,68 @@ test("#48: an old name that is no repository at GitHub is another repository; an
   const odd = github({});
   assert.equal(await odd.host.isSameRepository("local"), false);
   assert.deepEqual(odd.asked, []);
+});
+
+test("#45: a task: who took it from whom, who opened it again, and who gave it, from the events of its issue", async () => {
+  const { host } = github({
+    [`${R}/issues/5/events`]: {
+      body: [
+        { id: 900, event: "assigned", actor: { login: "alice", type: "User" }, assignee: { login: "agent-bot", type: "User" }, created_at: "2026-01-01T00:01:00Z" },
+        { id: 901, event: "unassigned", actor: { login: "alice", type: "User" }, assignee: { login: "agent-bot", type: "User" }, created_at: "2026-01-01T00:02:00Z" },
+        // The host says nothing of who gave this one: there is no actor to tell. A giver whose account is gone is `null`.
+        { id: 902, event: "assigned", assignee: { login: "helper[bot]", type: "Bot" }, created_at: "2026-01-01T00:03:00Z" },
+        { id: 903, event: "assigned", actor: null, assignee: { login: "agent-bot", type: "User" }, created_at: "2026-01-01T00:04:00Z" },
+        { id: 904, event: "assigned", actor: { login: "alice", type: "User" }, assignee: null, created_at: "2026-01-01T00:05:00Z" },
+        { id: 905, event: "unassigned", actor: { login: "alice", type: "User" }, assignee: null, created_at: "2026-01-01T00:06:00Z" },
+        { id: 906, event: "closed", actor: { login: "alice", type: "User" }, created_at: "2026-01-01T00:07:00Z" },
+        { id: 907, event: "reopened", actor: { login: "bob", type: "User" }, created_at: "2026-01-01T00:08:00Z" },
+      ],
+    },
+    [`${R}/issues/5`]: { body: { number: 5, user: { login: "alice", type: "User" }, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:08:00Z" } },
+  });
+  const task = await host.task(5);
+  assert.deepEqual(
+    task.assignments.map((a) => [a.id, a.assignee, a.by]),
+    [
+      ["900", { login: "agent-bot", bot: false }, { login: "alice", bot: false }],
+      ["902", { login: "helper[bot]", bot: true }, undefined],
+      ["903", { login: "agent-bot", bot: false }, { removed: true }],
+      ["904", { removed: true }, { login: "alice", bot: false }],
+    ],
+  );
+  assert.equal("by" in task.assignments[1]!, false, "no actor in the answer: the host does not say");
+  assert.deepEqual(task.unassignments, [
+    { id: "901", assignee: { login: "agent-bot", bot: false }, by: { login: "alice", bot: false }, at: "2026-01-01T00:02:00Z" },
+    { id: "905", assignee: { removed: true }, by: { login: "alice", bot: false }, at: "2026-01-01T00:06:00Z" },
+  ]);
+  assert.deepEqual(task.reopenings, [{ id: "907", by: { login: "bob", bot: false }, at: "2026-01-01T00:08:00Z" }]);
+});
+
+test("#45: a change: when it was opened again, and which reviews were dismissed and by whom; nothing of what is in the dismissal is read", async () => {
+  const sha = "a".repeat(40);
+  const { host, asked } = github({
+    [`${R}/pulls/7/files`]: { body: [] },
+    [`${R}/issues/7/events`]: {
+      body: [
+        { id: 1, event: "labeled", created_at: "2026-01-01T00:01:00Z" },
+        { id: 2, event: "closed", actor: { login: "carol", type: "User" }, created_at: "2026-01-01T00:20:00Z" },
+        { id: 3, event: "reopened", actor: { login: "carol", type: "User" }, created_at: "2026-01-01T00:25:00Z" },
+        { id: 4, event: "review_dismissed", actor: { login: "carol", type: "User" }, created_at: "2026-01-01T00:26:00Z", dismissed_review: { review_id: 77, state: "changes_requested", dismissal_message: "secret words" } },
+        { id: 5, event: "review_dismissed", actor: null, created_at: "2026-01-01T00:27:00Z" },
+      ],
+    },
+    [`${R}/pulls/7/reviews`]: { body: [] },
+    [`${R}/issues/7/comments`]: { body: [] },
+    [`${R}/pulls/7`]: { body: { number: 7, user: { login: "agent-bot", type: "User" }, created_at: "2026-01-01T00:00:00Z", head: { ref: "x", sha }, updated_at: "2026-01-01T00:28:00Z" } },
+    [`${R}/commits/${sha}`]: { body: { sha, commit: { committer: { date: "2026-01-01T00:05:00Z" } } } },
+  });
+  const change = await host.change(7);
+  assert.deepEqual(change.reopenings, [{ id: "3", by: { login: "carol", bot: false }, at: "2026-01-01T00:25:00Z" }]);
+  // The fields of a dismissal that name the review and its outcome are not checked against the host yet: they are not read.
+  assert.deepEqual(change.dismissals, [
+    { id: "4", by: { login: "carol", bot: false }, at: "2026-01-01T00:26:00Z" },
+    { id: "5", by: { removed: true }, at: "2026-01-01T00:27:00Z" },
+  ]);
+  assert.ok(!JSON.stringify(change).includes("secret words"), "the text of a dismissal is never kept");
+  assert.ok(asked.some((a) => a.url.startsWith(`${R}/issues/7/events`)), "from the events it already knows how to ask for");
 });

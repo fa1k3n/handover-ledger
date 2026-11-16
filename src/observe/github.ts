@@ -92,7 +92,12 @@ export class GitHub implements CodeHost {
       assignments: events
         // #48: given to an account that is gone, the host may tell no one: it was still given.
         .filter((e) => e.event === "assigned")
-        .map((e) => ({ id: String(e.id), assignee: account(e.assignee), at: e.created_at })),
+        .map((e) => defined({ id: String(e.id), assignee: account(e.assignee), by: doer(e), at: e.created_at })),
+      // #45: the same events tell who took a task from whom, and who opened it again.
+      unassignments: some(
+        events.filter((e) => e.event === "unassigned").map((e) => defined({ id: String(e.id), assignee: account(e.assignee), by: doer(e), at: e.created_at })),
+      ),
+      reopenings: some(events.filter((e) => e.event === "reopened").map((e) => defined({ id: String(e.id), by: doer(e), at: e.created_at }))),
       closedAt: issue.closed_at ?? undefined,
       closedBy: issue.closed_at && issue.closed_by ? account(issue.closed_by) : undefined,
       updatedAt: issue.updated_at,
@@ -107,6 +112,8 @@ export class GitHub implements CodeHost {
     // #25: the paths it touches, so a change to .howl/ can be seen.
     const files = await this.all(this.url(`pulls/${number}/files`, { per_page: "100" }));
     const head = await this.one(this.url(`commits/${pull.head.sha}`));
+    // #45: its issue's events tell when it was opened again and which reviews were dismissed, and by whom.
+    const events = await this.all(this.url(`issues/${number}/events`, { per_page: "100" }));
     // A pull request does not say who closed it; its issue does.
     const closedBy = pull.closed_at ? (await this.one(this.url(`issues/${number}`))).closed_by : null;
     return defined({
@@ -122,6 +129,10 @@ export class GitHub implements CodeHost {
         if (!state || !r.submitted_at) return [];
         return [defined({ id: String(r.id), by: account(r.user), state, at: r.submitted_at, sha: r.commit_id ?? undefined })];
       }),
+      reopenings: some(events.filter((e) => e.event === "reopened").map((e) => defined({ id: String(e.id), by: doer(e), at: e.created_at }))),
+      // #45: only what is known of the answer: that a review was dismissed, when and by whom. The fields that would name the
+      // review and what it was are not read until a token has shown what the host gives (the dismissal then says no review is tied to it).
+      dismissals: some(events.filter((e) => e.event === "review_dismissed").map((e) => defined({ id: String(e.id), by: doer(e), at: e.created_at }))),
       comments: (Array.isArray(comments) ? comments : [])
         .filter((c) => c && c.id !== undefined && c.user && c.created_at)
         // The text is tested here and never kept: only whether it counts as a review.
@@ -223,6 +234,11 @@ function account(user: Json | null | undefined): Account {
   return { login: user.login, bot: user.type === "Bot" };
 }
 
+/** #45: who did what an event of the host tells; none when it says nothing, an account that is gone when the user is none. */
+function doer(event: Json): Account | undefined {
+  return "actor" in event ? account(event.actor) : undefined;
+}
+
 /** How long to wait before asking again, when the answer says the limit is reached; else null. */
 function limitWait(response: Response): number | null {
   if (response.status !== 403 && response.status !== 429) return null;
@@ -267,6 +283,11 @@ export function originRepository(url: string | null): { host: "github"; reposito
   const match =
     /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/]+@)?github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url);
   return match ? { host: "github", repository: `${match[1]}/${match[2]}` } : null;
+}
+
+/** #45: a list that is there only when it has something in it, so that a host with nothing to tell gives what it gave before. */
+function some<T>(list: T[]): T[] | undefined {
+  return list.length > 0 ? list : undefined;
 }
 
 /** An object without its undefined members. */
