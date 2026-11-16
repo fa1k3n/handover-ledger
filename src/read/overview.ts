@@ -41,9 +41,9 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
   // #108: the last row of each change on its head. A row that only repeats it is counted there, not written
   // again: a review recorded as sixteen comments is one handover, not sixteen.
   const lastOf = new Map<string, Handover>();
-  const add = (row: Handover) => {
+  const add = (row: Handover, fold = true) => {
     const last = lastOf.get(row.change);
-    if (last !== undefined && last.step === row.step && last.from === row.from && last.to === row.to && last.via === row.via) {
+    if (fold && last !== undefined && last.step === row.step && last.from === row.from && last.to === row.to && last.via === row.via) {
       last.n = (last.n ?? 1) + 1;
       return;
     }
@@ -56,6 +56,8 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     if (e.task !== undefined) task.set(e.change, e.task);
     const matched = acting.get(e.id);
     const actor = matched?.agent ?? e.actor?.id;
+    // #48: a review by an account that no longer exists is a handover to someone: no pseudonym, and no two of them are one reviewer.
+    const gone = e.type.startsWith("review.") && e.actor === undefined && (e.data as { account_removed?: unknown } | undefined)?.account_removed === true;
     if (e.type === "change.opened" && actor !== undefined) {
       author.set(e.change, actor);
       if (matched?.via) authorVia.set(e.change, matched.via);
@@ -69,11 +71,13 @@ export function handovers(items: { event: LedgerEvent; hash?: string }[]): Hando
     const by = author.get(e.change);
     const via = matched?.via ?? authorVia.get(e.change);
     const base = { time: e.time, change: e.change, task: e.task ?? task.get(e.change), hash, ...(via !== undefined && e.type.startsWith("review.") ? { via } : {}) };
-    if (e.type.startsWith("review.") && actor !== undefined && by !== undefined && actor !== by) {
+    const reviewer = actor ?? (gone ? "someone" : undefined);
+    if (e.type.startsWith("review.") && reviewer !== undefined && by !== undefined && reviewer !== by) {
       add(
         e.type === "review.changes_requested"
-          ? { ...base, from: actor, to: by, step: "Review → fix" }
-          : { ...base, from: by, to: actor, step: "Implementation → review" },
+          ? { ...base, from: reviewer, to: by, step: "Review → fix" }
+          : { ...base, from: by, to: reviewer, step: "Implementation → review" },
+        !gone,
       );
     } else if (e.type === "change.merged") {
       add({ ...base, from: actor ?? by ?? "-", to: "merged", step: "Review → merge" });

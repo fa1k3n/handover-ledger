@@ -290,3 +290,31 @@ test("#48: a user who is called ghost and is not the host's ghost is an account 
   });
   assert.deepEqual((await host.task(5)).openedBy, { login: "ghost", bot: false });
 });
+
+test("#48: a review with no user, and a comment by the host's ghost, are of an account that is gone; a comment with no user is left out, as before", async () => {
+  const sha = "a".repeat(40);
+  const { host } = github({
+    [`${R}/pulls/7/files`]: { body: [] },
+    [`${R}/pulls/7/reviews`]: {
+      body: [
+        { id: 1, user: null, state: "APPROVED", submitted_at: "2026-01-01T00:10:00Z", commit_id: sha },
+        { id: 2, user: { login: "ghost", id: 10137, type: "User" }, state: "COMMENTED", submitted_at: "2026-01-01T00:11:00Z", commit_id: sha },
+      ],
+    },
+    [`${R}/issues/7/comments`]: {
+      body: [
+        { id: 31, user: { login: "ghost", id: 10137, type: "User" }, created_at: "2026-01-01T00:12:00Z", body: "[review] ok" },
+        { id: 32, user: null, created_at: "2026-01-01T00:13:00Z", body: "[review] ok" },
+      ],
+    },
+    [`${R}/pulls/7`]: {
+      body: { number: 7, user: null, created_at: "2026-01-01T00:00:00Z", head: { ref: "x", sha }, updated_at: "2026-01-01T00:30:00Z" },
+    },
+    [`${R}/commits/${sha}`]: { body: { sha, commit: { committer: { date: "2026-01-01T00:05:00Z" } } } },
+  });
+  const change = await host.change(7);
+  assert.deepEqual(change.openedBy, { removed: true });
+  assert.deepEqual(change.reviews.map((r) => r.by), [{ removed: true }, { removed: true }]);
+  assert.deepEqual(change.reviews.map((r) => r.state), ["approved", "commented"]);
+  assert.deepEqual(change.comments!.map((c) => [c.id, c.by]), [["31", { removed: true }]]);
+});
