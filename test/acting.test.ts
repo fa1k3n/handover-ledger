@@ -198,8 +198,24 @@ test("#44: a head marked as inferred says so in howl show; one from a ledger bef
   const shown = show(events, { kind: "change", id: "30" }, null)!;
   assert.deepEqual(shown.changes[0]!.heads.map((h) => h.inferred), [true, true, undefined]);
   const text = render(shown, { utc: true });
-  assert.match(text, /the host told no push for eeeeeee, fffffff: as a round of howl saw them/);
+  assert.match(text, /the host told no push for the opening head eeeeeee: howl worked it out\n/);
+  assert.match(text, /the host told no push for the new head fffffff: as a round of howl saw it, at the time of its commit\n/);
+  assert.doesNotMatch(text, /eeeeeee[^\n]*time of its commit/, "the opening head stands at the opening's time, not its commit's");
   assert.match(text, /new head ddddddd\n/, "a head from a ledger before this is shown as before");
+});
+
+test("#44: a forced push is said by howl show, in text and in its JSON, and by howl watch", async () => {
+  const { formatLine } = await import("../src/read/watch.ts");
+  const forced = pushed(30, { actor: { kind: "agent", id: "agent-b" }, data: { forced: true } });
+  const plain = pushed(40, { actor: { kind: "agent", id: "agent-b" }, sha: "d".repeat(40) });
+  const shown = show([host("change.opened", 10, { sha: "e".repeat(40) }), forced, plain], { kind: "change", id: "30" }, null)!;
+  assert.deepEqual(shown.changes[0]!.heads.map((h) => h.forced), [undefined, true, undefined]);
+  assert.equal(JSON.parse(JSON.stringify(shown)).changes[0].heads[1].forced, true, "--json gives it");
+  const text = render(shown, { utc: true });
+  assert.match(text, /new head fffffff pushed by agent-b, forced\n/);
+  assert.match(text, /new head ddddddd pushed by agent-b\n/);
+  assert.match(formatLine(forced, false, true), /forced/);
+  assert.doesNotMatch(formatLine(plain, false, true), /forced/);
 });
 
 test("#44: a head whose pusher's account no longer exists is not counted as a head no agent was matched to; one the host named no one for is", () => {

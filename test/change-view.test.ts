@@ -70,3 +70,7 @@ test("#44: a head line says who pushed it, as the host says, and the agent behin
   assert.equal(headText({ sha: "399a7cb1234", time: m(30), gone: true }, false), "new head 399a7cb pushed by an account that no longer exists");
   assert.equal(headText({ sha: "399a7cb1234", time: m(30), inferred: true }, false), "new head 399a7cb · as a round of howl saw it");
 });
+
+test("#44: the page's line of a head says that a push was forced", () => {
+  assert.equal(headText({ sha: "399a7cb1234", time: m(30), actor: { kind: "agent", id: "agent-2" }, forced: true }, false), "new head 399a7cb pushed by agent-2, forced");
+});

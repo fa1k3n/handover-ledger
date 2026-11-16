@@ -515,8 +515,50 @@ test("#44: a change from a fork has no pushes, and its activity is not asked for
   assert.equal((await gone.host.change(7)).pushes, undefined);
 });
 
-test("#44: a list with no pushes of the branch, or a host with no activity list, gives no pushes; another failure is thrown", async () => {
-  assert.equal((await withActivity({ body: [] }).host.change(7)).pushes, undefined);
-  assert.equal((await withActivity({ status: 404, body: { message: "Not Found" } }).host.change(7)).pushes, undefined);
+test("#44: a list with no pushes of the branch is an empty list, as the host answers for a branch it has no record of", async () => {
+  assert.deepEqual((await withActivity({ body: [] }).host.change(7)).pushes, []);
+});
+
+test("#44: the activity list refused for want of a permission, as 403 or 404: no pushes, and the change says the list was refused", async () => {
+  for (const status of [403, 404]) {
+    const change = await withActivity({ status, body: { message: "Resource not accessible by integration" } }).host.change(7);
+    assert.equal(change.pushes, undefined, String(status));
+    assert.equal(change.pushesRefused, true, String(status));
+  }
+});
+
+test("#44: a rate limit on the activity list, also as a 403, a fault of the host and a fault of the network fail the change", async () => {
+  const limited = { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "0" } };
+  await assert.rejects(withActivity(limited).host.change(7), /403/);
+  await assert.rejects(withActivity({ status: 429, headers: { "retry-after": "1" } }).host.change(7), /429/);
   await assert.rejects(withActivity({ status: 502 }).host.change(7), /502/);
+  // The network breaks on the activity list only.
+  const { host } = withActivity({ body: [] });
+  const inner = (host as unknown as { fetch: typeof globalThis.fetch }).fetch;
+  (host as unknown as { fetch: typeof globalThis.fetch }).fetch = async (input, init) => {
+    if (String(input).includes("/activity")) throw new TypeError("fetch failed");
+    return inner(input, init);
+  };
+  await assert.rejects(host.change(7), /fetch failed/);
+});
+
+test("#44: the next page of the activity list is asked for by the link the host sends, in its own form", async () => {
+  // GitHub's link to the next page names the repository by its id, not by owner and name.
+  const next = "/repositories/1234567/activity?per_page=100&ref=refs%2Fheads%2Ftask-5-x&after=Y3Vyc29y";
+  const f = withActivity({ body: [entry(2, "push", H.c, H.b, "2026-01-01T00:10:00Z")], headers: { link: `<https://api.github.com${next}>; rel="next"` } });
+  const { host, asked } = f;
+  const table: Record<string, { body: unknown }> = { [next]: { body: [entry(1, "branch_creation", H.zero, H.c, "2026-01-01T00:00:00Z")] } };
+  const inner = (host as unknown as { fetch: typeof globalThis.fetch }).fetch;
+  (host as unknown as { fetch: typeof globalThis.fetch }).fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const reply = table[url.pathname + url.search];
+    if (reply !== undefined) {
+      asked.push({ url: url.pathname + url.search, headers: {} });
+      return new Response(JSON.stringify(reply.body), { status: 200 });
+    }
+    return inner(input, init);
+  };
+  const change = await host.change(7);
+  assert.deepEqual(change.pushes!.map((p) => p.id), ["1", "2"]);
+  assert.ok(asked.some((a) => a.url === next), "the link was followed as sent");
 });

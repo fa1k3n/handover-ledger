@@ -119,7 +119,7 @@ export class GitHub implements CodeHost {
     // #44: who pushed each head, and when, from the repository's activity list. The branch of a change from a fork is
     // in the fork, and this repository's list cannot hold its pushes: it has none, and its heads fall back.
     const own = pull.head?.repo != null && pull.base?.repo != null && pull.head.repo.id === pull.base.repo.id;
-    const pushes = own && typeof pull.head.ref === "string" ? await this.pushes(pull.head.ref) : undefined;
+    const pushed = own && typeof pull.head.ref === "string" ? await this.pushes(pull.head.ref) : { pushes: undefined };
     return defined({
       number,
       branch: pull.head.ref,
@@ -141,7 +141,8 @@ export class GitHub implements CodeHost {
         .filter((c) => c && c.id !== undefined && c.user && c.created_at)
         // The text is tested here and never kept: only whether it counts as a review.
         .map((c): Comment => ({ id: String(c.id), by: account(c.user), at: c.created_at, review: isReviewComment(c.body, this.reviewCommentPattern) })),
-      pushes,
+      pushes: pushed.pushes,
+      pushesRefused: pushed.refused,
       closedAt: pull.closed_at ?? undefined,
       closedBy: closedBy ? account(closedBy) : undefined,
       mergedAt: pull.merged_at ?? undefined,
@@ -153,14 +154,16 @@ export class GitHub implements CodeHost {
   /**
    * #44: the pushes to a branch, oldest first, from `GET /repos/{owner}/{repo}/activity?ref=refs/heads/<branch>`. A
    * push, a forced push and the push that made the branch each give a head; the deletion of the branch and a merge give
-   * none. A host that has no activity list (404) gives none, as does a list with no push to the branch.
+   * none. A branch the host has no record of gives an empty list. A 403 or a 404 that is no rate limit is the list
+   * refused for want of a permission (the change itself was read): no pushes, and `refused`. Anything else is thrown.
    */
-  private async pushes(branch: string): Promise<Push[] | undefined> {
+  private async pushes(branch: string): Promise<{ pushes?: Push[]; refused?: true }> {
     let entries: Json[];
     try {
       entries = await this.all(this.url("activity", { ref: `refs/heads/${branch}`, per_page: "100" }));
     } catch (e) {
-      if ((e as { status?: number }).status === 404) return undefined;
+      const { status, limited } = e as { status?: number; limited?: boolean };
+      if ((status === 403 || status === 404) && !limited) return { refused: true };
       throw e;
     }
     const found = entries
@@ -177,7 +180,7 @@ export class GitHub implements CodeHost {
       )
       // GitHub gives the newest first; the host's ids follow the order of the pushes within one second.
       .sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || byNumber(a.id, b.id));
-    return some(found);
+    return { pushes: found };
   }
 
   async checks(sha: string): Promise<ChecksState> {
@@ -249,7 +252,8 @@ export class GitHub implements CodeHost {
         await this.sleep(wait);
         continue;
       }
-      throw Object.assign(new Error(`GitHub answered ${response.status} to GET ${new URL(url).pathname}`), { status: response.status });
+      // #44: a rate limit that was still on after the last wait says so, so that no caller takes it for a refusal.
+      throw Object.assign(new Error(`GitHub answered ${response.status} to GET ${new URL(url).pathname}`), { status: response.status, limited: wait !== null });
     }
   }
 }

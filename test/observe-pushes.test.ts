@@ -26,12 +26,17 @@ agents: [agent-bot]
   return { ws, host: new LocalHost(dir) };
 }
 
-/** Runs a round and expects it to go through. Returns the events it appended. */
-function round(s: Setup): Record<string, any>[] {
+/** Runs a round and expects it to go through. Returns the events it appended, and what it said on standard error. */
+function roundSaid(s: Setup): { events: Record<string, any>[]; stderr: string } {
   const before = existsSync(s.ws.ledger) ? lines(s.ws.ledger).length : 1;
   const result = howl(["observe", "--once"], { cwd: s.ws.root, env: s.ws.env });
   assert.equal(result.status, 0, result.stderr);
-  return lines(s.ws.ledger).slice(before).map((l) => l.event);
+  return { events: lines(s.ws.ledger).slice(before).map((l) => l.event), stderr: result.stderr };
+}
+
+/** Runs a round and expects it to go through. Returns the events it appended. */
+function round(s: Setup): Record<string, any>[] {
+  return roundSaid(s).events;
 }
 
 const person = (login: string) => ({ login });
@@ -125,12 +130,15 @@ test("#44: a change first read after two pushes is opened with its first head", 
   assert.deepEqual(first.filter((e) => e.type === "change.updated").map((e) => e.sha), [SHA.b, SHA.c]);
 });
 
-test("#44: where the list no longer holds the push before the opening, the head before the first push is the opening head", () => {
+test("#44: a list that holds only a push made after the opening: the opening has the head that push replaced, marked as inferred", () => {
   const s = setup();
   change(s, [{ id: "p2", sha: SHA.b, before: SHA.a, at: at(20), by: agent }]);
   const first = round(s);
-  assert.equal(first.find((e) => e.type === "change.opened")!.sha, SHA.a);
-  assert.deepEqual(first.filter((e) => e.type === "change.updated").map((e) => e.sha), [SHA.b]);
+  const opened = first.find((e) => e.type === "change.opened")!;
+  assert.equal(opened.sha, SHA.a);
+  assert.equal(opened.data.inferred, true, "it rests on the list having dropped no push in between");
+  const updated = first.filter((e) => e.type === "change.updated");
+  assert.deepEqual(updated.map((e) => [e.sha, e.data.inferred]), [[SHA.b, undefined]], "the push itself is the host's");
 });
 
 test("#44: a comment made between the first and the second push carries the first head; a review without a commit too", () => {
@@ -162,20 +170,92 @@ test("#44: a host with no pushes gives today's events, marked as inferred", () =
   assert.equal(second[0]!.id, `${ID}change:40:head:${SHA.b}`);
 });
 
-test("#44: an empty list of pushes is the fall-back too, and a list that does not reach the head now never loses it", () => {
+/** Change 40 with pushes A (before the opening) and B, a comment on A and a review on B, and C as its head now. */
+function lagging(s: Setup, updatedAt: string, pushes: Push[] = [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }]): void {
+  change(s, pushes, {
+    head: { sha: SHA.c, at: at(26) },
+    updatedAt,
+    comments: [{ id: "k1", by: person("carol"), at: at(15), review: false }],
+    reviews: [{ id: "r1", by: person("bob"), state: "commented", at: at(25) }],
+  });
+}
+
+test("#44: a head the list does not reach yet is waited for: nothing of the change is written, and the next round writes it as the host says", () => {
   const s = setup();
-  change(s, [], { head: { sha: SHA.a, at: at(5) } });
-  assert.equal(round(s).find((e) => e.type === "change.opened")!.data.inferred, true);
-  // The list holds the opening's push and one more; the head now is another, which the list does not hold.
-  change(s, [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }], { head: { sha: SHA.c, at: at(26) }, updatedAt: at(27) });
-  const updated = round(s).filter((e) => e.type === "change.updated");
+  const now = Date.now();
+  // Updated a minute ago: the list may still lag.
+  const updated = new Date(now - 60_000).toISOString();
+  lagging(s, updated);
+  // Another change of the same round, updated after it: it is written, and the cursor must still not pass change 40.
+  s.host.change({ number: 41, branch: "other", openedAt: at(5), openedBy: agent, head: { sha: SHA.d, at: at(5) }, tasks: [], reviews: [], updatedAt: new Date(now).toISOString() });
+  const first = round(s);
+  assert.deepEqual(first.filter((e) => e.change === "40"), [], "nothing of the change that waits");
+  assert.ok(first.some((e) => e.change === "41" && e.type === "change.opened"), "the other change is written");
+
+  // The list now holds the push of the head; the change was not updated at the host again.
+  lagging(s, updated, [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }, { id: "p3", sha: SHA.c, at: at(28), by: person("alice") }]);
+  const second = round(s).filter((e) => e.change === "40");
+  assert.equal(second.find((e) => e.type === "change.opened")!.sha, SHA.a);
   assert.deepEqual(
-    updated.map((e) => [e.sha, e.time, e.data.inferred, e.actor?.id]),
+    second.filter((e) => e.type === "change.updated").map((e) => [e.sha, e.time, e.actor?.kind]),
+    [
+      [SHA.b, at(20), "agent"],
+      [SHA.c, at(28), "person"],
+    ],
+  );
+  assert.equal(second.find((e) => e.id === `${ID}review:ck1`)!.sha, SHA.a);
+  assert.equal(second.find((e) => e.id === `${ID}review:r1`)!.sha, SHA.b);
+  assert.ok(second.every((e) => e.data.inferred === undefined), "no head is inferred");
+});
+
+test("#44: a change that waits keeps its head among the watched commits", () => {
+  const s = setup();
+  change(s, [created], { head: { sha: SHA.a, at: at(9) } });
+  s.host.checks(SHA.a, "pending");
+  round(s);
+  // A new head the list does not reach yet: the change waits, and the checks of the head before are still asked for.
+  lagging(s, new Date(Date.now() - 60_000).toISOString());
+  s.host.checks(SHA.a, "passed", at(30));
+  const second = round(s);
+  assert.deepEqual(second.map((e) => [e.type, e.sha]), [["checks.passed", SHA.a]]);
+});
+
+test("#44: a change still for five minutes with a head the list does not reach: that head is inferred, and what was made before it stands on the heads the pushes give", () => {
+  const s = setup();
+  // The list holds A, B and a later push D; the head now, C, it does not hold. The review at :25 comes before D.
+  lagging(s, at(40), [created, { id: "p2", sha: SHA.b, at: at(20), by: agent }, { id: "p3", sha: SHA.d, at: at(27), by: agent }]);
+  const events = round(s);
+  assert.deepEqual(
+    events.filter((e) => e.type === "change.updated").map((e) => [e.sha, e.time, e.data.inferred, e.actor?.id]),
     [
       [SHA.b, at(20), undefined, "agent-bot"],
       [SHA.c, at(26), true, undefined],
+      [SHA.d, at(27), undefined, "agent-bot"],
     ],
   );
+  assert.equal(events.find((e) => e.id === `${ID}review:ck1`)!.sha, SHA.a);
+  assert.equal(events.find((e) => e.id === `${ID}review:r1`)!.sha, SHA.b);
+});
+
+test("#44: an empty list, from a change still for five minutes: the old way, marked as inferred", () => {
+  const s = setup();
+  change(s, [], { head: { sha: SHA.a, at: at(5) } });
+  assert.equal(round(s).find((e) => e.type === "change.opened")!.data.inferred, true);
+});
+
+test("#44: a list of pushes the host refuses: the change is written with its heads inferred, and every round warns with the count", () => {
+  const s = setup();
+  change(s, undefined, { head: { sha: SHA.b, at: at(5) }, pushesRefused: true });
+  const first = roundSaid(s);
+  const opened = first.events.find((e) => e.type === "change.opened")!;
+  assert.equal(opened.data.inferred, true);
+  assert.match(first.stderr, /the list of pushes cannot be read[^\n]*1 head written as inferred/);
+  const second = roundSaid(s);
+  assert.deepEqual(second.events, []);
+  assert.match(second.stderr, /the list of pushes cannot be read[^\n]*1 head written as inferred/, "the next round warns again");
+  // The list can be read again: the warning stops.
+  change(s, [], { head: { sha: SHA.b, at: at(5) }, updatedAt: at(40) });
+  assert.doesNotMatch(roundSaid(s).stderr, /cannot be read/);
 });
 
 test("#44: a pusher whose account no longer exists gives no actor and says account_removed", () => {

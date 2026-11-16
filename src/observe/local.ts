@@ -7,7 +7,8 @@
 //                           `reopenings` and `dismissals` (its `id`, `at`, and when the host names them `review`, `state`, `by`
 //                           and `reviewed`: who, when and which commit of the review) as the port has them;
 //                           `pushes` (#44): each with its `id`, the head `sha`, `at`, and where known `by`, `before`
-//                           and `forced`; a file with none, or an empty list, is the fall-back, marked as inferred
+//                           and `forced`; a file with none is the fall-back, marked as inferred; an empty list waits as
+//                           a lagging one does; `pushesRefused: true` is a list the host refuses
 //   checks/<sha>.json       a ChecksState; no file is no checks
 //   repository.json         {"id": ..., "was": ["owner/old"]}: the repository's lasting id and the names it had
 //                           before (#48); without the file, the id is the name and no other name is this repository

@@ -143,6 +143,11 @@ export interface Change {
    * tells none: a change from a fork, or a host that has no record of pushes. Its heads are then the ones a round sees.
    */
   pushes?: Push[];
+  /**
+   * #44: the host refused the list of pushes for want of a permission, though it gave the change. The heads then fall
+   * back, and `howl observe` says on every round that the list cannot be read.
+   */
+  pushesRefused?: true;
   /** The tasks the host links the change to. */
   tasks: number[];
   /** The paths the change touches, as the host lists them (#25). */

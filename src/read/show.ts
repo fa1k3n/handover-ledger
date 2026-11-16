@@ -70,6 +70,8 @@ export interface Head {
   gone?: true;
   /** #44: the head is the one a round of howl saw, not one the host told a push for. */
   inferred?: true;
+  /** #44: the push of this head was forced, as the host says. */
+  forced?: true;
   checks?: "passed" | "failed";
   checksTime?: string;
   /** #38: what the tests of this commit name, as the code host's repository shows it; none when it was not read. */
@@ -517,7 +519,7 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
     const heads: Head[] = seen
       .filter((e) => (e.type === "change.opened" || e.type === "change.updated") && e.sha)
       .map((e) => {
-        const data = e.data as { inferred?: unknown; account_removed?: unknown } | undefined;
+        const data = e.data as { inferred?: unknown; account_removed?: unknown; forced?: unknown } | undefined;
         const updated = e.type === "change.updated";
         return defined<Head>({
           sha: e.sha!,
@@ -526,6 +528,7 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
           actor: updated ? e.actor : undefined,
           gone: updated && e.actor === undefined && data?.account_removed === true ? true : undefined,
           inferred: data?.inferred === true ? true : undefined,
+          forced: updated && data?.forced === true ? true : undefined,
         });
       });
     for (const head of heads) {
@@ -854,12 +857,17 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
       const checks = h.checks ? `, checks ${h.checks} at ${t(h.checksTime!)}` : "";
       // #44: who pushed it where the host says; the agent matched where it names a person or no one.
       const pusher = h.actor ? ` pushed by ${by(h.by, h.actor)}` : h.gone ? " pushed by an account that no longer exists" : h.by ? ` by ${h.by} (matched)` : "";
-      out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${checks}`);
+      out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${h.forced ? ", forced" : ""}${checks}`);
       out.push(`      ${traceText(h.trace)}`);
     }
-    // #44: the heads the host told no push for are as a round of howl saw them; a new one at the time of its commit.
-    const inferred = c.heads.filter((h) => h.inferred).map((h) => h.sha.slice(0, 7));
-    if (inferred.length > 0) out.push(`  the host told no push for ${inferred.join(", ")}: as a round of howl saw ${inferred.length === 1 ? "it" : "them"}, a new head at the time of its commit`);
+    // #44: the heads the host told no push for. The opening head howl worked out: as the first round saw it, or from
+    // what the first push after the opening replaced. A new head as a round saw it, at the time of its commit.
+    const first = c.heads[0];
+    if (first?.inferred) out.push(`  the host told no push for the opening head ${first.sha.slice(0, 7)}: howl worked it out`);
+    const later = c.heads.slice(1).filter((h) => h.inferred).map((h) => h.sha.slice(0, 7));
+    if (later.length > 0) {
+      out.push(`  the host told no push for the new head${later.length === 1 ? "" : "s"} ${later.join(", ")}: as a round of howl saw ${later.length === 1 ? "it" : "them"}, at the time of ${later.length === 1 ? "its commit" : "their commits"}`);
+    }
     if (c.comments > 0) out.push(`  comments: ${c.comments}, not counted as reviews`);
   }
 
