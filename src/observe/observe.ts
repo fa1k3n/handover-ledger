@@ -383,7 +383,7 @@ export class Observer {
     // #48: an account that is gone names no one, and the event says so, so it is not taken for an event nobody did.
     const gone = by !== undefined && "removed" in by;
     // #46: an agent that has a name other than its account keeps the account in data, as it is no person's.
-    const named = by && !gone ? this.names.get(by.login) : undefined;
+    const named = by && !gone ? this.names.get(by.login.toLowerCase()) : undefined;
     const account = by && !gone && named !== undefined && named !== by.login ? { account: by.login } : {};
     return JSON.parse(
       JSON.stringify({
@@ -413,7 +413,7 @@ export class Observer {
 
   /** An agent is named by its account; a person by a pseudonym, never by the account. */
   private actor(account: Exclude<Account, { removed: true }>): NonNullable<LedgerEvent["actor"]> {
-    const named = this.names.get(account.login);
+    const named = this.names.get(account.login.toLowerCase());
     if (named !== undefined) return { kind: "agent", id: named };
     if (account.bot) return { kind: "agent", id: account.login };
     return { kind: "person", id: this.people.pseudonym(account.login) };

@@ -510,7 +510,7 @@ async function observeCommand(args: string[]): Promise<number> {
 async function observing(command: "observe" | "up", values: { once?: boolean; interval?: string; since?: string; "anchor-every"?: string }) {
   const anchorEvery = values["anchor-every"] === undefined ? null : Number(values["anchor-every"]);
   if (anchorEvery !== null && !(anchorEvery > 0)) throw new UsageError("--anchor-every must be a number of minutes above 0");
-  const { findProject } = await import("../howl/project.ts");
+  const { findProject, agentFaults } = await import("../howl/project.ts");
   const { activityPath, cursorPath, inboxPath, ledgerPath, peoplePath } = await import("../ledger/place.ts");
   const { openLedger } = await import("../ledger/ledger.ts");
   const { People } = await import("../observe/people.ts");
@@ -519,6 +519,10 @@ async function observing(command: "observe" | "up", values: { once?: boolean; in
 
   const found = findProject(process.cwd());
   if (!found) throw new UsageError(`${command} needs a .howl/howl.yml above the working directory`);
+  // #46: a list of agents that cannot be read as meant is refused before anything is written: a wrong entry would
+  // write an agent as a person, in a ledger that cannot be mended.
+  const faults = agentFaults(found.agents);
+  if (faults.length > 0) throw new LedgerError(`${command} does not start: ${faults.join("; ")}`);
   const interval = values.interval === undefined ? 60 : Number(values.interval);
   if (!(interval > 0)) throw new UsageError("--interval must be a number of seconds above 0");
   if (found.taskFromBranch !== undefined) {
@@ -905,7 +909,7 @@ async function serveCommand(args: string[]): Promise<number> {
   }
   const { startServer } = await import("../serve/server.ts");
   const taskFromBranch = await branchPattern();
-  const agents = await knownAgents();
+  const agents = await knownAgents(values);
   let server;
   if (values.ledger !== undefined) {
     const { statSync } = await import("node:fs");
@@ -930,11 +934,22 @@ async function serveCommand(args: string[]): Promise<number> {
   return 0;
 }
 
-/** #46: the names of the project's agents; none when it lists none. */
-async function knownAgents(): Promise<ReadonlySet<string> | undefined> {
-  const { findProject, agentNames } = await import("../howl/project.ts");
+/**
+ * #46: the names of the agents of the project that is read, for the gap "not a known agent". Only the project of the
+ * working directory has its settings at hand: for another project, or a ledger named by its path, none. A list that
+ * is refused gives none, and is said once.
+ */
+async function knownAgents(reading: { project?: string; ledger?: string } = {}): Promise<ReadonlySet<string> | undefined> {
+  if (reading.ledger !== undefined) return undefined;
+  const { findProject, agentFaults, agentNames } = await import("../howl/project.ts");
   const found = findProject(process.cwd());
-  return found === null ? undefined : agentNames(found.agents);
+  if (found === null || (reading.project !== undefined && reading.project !== found.project)) return undefined;
+  const faults = agentFaults(found.agents);
+  if (faults.length > 0) {
+    console.error(`howl: the settings of agents in .howl/howl.yml are refused, so no gap "not a known agent" is shown:\n${faults.map((f) => `  ${f}`).join("\n")}`);
+    return undefined;
+  }
+  return agentNames(found.agents);
 }
 
 /** The project's task_from_branch, when there is a valid one. */
@@ -961,7 +976,7 @@ async function statusCommand(args: string[]): Promise<number> {
   const { readAll } = await import("../read/reader.ts");
   const { agentStates, renderStatus } = await import("../read/state.ts");
   const taskFromBranch = await branchPattern();
-  const agents = await knownAgents();
+  const agents = await knownAgents(values);
   const rows = () => agentStates(readAll(ledger).map((r) => r.event), Date.now(), { taskFromBranch, agents });
   if (values.json) {
     console.log(JSON.stringify(rows(), null, 2));

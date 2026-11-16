@@ -90,14 +90,34 @@ function agentEntry(entry: string): { name: string; account: string } | null {
 }
 
 /**
- * #46: the name of each account of the agents. An account named twice keeps the name of its first entry; a name
- * may have several accounts. An entry that is not `name` or `name=account` is passed over.
+ * #46: what keeps a list of `agents` from being read as meant, one sentence for each: an entry with an empty side or
+ * more than one `=`, and an account that two entries give (a plain entry gives its name). Accounts are compared
+ * without regard to case, as a code host compares them. One name with two accounts is allowed. The list is refused
+ * as a whole when this gives anything.
  */
+export function agentFaults(entries: string[]): string[] {
+  const faults: string[] = [];
+  const taken = new Map<string, string>();
+  for (const entry of entries) {
+    const e = agentEntry(entry);
+    if (e === null) {
+      faults.push(`agents: the entry "${entry}" is not name or name=account (a side is empty, or there is more than one =)`);
+      continue;
+    }
+    const key = e.account.toLowerCase();
+    const before = taken.get(key);
+    if (before !== undefined) faults.push(`agents: the account ${e.account} is given by the entry "${before}" and by the entry "${entry}"`);
+    else taken.set(key, entry);
+  }
+  return faults;
+}
+
+/** #46: the name of each account of the agents, the account in lower case. Read a list that `agentFaults` accepts. */
 export function agentAccounts(entries: string[]): Map<string, string> {
   const found = new Map<string, string>();
   for (const entry of entries) {
     const e = agentEntry(entry);
-    if (e !== null && !found.has(e.account)) found.set(e.account, e.name);
+    if (e !== null && !found.has(e.account.toLowerCase())) found.set(e.account.toLowerCase(), e.name);
   }
   return found;
 }
