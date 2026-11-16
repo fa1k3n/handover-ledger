@@ -348,12 +348,12 @@ End
 
 Summary
   hand-over to the end: 1h 0m
-  work 15m, waiting for a person 6m, waiting for instructions 11m, waiting for checks 10m, waiting for review 18m
+  work 13m, waiting for a person 6m, waiting for instructions 2m, waiting for checks 10m, waiting for review 18m, unknown 11m
   review rounds: 2
   taking part: person-0a0a0a0a, agent-1, person-0b0b0b0b
 ```
 
-The summary divides the time from the hand-over to the end of the task (the end of its last change, a merge or a closing) so that every second is in one part, by the state after the last event before it: an agent working is *work*; an agent that stands still until a person answers, and an approved change not yet merged, is *waiting for a person*; a change whose head waits for its checks or for a review is *waiting for checks* or *waiting for review*; an agent that is done and waits for its next instruction is *waiting for instructions*. A person is shown by the pseudonym of `howl observe`, and no figure is given per person. `--json` gives the parts and the summary as one JSON document.
+The summary divides the time from the hand-over to the end of the task (the end of its last change, a merge or a closing) so that every second is in one part, by the state after the last event before it: an agent working is *work*; an agent that stands still until a person answers, and an approved change not yet merged, is *waiting for a person*; a change whose head waits for its checks or for a review is *waiting for checks* or *waiting for review*; an agent that is done and waits for its next instruction is *waiting for instructions*. Work ends five minutes after the last sign of it (a session started, a tool call) when the session says nothing more. Time that is none of these is *unknown*: no session says what the agent does (none yet, none for five minutes, or its session has ended) and the change waits for nothing (before it is opened, after its checks failed or a review asked for changes, and between the end of one change and the next). What the agent does is told by one fold of its sessions' events (`src/read/agent.ts`), and `howl status` and the team on the dashboard read the same: their *Working*, *Needs input*, *Waiting*, *Idle* and *Ended* are work, waiting for a person, waiting for instructions and unknown in the summary. A person is shown by the pseudonym of `howl observe`, and no figure is given per person. `--json` gives the parts and the summary as one JSON document.
 
 Asked for a change (`change:30`, or a number that names no task), it gives that change alone: what names it, what sits on its commits, its sessions, and the task's opening and giving as the hand-over. The other changes of the task are named in one line, `Task 40 has another change: 63`, and not mixed in. The heading is `Change 65 of task 40: merged`. The end is the change's own, and the task's closing stands with the task's opening.
 

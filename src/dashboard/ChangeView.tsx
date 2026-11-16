@@ -100,6 +100,7 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
                 duration(shown.summary.parts.checks * 1000),
                 duration(shown.summary.parts.review * 1000),
                 duration((shown.summary.parts.person + shown.summary.parts.instructions) * 1000),
+                duration(shown.summary.parts.unknown * 1000),
                 shown.summary.reviewRounds,
               )}
             </p>
