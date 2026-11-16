@@ -117,7 +117,7 @@ test("the summary's parts add up to the time from hand-over to merge", () => {
   assert.equal(summary.to, m(60));
   assert.equal(summary.seconds, 3600);
   const parts = summary.parts as Record<string, number>;
-  assert.deepEqual(Object.keys(parts).sort(), ["checks", "instructions", "person", "review", "work"]);
+  assert.deepEqual(Object.keys(parts).sort(), ["checks", "instructions", "person", "review", "unknown", "work"]);
   assert.equal(Object.values(parts).reduce((a, b) => a + b, 0), 3600);
   // Some of the story, minute by minute:
   assert.equal(parts.person, 60 + 5 * 60, "the permission wait, and from approval to merge");
@@ -140,7 +140,7 @@ test("with no session of an agent, the time a change waits for its checks and it
   writer.close();
   const { summary } = json(path, "20");
   // #22: the summary starts at the first change; the ten minutes after the task was opened are not counted.
-  assert.deepEqual(summary.parts, { work: 0, person: 0, instructions: 0, checks: 900, review: 900 });
+  assert.deepEqual(summary.parts, { work: 0, person: 0, instructions: 0, checks: 900, review: 900, unknown: 0 });
 });
 
 test("no output names a person's account, and no figure is given per person", () => {
