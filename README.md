@@ -221,7 +221,7 @@ review_comment_pattern: '^\[review\]'   # a comment whose first line matches cou
 
 The code host kept in local files (`host: local`) takes its lasting id from `repository.json` in its folder, `{"id": 4711, "was": ["owner/old-name"]}`; `was` is the list of the names the repository had before, which the host confirms as the same repository. Without the file the id is the repository's name, and no other name is the same repository.
 
-**Known limit:** a repository that is renamed, with a new one then made under its old name, is recorded again: the old name now answers with the other repository's id, so the ledger's old ids are not matched, and what the host shows is written with ids of the new form.
+**Known limit:** a repository that is renamed, with a new one then made under its old name, is recorded again: the old name now answers with the other repository's id, so the ledger's old ids are not matched, and what the host shows is written with ids of the new form. The same happens to a local host that is renamed without `was`. A reader then sees the history twice in the ledger, the old copy and the new; the readers go by a change's number, so the two copies are shown as one history, and the figures count it twice.
 
 The first round reads the whole history of the repository: on a repository with hundreds of issues and pull requests it takes minutes.
 
