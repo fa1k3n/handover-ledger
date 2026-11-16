@@ -9,14 +9,17 @@
 //                           `pushes` (#44): each with its `id`, the head `sha`, `at`, and where known `by`, `before`
 //                           and `forced`; a file with none is the fall-back, marked as inferred; an empty list waits as
 //                           a lagging one does; `pushesRefused: true` is a list the host refuses
-//   checks/<sha>.json       a ChecksState; no file is no checks
+//   checks/<sha>.json       #47: {"sha", "runs": [{"name", "result": "passed|failed|pending", "at", "attempt"}]}, the runs
+//                           of a commit's checks; a run without `attempt` has its place among the runs of its name in the
+//                           file. Of the older form, {"sha", "state": "passed|failed|pending|none", "at"}: one verdict
+//                           with no name, read as one attempt of a check that has no name. No file is no checks
 //   repository.json         {"id": ..., "was": ["owner/old"]}: the repository's lasting id and the names it had
 //                           before (#48); without the file, the id is the name and no other name is this repository
 //   fail.json               calls that fail: "list", "task <n>", "change <n>", "checks <sha>"
 // @code_class recording
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isReviewComment, type Change, type ChecksState, type CodeHost, type Comment, type Ref, type Task } from "./port.ts";
+import { isReviewComment, type Change, type CheckRun, type ChecksState, type CodeHost, type Comment, type Ref, type Task } from "./port.ts";
 
 /** A comment as a file holds it: with `review`, or with a `body` the adapter tests and drops. */
 type FileComment = Omit<Comment, "review"> & { review?: boolean; body?: string };
@@ -96,12 +99,34 @@ export class LocalHost implements CodeHost {
 
   async checks(sha: string): Promise<ChecksState> {
     this.maybeFail(`checks ${sha}`);
+    let file: { runs?: unknown; state?: unknown; at?: unknown };
     try {
-      return this.read<ChecksState>(join("checks", `${sha}.json`));
+      file = this.read(join("checks", `${sha}.json`));
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") return { sha, state: "none" };
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return { sha, runs: [] };
       throw e;
     }
+    if (file.runs === undefined) {
+      // The older form: one verdict, and no name of a check.
+      if (file.state === "passed" || file.state === "failed") return { sha, runs: [{ result: file.state, ...(typeof file.at === "string" ? { at: file.at } : {}), attempt: 1 }] };
+      return { sha, runs: file.state === "pending" ? [{ result: "pending", attempt: 1 }] : [] };
+    }
+    if (!Array.isArray(file.runs)) throw new Error(`checks/${sha}.json needs "runs": a list`);
+    const places = new Map<string, number>();
+    const runs = (file.runs as (Partial<CheckRun> & Record<string, unknown>)[]).map((r): CheckRun => {
+      // Only the name, the result, the time and the attempt are read: the rest of a run is never looked at.
+      const key = typeof r.name === "string" ? r.name : "";
+      const place = (places.get(key) ?? 0) + 1;
+      places.set(key, place);
+      if (r.result !== "passed" && r.result !== "failed" && r.result !== "pending") throw new Error(`a run in checks/${sha}.json needs "result": passed, failed or pending`);
+      return {
+        ...(typeof r.name === "string" ? { name: r.name } : {}),
+        result: r.result,
+        ...(typeof r.at === "string" ? { at: r.at } : {}),
+        attempt: typeof r.attempt === "number" ? r.attempt : place,
+      };
+    });
+    return { sha, runs };
   }
 
   private all<T>(sub: string): T[] {

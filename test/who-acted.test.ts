@@ -226,7 +226,8 @@ test("a change closed, reopened and merged: three events in three rounds, each o
   const change = (over: Row) =>
     s.host.change({ number: 7, branch: "x", openedAt: at(0), openedBy: agent, head: { sha: SHA.a, at: at(0) }, tasks: [], reviews: [], updatedAt: at(10), ...over } as any);
   change({ closedAt: at(10), closedBy: lead });
-  assert.deepEqual(round(s).map((e) => e.type), ["change.opened", "change.closed"]);
+  // #47: the head never had checks, and the change was closed: `checks.none` too.
+  assert.deepEqual(round(s).map((e) => e.type), ["change.opened", "checks.none", "change.closed"]);
   change({ reopenings: [{ id: "r1", by: lead, at: at(20) }], updatedAt: at(20) });
   const reopened = round(s);
   assert.deepEqual(reopened.map((e) => e.type), ["change.reopened"]);

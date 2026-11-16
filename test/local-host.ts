@@ -3,7 +3,7 @@
 // @code_class tests
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Change, ChecksState, Task } from "../src/observe/port.ts";
+import type { Change, Task } from "../src/observe/port.ts";
 
 export class LocalHost {
   readonly dir: string;
@@ -23,8 +23,19 @@ export class LocalHost {
     return this;
   }
 
-  checks(sha: string, state: ChecksState["state"], at?: string): this {
+  /** One verdict and no name of a check: the older form of `checks/<sha>.json`, read as one attempt. */
+  checks(sha: string, state: "passed" | "failed" | "pending" | "none", at?: string): this {
     writeFileSync(join(this.dir, "checks", `${sha}.json`), JSON.stringify({ sha, state, at }));
+    return this;
+  }
+
+  /**
+   * #47: the runs of a commit's checks, in the new form of `checks/<sha>.json`. A run with no `attempt` has its place
+   * among the runs of its name in the file. Anything else a run holds (as the host's `output`) is kept in the file, and
+   * is never read.
+   */
+  runs(sha: string, runs: { name?: string; result: "passed" | "failed" | "pending"; at?: string; attempt?: number; [other: string]: unknown }[]): this {
+    writeFileSync(join(this.dir, "checks", `${sha}.json`), JSON.stringify({ sha, runs }));
     return this;
   }
 

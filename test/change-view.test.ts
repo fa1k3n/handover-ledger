@@ -61,6 +61,22 @@ test("#22: a head line and a session line for the view", () => {
   );
 });
 
+test("#47: a head line with more than one attempt tells each, and which checks failed; one with none says so", () => {
+  const head = { sha: "399a7cb1234", time: m(30) };
+  assert.equal(
+    headText({ ...head, checks: "passed", checksTime: m(39), attempts: [{ n: 1, result: "failed", time: m(33), failed: ["static-analysis"] }, { n: 2, result: "passed", time: m(39) }] }, false),
+    "new head 399a7cb · checks failed (static-analysis), then passed",
+  );
+  assert.equal(
+    headText({ ...head, checks: "passed", checksTime: m(45), attempts: [{ n: 1, result: "failed", time: m(33), failed: ["lint", "unit"] }, { n: 2, result: "failed", time: m(39), failed: ["unit"] }, { n: 3, result: "passed", time: m(45) }] }, true),
+    "head 399a7cb · checks failed (lint, unit), then failed (unit), then passed",
+  );
+  // One attempt: as before; its names follow it.
+  assert.equal(headText({ ...head, checks: "failed", checksTime: m(33), attempts: [{ n: 1, result: "failed", time: m(33) }] }, false), "new head 399a7cb · checks failed");
+  assert.equal(headText({ ...head, checks: "failed", checksTime: m(33), attempts: [{ n: 1, result: "failed", time: m(33), failed: ["lint"] }] }, false), "new head 399a7cb · checks failed (lint)");
+  assert.equal(headText({ ...head, checks: "none", checksTime: m(40) }, false), "new head 399a7cb · no checks");
+});
+
 test("#44: a head line says who pushed it, as the host says, and the agent behind a person's account", () => {
   assert.equal(
     headText({ sha: "399a7cb1234", time: m(30), actor: { kind: "person", id: "person-0a0a0a0a" }, by: "agent-1", checks: "failed", checksTime: m(33) }, false),

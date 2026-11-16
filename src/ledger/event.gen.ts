@@ -30,6 +30,7 @@ export interface LedgerEvent {
     | "change.merged"
     | "checks.passed"
     | "checks.failed"
+    | "checks.none"
     | "review.approved"
     | "review.changes_requested"
     | "session.started"

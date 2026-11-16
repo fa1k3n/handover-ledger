@@ -24,8 +24,8 @@ const ORDER: string[][] = [
   ["config.changed"],
   // What the tests of a head name is told with the head, before its checks.
   ["trace.read"],
-  // A commit has one of the two.
-  ["checks.passed", "checks.failed"],
+  // The attempts of a commit's checks, and the word that it had none; the attempts of one moment come by their id.
+  ["checks.passed", "checks.failed", "checks.none"],
   ["change.commented"],
   // The reviews of one moment come by the host's own ids, whatever their outcome: the host numbered them as they came.
   ["review.commented", "review.changes_requested", "review.approved"],

@@ -73,10 +73,21 @@ export interface Head {
   inferred?: true;
   /** #44: the push of this head was forced, as the host says. */
   forced?: true;
-  checks?: "passed" | "failed";
+  /** The result of the last attempt of the head's checks; `none`: its change ended and the head never had checks (#47). */
+  checks?: "passed" | "failed" | "none";
   checksTime?: string;
+  /** #47: each attempt of the checks, the first first; a ledger from before holds one, with no number. */
+  attempts?: CheckAttempt[];
   /** #38: what the tests of this commit name, as the code host's repository shows it; none when it was not read. */
   trace?: HeadTrace;
+}
+
+/** #47: one attempt of the checks of a head, as the ledger holds it: the checks that failed in it by name, and nothing else of them. */
+export interface CheckAttempt {
+  n: number;
+  result: "passed" | "failed";
+  time: string;
+  failed?: string[];
 }
 
 export interface ChangePart {
@@ -512,10 +523,23 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
         });
       });
     for (const head of heads) {
-      const checks = own.find((e) => (e.type === "checks.passed" || e.type === "checks.failed") && e.sha === head.sha);
-      if (checks) {
-        head.checks = checks.type === "checks.passed" ? "passed" : "failed";
-        head.checksTime = checks.time;
+      // #47: each attempt of the checks, by its number (a ledger from before has none: the first), and where the change
+      // ended with none, that.
+      const attempts = own
+        .filter((e) => (e.type === "checks.passed" || e.type === "checks.failed") && e.sha === head.sha)
+        .map((e) => defined<CheckAttempt>({ n: attemptOf(e), result: e.type === "checks.passed" ? "passed" : "failed", time: e.time, failed: namesFailed(e) }))
+        .sort((a, b) => a.n - b.n || Date.parse(a.time) - Date.parse(b.time));
+      const last = attempts.at(-1);
+      if (last) {
+        head.checks = last.result;
+        head.checksTime = last.time;
+        head.attempts = attempts;
+      } else {
+        const none = own.find((e) => e.type === "checks.none" && e.sha === head.sha);
+        if (none) {
+          head.checks = "none";
+          head.checksTime = none.time;
+        }
       }
       // #38: only what was read from the repository counts, never a claim of a session.
       const read = seen.find((e) => e.type === "trace.read" && e.sha === head.sha);
@@ -675,7 +699,12 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
   const given = handover !== undefined && Date.parse(handover.time) <= Date.parse(to) ? handover : undefined;
   const from = (fromHandover ? (given ?? work ?? events[0]!) : (own ?? events[0]!)).time;
   const parts = { work: 0, person: 0, instructions: 0, checks: 0, review: 0, unknown: 0 };
-  const checked = new Set(events.filter((e) => e.type.startsWith("checks.") && e.sha).map((e) => e.sha!));
+  // #47: the heads that have an attempt of their checks, and the last attempt of each: `checks.none` is no wait.
+  const lastAttempt = new Map<string, number>();
+  for (const e of events) {
+    if ((e.type === "checks.passed" || e.type === "checks.failed") && e.sha) lastAttempt.set(e.sha, Math.max(lastAttempt.get(e.sha) ?? 0, attemptOf(e)));
+  }
+  const checked = new Set(lastAttempt.keys());
 
   // Until a session of an agent is seen, nothing is known of it: the change says what is waited for.
   let agent: AgentState | undefined;
@@ -724,6 +753,9 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
         change = "review";
         break;
       case "checks.failed":
+        // #47: waiting for checks ends at the last attempt: a failed one that another follows leaves the change waiting.
+        change = e.sha !== undefined && attemptOf(e) < (lastAttempt.get(e.sha) ?? 0) ? "checks" : "none";
+        break;
       case "review.changes_requested":
       case "review.commented":
         change = "none";
@@ -835,10 +867,21 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
     out.push("", `Change ${c.change}${c.branch ? `  branch ${c.branch}` : ""}`);
     if (c.opened) out.push(`  ${t(c.opened.time)}  observed  opened by ${by(c.opened.by, c.opened.actor)}`);
     for (const [i, h] of c.heads.entries()) {
-      const checks = h.checks ? `, checks ${h.checks} at ${t(h.checksTime!)}` : "";
+      // #47: one attempt reads on the head's line; more than one, a line each under it. The names of what failed follow.
+      const attempts = h.attempts ?? [];
+      const names = (a: { failed?: string[] }) => (a.failed !== undefined ? ` (${a.failed.join(", ")})` : "");
+      const checks =
+        attempts.length === 1
+          ? `, checks ${attempts[0]!.result} at ${t(attempts[0]!.time)}${names(attempts[0]!)}`
+          : h.checks === "none"
+            ? `, no checks at ${t(h.checksTime!)}`
+            : h.checks && attempts.length === 0
+              ? `, checks ${h.checks} at ${t(h.checksTime!)}`
+              : "";
       // #44: who pushed it where the host says; the agent matched where it names a person or no one.
       const pusher = h.actor ? ` pushed by ${by(h.by, h.actor)}` : h.gone ? " pushed by an account that no longer exists" : h.by ? ` by ${h.by} (matched)` : "";
       out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${h.forced ? ", forced" : ""}${checks}`);
+      if (attempts.length > 1) for (const a of attempts) out.push(`      checks, attempt ${a.n}: ${a.result} at ${t(a.time)}${names(a)}`);
       out.push(`      ${traceText(h.trace)}`);
     }
     // #44: the heads the host told no push for. The opening head howl worked out: as the first round saw it, or from
@@ -930,6 +973,18 @@ function duration(total: number): string {
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return rest > 0 ? `${m}m ${rest}s` : `${m}m`;
   return `${rest}s`;
+}
+
+/** #47: the number of an attempt that an event of the checks holds; one from before has none, and is the first. */
+function attemptOf(e: LedgerEvent): number {
+  const n = (e.data as { attempt?: unknown } | undefined)?.attempt;
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 ? n : 1;
+}
+
+/** #47: the names of the checks that failed in an attempt; none where the event holds none. */
+function namesFailed(e: LedgerEvent): string[] | undefined {
+  const names = (e.data as { failed?: unknown } | undefined)?.failed;
+  return Array.isArray(names) && names.length > 0 ? names.map(String) : undefined;
 }
 
 function defined<T extends object>(value: T): T {

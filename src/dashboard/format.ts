@@ -261,9 +261,20 @@ export function needsInputHref(project: string | null): string {
  */
 export function headText(h: Head, first: boolean): string {
   const pusher = h.actor ? ` pushed by ${h.by ? `${h.by} via ${h.actor.id}` : h.actor.id}` : h.gone ? " pushed by an account that no longer exists" : h.by ? ` by ${h.by} (matched)` : "";
-  return [`${first ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${h.forced ? ", forced" : ""}`, h.inferred ? "as a round of howl saw it" : null, h.checks ? `checks ${h.checks}` : null]
+  return [`${first ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${h.forced ? ", forced" : ""}`, h.inferred ? "as a round of howl saw it" : null, checksText(h)]
     .filter(Boolean)
     .join(" · ");
+}
+
+/**
+ * #47: the checks of a head, short: `checks failed (static-analysis), then passed` for a head with more than one attempt,
+ * the checks that failed named; a head whose change ended with none says so.
+ */
+function checksText(h: Head): string | null {
+  if (h.checks === "none") return "no checks";
+  if (h.attempts === undefined || h.attempts.length === 0) return h.checks ? `checks ${h.checks}` : null;
+  const each = h.attempts.map((a) => `${a.result}${a.failed !== undefined ? ` (${a.failed.join(", ")})` : ""}`);
+  return `checks ${each.join(", then ")}`;
 }
 
 /** #38: the line under a head in the change view: what its tests name, a gap said plainly, or that nothing was read. */

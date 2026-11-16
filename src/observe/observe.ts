@@ -24,6 +24,7 @@ import { events as ledgerEvents, type LedgerWriter } from "../ledger/ledger.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { agentAccounts } from "../howl/project.ts";
 import type { People } from "./people.ts";
+import { attemptsOf, type Attempt } from "./attempts.ts";
 import type { Account, Change, ChecksState, CodeHost, Push, Task } from "./port.ts";
 import { happensBefore } from "./order.ts";
 import type { TraceResult } from "../howl/trace-read.ts";
@@ -36,14 +37,21 @@ export interface ObserveSettings {
   taskFromBranch?: string;
 }
 
-/** A head commit whose checks have not finished: finishing them does not update the change. */
+/**
+ * #47: a head commit whose checks are watched: finishing them, or running them again, does not update the change. How
+ * long, see `watchEnds`.
+ */
 interface Watched {
   sha: string;
   change: number;
   branch: string;
   task?: string;
-  /** Whether the change was open when it was last read. A closed change is asked once more, then let go. */
+  /** Whether the change was open when it was last read. */
   open: boolean;
+  /** When the head was pushed, or made; a cursor from before this step has none, and the clock starts when it is read. */
+  headAt?: string;
+  /** When the change was merged or closed, as the host says; none while it is open. */
+  end?: string;
 }
 
 /** #38: a head whose tests have not been read yet: the commit was not on the machine, or the round had read enough. */
@@ -122,6 +130,16 @@ export interface ObserverParts {
  * missing, by the machine's clock. Until then the list may only lag; after it the head is written as inferred.
  */
 export const STILL_MS = 5 * 60_000;
+
+/**
+ * #47: how long the checks of a head are watched. While its change is open, until the head has been quiet this long:
+ * the later of its time and the last finish of a check. After the change ended, until every run has finished, and at
+ * most this long past the end. A change that is read again watches its head again.
+ */
+export const CHECKS_QUIET_MS = 7 * 24 * 60 * 60_000;
+
+/** #47: how long past the end of a change, and past the time of its head, a head with no checks is waited for before it is said to have none. */
+export const CHECKS_GRACE_MS = STILL_MS;
 
 /** #38: the most heads read in one round: the writer is held while they are, and the rest wait for the next round. */
 const MAX_TRACE_READS = 10;
@@ -221,6 +239,8 @@ export class Observer {
     const cursor = this.readCursor();
     if (first && this.start !== undefined) cursor.since = this.start;
     const watch = new Map(cursor.watch.map((w) => [w.sha, w]));
+    // #47: the heads the rounds before were already watching: a change that is read again re-arms its head, which is not a new watch.
+    const carried = new Set(watch.keys());
     this.pendingTrace = new Map(cursor.trace.map((p) => [`${p.change}:${p.sha}`, p]));
     const found: LedgerEvent[] = [];
     let complete = true;
@@ -307,23 +327,20 @@ export class Observer {
           for (const e of events) if ((e.data as { inferred?: unknown } | undefined)?.inferred === true) refusedIds.add(e.id);
         }
         for (const [sha, w] of watch) if (w.change === change.number) watch.delete(sha);
-        if (!this.known(`checks:${change.head.sha}`)) {
-          watch.set(change.head.sha, {
-            sha: change.head.sha,
-            change: change.number,
-            branch: change.branch,
-            task: this.taskOf(change),
-            open: change.closedAt === undefined,
-          });
-        }
+        // #47: the head is watched, whether or not it has a verdict: a later attempt is not missed.
+        watch.set(change.head.sha, {
+          sha: change.head.sha,
+          change: change.number,
+          branch: change.branch,
+          task: this.taskOf(change),
+          open: change.closedAt === undefined,
+          headAt: heads.headAt,
+          ...(change.closedAt !== undefined || change.mergedAt !== undefined ? { end: change.mergedAt ?? change.closedAt } : {}),
+        });
       }
     }
 
     for (const [sha, w] of watch) {
-      if (this.known(`checks:${sha}`)) {
-        watch.delete(sha);
-        continue;
-      }
       let checks: ChecksState;
       try {
         checks = await this.host.checks(sha);
@@ -331,12 +348,12 @@ export class Observer {
         failed(`checks ${sha}`, e);
         continue;
       }
-      if (checks.state === "passed" || checks.state === "failed") {
-        found.push(this.checksEvent(w, checks, seen));
-        watch.delete(sha);
-      } else if (!w.open) {
-        watch.delete(sha);
-      }
+      const attempts = attemptsOf(checks.runs);
+      // Each finished attempt, once: an attempt that is in the ledger is passed over when the events are written.
+      for (const a of attempts) if (a.state !== "pending") found.push(this.checksEvent(w, a, seen));
+      const ends = this.watchEnds(w, checks, now, carried.has(sha));
+      if (ends === "none" && !this.known(`checks:${sha}:none`)) found.push(this.noChecksEvent(w, seen));
+      if (ends !== null) watch.delete(sha);
     }
 
     // #6: a reader of the ledger learns that nothing before the start was looked at. Once, in the first round.
@@ -561,13 +578,58 @@ export class Observer {
     };
   }
 
-  private checksEvent(w: Watched, checks: ChecksState, seen: string): LedgerEvent {
-    return this.event(`checks:${w.sha}`, `checks.${checks.state as "passed" | "failed"}`, checks.at ?? seen, undefined, {
+  /** #47: the id of an attempt: the first keeps the id a commit's checks had, and the others hold their number. */
+  private attemptKey(sha: string, n: number): string {
+    return n === 1 ? `checks:${sha}` : `checks:${sha}:${n}`;
+  }
+
+  private checksEvent(w: Watched, a: Attempt, seen: string): LedgerEvent {
+    return this.event(this.attemptKey(w.sha, a.n), `checks.${a.state as "passed" | "failed"}`, a.at ?? seen, undefined, {
       change: String(w.change),
       branch: w.branch,
       sha: w.sha,
       task: w.task,
+      // Names only: never the output of a check, its text or its link.
+      data: { attempt: a.n, ...(a.state === "failed" ? { failed: a.failed } : {}) },
     }, seen);
+  }
+
+  /** #47: a commit whose change ended with no check at all. At the time of the end, as the host says. */
+  private noChecksEvent(w: Watched, seen: string): LedgerEvent {
+    return this.event(`checks:${w.sha}:none`, "checks.none", w.end ?? seen, undefined, { change: String(w.change), branch: w.branch, sha: w.sha, task: w.task }, seen);
+  }
+
+  /**
+   * #47: whether a head is let go, by the clock of the machine. Null: asked again in the next round. `none`: let go, and
+   * it has no check at all. Otherwise let go.
+   * - Open change: while a run is going, and after that until quiet (CHECKS_QUIET_MS past the later of the head's time
+   *   and the last finish of a check).
+   * - Ended change: nothing is said before CHECKS_GRACE_MS past the end and past the head's time (a commit that has not
+   *   got its checks yet is not one with none); then, with no run, it has none; with runs, it is let go when every run
+   *   has finished, or CHECKS_QUIET_MS past the end, with a word that runs were still going (said by a watch that the
+   *   rounds before kept, so once).
+   */
+  private watchEnds(w: Watched, checks: ChecksState, now: Date, carried: boolean): null | "none" | "done" {
+    const t = now.getTime();
+    const seen = now.toISOString();
+    // A cursor from before this step has neither: the clock starts now.
+    w.headAt ??= seen;
+    if (!w.open) w.end ??= seen;
+    const headAt = Date.parse(w.headAt);
+    const going = checks.runs.some((r) => r.result === "pending");
+    const finished = checks.runs.map((r) => (r.at !== undefined ? Date.parse(r.at) : NaN)).filter((x) => !Number.isNaN(x));
+    const quiet = (since: number): "done" | null => {
+      if (t < since + CHECKS_QUIET_MS) return null;
+      // Said once: by the watch that the rounds before kept, not by one that a change read again has just made.
+      if (going && carried) this.warn(`${this.host.repository}: the checks of ${w.sha.slice(0, 7)} of change ${w.change} were still running seven days after the change ended; nothing is written for them`);
+      return "done";
+    };
+    // A run going on an open change is asked about for as long as the change is open, as it was before this step.
+    if (w.open) return going ? null : quiet(Math.max(headAt, ...finished));
+    const end = Date.parse(w.end!);
+    if (t < Math.max(end, headAt) + CHECKS_GRACE_MS) return null;
+    if (checks.runs.length === 0) return "none";
+    return going ? quiet(end) : "done";
   }
 
   private event(
