@@ -39,6 +39,8 @@ export interface ServeOptions {
   host?: string;
   /** For the default project (or the one ledger) only: it comes from that project's howl.yml. */
   taskFromBranch?: RegExp;
+  /** #46: the names of the default project's agents, for the gap "not a known agent". */
+  agents?: ReadonlySet<string>;
   /** #64: the writer behind this server. Without it the server only reads. */
   write?: Write;
 }
@@ -211,10 +213,11 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   const project = projectFor(url.searchParams, options);
   const ledger = project.ledger;
   const pattern = options.ledger !== undefined || project.name === options.defaultProject ? options.taskFromBranch : undefined;
+  const agents = options.ledger !== undefined || project.name === options.defaultProject ? options.agents : undefined;
   switch (url.pathname) {
     case "/api/agents": {
       const now = Date.now();
-      json(res, 200, { now, rows: agentStates(readAll(ledger).map((r) => r.event), now, { taskFromBranch: pattern }) });
+      json(res, 200, { now, rows: agentStates(readAll(ledger).map((r) => r.event), now, { taskFromBranch: pattern, agents }) });
       return;
     }
     case "/api/overview": {

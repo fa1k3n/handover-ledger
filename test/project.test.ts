@@ -41,6 +41,11 @@ local: ../host
   assert.equal(found?.local, "../host");
 });
 
+test("#46: an entry of agents may be name=account; the entries are kept as written", () => {
+  const found = findProject(repo("project: example\nagents: [agent-1=agent-1-bot, other-agent]\n"));
+  assert.deepEqual(found?.agents, ["agent-1=agent-1-bot", "other-agent"]);
+});
+
 test("the project and activity_days are read; nested settings are passed over", () => {
   const root = repo(`# a comment
 project: "example"   # the name

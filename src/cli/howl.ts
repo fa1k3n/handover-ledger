@@ -671,6 +671,7 @@ async function upCommand(args: string[]): Promise<number> {
       port,
       root,
       taskFromBranch: await branchPattern(),
+      agents: await knownAgents(),
       write: {
         project: o.project,
         tokens: [token, lasting()],
@@ -904,11 +905,12 @@ async function serveCommand(args: string[]): Promise<number> {
   }
   const { startServer } = await import("../serve/server.ts");
   const taskFromBranch = await branchPattern();
+  const agents = await knownAgents();
   let server;
   if (values.ledger !== undefined) {
     const { statSync } = await import("node:fs");
     statSync(values.ledger);
-    server = await startServer({ ledger: values.ledger, port, root, taskFromBranch });
+    server = await startServer({ ledger: values.ledger, port, root, taskFromBranch, agents });
     console.log(`howl serve: ${server.url} (read-only, ${values.ledger})`);
   } else {
     // Every project of the howl home; first the one asked for, else that of the nearest howl.yml.
@@ -917,7 +919,7 @@ async function serveCommand(args: string[]): Promise<number> {
     if (values.project !== undefined && !isProjectName(values.project)) throw new UsageError(`no project ${values.project}`);
     const home = howlHome();
     const defaultProject = values.project ?? findProject(process.cwd())?.project;
-    server = await startServer({ home, defaultProject, port, root, taskFromBranch });
+    server = await startServer({ home, defaultProject, port, root, taskFromBranch, agents });
     console.log(`howl serve: ${server.url} (read-only, every project in ${home}${defaultProject ? `, ${defaultProject} first` : ""})`);
   }
   await new Promise<void>((resolve) => {
@@ -926,6 +928,13 @@ async function serveCommand(args: string[]): Promise<number> {
   });
   await server.close();
   return 0;
+}
+
+/** #46: the names of the project's agents; none when it lists none. */
+async function knownAgents(): Promise<ReadonlySet<string> | undefined> {
+  const { findProject, agentNames } = await import("../howl/project.ts");
+  const found = findProject(process.cwd());
+  return found === null ? undefined : agentNames(found.agents);
 }
 
 /** The project's task_from_branch, when there is a valid one. */
@@ -952,7 +961,8 @@ async function statusCommand(args: string[]): Promise<number> {
   const { readAll } = await import("../read/reader.ts");
   const { agentStates, renderStatus } = await import("../read/state.ts");
   const taskFromBranch = await branchPattern();
-  const rows = () => agentStates(readAll(ledger).map((r) => r.event), Date.now(), { taskFromBranch });
+  const agents = await knownAgents();
+  const rows = () => agentStates(readAll(ledger).map((r) => r.event), Date.now(), { taskFromBranch, agents });
   if (values.json) {
     console.log(JSON.stringify(rows(), null, 2));
     return 0;

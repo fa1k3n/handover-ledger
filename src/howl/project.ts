@@ -27,7 +27,7 @@ export interface Project {
   reviewCommentPattern?: string;
   /** For the local host: its folder, relative to the root. */
   local?: string;
-  /** The accounts at the code host that are agents. */
+  /** The agents, as written: `name` (the name and the account are the same) or `name=account` (#46). */
   agents: string[];
 }
 
@@ -79,6 +79,32 @@ function read(root: string, text: string): Project | null {
     if (v !== undefined) found[field] = v;
   }
   return found;
+}
+
+/** #46: an entry of `agents` as a name and an account; none when a side is empty or there is more than one `=`. */
+function agentEntry(entry: string): { name: string; account: string } | null {
+  const parts = entry.split("=").map((p) => p.trim());
+  if (parts.length === 1) return parts[0] === "" ? null : { name: parts[0]!, account: parts[0]! };
+  if (parts.length !== 2 || parts[0] === "" || parts[1] === "") return null;
+  return { name: parts[0]!, account: parts[1]! };
+}
+
+/**
+ * #46: the name of each account of the agents. An account named twice keeps the name of its first entry; a name
+ * may have several accounts. An entry that is not `name` or `name=account` is passed over.
+ */
+export function agentAccounts(entries: string[]): Map<string, string> {
+  const found = new Map<string, string>();
+  for (const entry of entries) {
+    const e = agentEntry(entry);
+    if (e !== null && !found.has(e.account)) found.set(e.account, e.name);
+  }
+  return found;
+}
+
+/** #46: the names of the agents: what a session may name itself, when the project lists any. */
+export function agentNames(entries: string[]): Set<string> {
+  return new Set(entries.flatMap((entry) => agentEntry(entry)?.name ?? []));
 }
 
 /** The top-level keys of a YAML file, each with a plain value or a list of plain values. */
