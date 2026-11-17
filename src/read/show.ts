@@ -79,7 +79,7 @@ export interface Head {
   /** #47: each result of the checks, in the order of time, numbered here; the ledger keeps no number. */
   results?: CheckResult[];
   /** #47: the head was let go while these checks were still going, and when. */
-  unfinished?: { time: string; names: string[] };
+  unfinished?: { time: string; names: string[]; failed?: string[] };
   /** #38: what the tests of this commit name, as the code host's repository shows it; none when it was not read. */
   trace?: HeadTrace;
 }
@@ -90,6 +90,10 @@ export interface CheckResult {
   result: "passed" | "failed";
   time: string;
   failed?: string[];
+  /** The changes before this result could not be told: it is the host's own list of the latest runs. */
+  untold?: true;
+  /** The host's own list of the latest runs differs from this result, and leaves a check out. */
+  hostDiffers?: true;
 }
 
 export interface ChangePart {
@@ -530,7 +534,7 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
       const results = seen
         .filter((e) => (e.type === "checks.passed" || e.type === "checks.failed") && e.sha === head.sha)
         .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))
-        .map((e, i) => defined<CheckResult>({ n: i + 1, result: e.type === "checks.passed" ? "passed" : "failed", time: e.time, failed: namesOf(e, "failed") }));
+        .map((e, i) => defined<CheckResult>({ n: i + 1, result: e.type === "checks.passed" ? "passed" : "failed", time: e.time, failed: namesOf(e, "failed"), untold: markOf(e, "changes_untold"), hostDiffers: markOf(e, "host_list_differs") }));
       const last = results.at(-1);
       if (last) {
         head.checks = last.result;
@@ -544,7 +548,7 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
         }
       }
       const unfinished = seen.find((e) => e.type === "checks.unfinished" && e.sha === head.sha);
-      if (unfinished) head.unfinished = { time: unfinished.time, names: namesOf(unfinished, "unfinished") ?? [] };
+      if (unfinished) head.unfinished = defined({ time: unfinished.time, names: namesOf(unfinished, "unfinished") ?? [], failed: namesOf(unfinished, "failed") });
       // #38: only what was read from the repository counts, never a claim of a session.
       const read = seen.find((e) => e.type === "trace.read" && e.sha === head.sha);
       const data = read?.data as { covered?: unknown; touched?: unknown; tests?: unknown; covering?: unknown } | undefined;
@@ -884,7 +888,12 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
       const pusher = h.actor ? ` pushed by ${by(h.by, h.actor)}` : h.gone ? " pushed by an account that no longer exists" : h.by ? ` by ${h.by} (matched)` : "";
       out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${h.forced ? ", forced" : ""}${checks}`);
       if (results.length > 1) for (const r of results) out.push(`      checks, result ${r.n}: ${r.result} at ${t(r.time)}${names(r.failed)}`);
-      if (h.unfinished) out.push(`      checks still running when it was let go: ${h.unfinished.names.join(", ")} (${t(h.unfinished.time)})`);
+      // The marks, in words.
+      for (const r of results) {
+        if (r.untold) out.push(`      checks, result ${r.n}: the changes before it could not be told: it is the host's list of the latest runs`);
+        if (r.hostDiffers) out.push(`      checks, result ${r.n}: the host's list of the latest runs differs, and leaves a check out`);
+      }
+      if (h.unfinished) out.push(`      checks still running when it was let go: ${h.unfinished.names.join(", ")}${h.unfinished.failed !== undefined ? `; failed: ${h.unfinished.failed.join(", ")}` : ""} (${t(h.unfinished.time)})`);
       out.push(`      ${traceText(h.trace)}`);
     }
     // #44: the heads the host told no push for. The opening head howl worked out: as the first round saw it, or from
@@ -976,6 +985,11 @@ function duration(total: number): string {
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return rest > 0 ? `${m}m ${rest}s` : `${m}m`;
   return `${rest}s`;
+}
+
+/** #47: whether an event of the checks carries a mark in its data. */
+function markOf(e: LedgerEvent, key: "changes_untold" | "host_list_differs"): true | undefined {
+  return (e.data as Record<string, unknown> | undefined)?.[key] === true ? true : undefined;
 }
 
 /** #47: the names an event of the checks holds under `key`, as text that prints (a control character is taken out); none where it holds none. */

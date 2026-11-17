@@ -24,7 +24,7 @@ import { events as ledgerEvents, type LedgerWriter } from "../ledger/ledger.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { agentAccounts } from "../howl/project.ts";
 import type { People } from "./people.ts";
-import { lastFinish, pendingNames, resultsOf, sameState, stateOf, type Result, type State } from "./results.ts";
+import { checksOf, lastFinish, latestFailed, pendingNames, resultsOf, sameState, stateOf, type Result, type State } from "./results.ts";
 import type { Account, Change, ChecksState, CodeHost, Push, Task } from "./port.ts";
 import { happensBefore } from "./order.ts";
 import type { TraceResult } from "../howl/trace-read.ts";
@@ -360,6 +360,7 @@ export class Observer {
     }
 
     // #47: the heads that are due, asked about; one commit's checks never end the round.
+    const goes: Watched[] = [];
     for (const [sha, w] of watch) {
       if (w.busy !== true && w.next !== undefined && now.getTime() < Date.parse(w.next)) continue;
       let checks: ChecksState;
@@ -372,10 +373,8 @@ export class Observer {
       try {
         const outcome = this.checksOf(w, checks, now, seen);
         found.push(...outcome.events);
-        if (outcome.ends) {
-          watch.delete(sha);
-          if (w.updated !== undefined) settled[sha] = w.updated;
-        }
+        // Let go only once its last event is written: below, after the events are.
+        if (outcome.ends) goes.push(w);
       } catch (e) {
         this.warn(`${this.host.repository}: checks of ${sha.slice(0, 7)} of change ${w.change}: ${(e as Error).message}`);
       }
@@ -403,7 +402,7 @@ export class Observer {
       } catch (err) {
         if (!ofChecks) throw err;
         stopped.add(e.sha!);
-        this.warn(`${this.host.repository}: checks of ${e.sha!.slice(0, 7)} of change ${e.change}: ${(err as Error).message}; the rest of its checks wait`);
+        this.warn(`${this.host.repository}: checks of ${e.sha!.slice(0, 7)} of change ${e.change}: ${(err as Error).message}; its events of this round are not written, and its head is asked about again`);
         continue;
       }
       appended++;
@@ -430,6 +429,13 @@ export class Observer {
       );
     }
     if (waited.length > 0) this.warn(`${this.host.repository}: waiting for the list of pushes to reach the head of ${numbers(waited)}`);
+
+    // #47: a head is let go once its last event is written; one whose event the writer refused stays, and is asked again.
+    for (const w of goes) {
+      if (stopped.has(w.sha)) continue;
+      watch.delete(w.sha);
+      if (w.updated !== undefined) settled[w.sha] = w.updated;
+    }
 
     this.people.save();
     const since = complete ? (hold !== null && (latest === null || hold < latest) ? hold : latest) : cursor.since;
@@ -667,12 +673,16 @@ export class Observer {
     const last = this.lastResult.get(w.sha);
 
     // The changes of the result, forward only.
-    const fresh: (Result & { untold?: true })[] = [];
+    const fresh: (Result & { untold?: true; differs?: true })[] = [];
     const worked = stateOf(checks.runs);
     const hosts = checks.latest !== undefined ? stateOf(checks.latest) : null;
     const host = checks.latest !== undefined ? lastFinish(checks.latest) : null;
-    if (!going && worked !== null && hosts !== null && host !== null && !sameState(worked, hosts)) {
-      if ((last === undefined || Date.parse(host.at) > last.time) && (last === undefined || !sameState(last.state, hosts))) fresh.push({ ...hosts, at: host.at, run: host.run, untold: true });
+    // The host's list is taken only where it holds every check of the set worked out; where it leaves one out, the
+    // result worked out stands and says that the host's list differs.
+    const differs = !going && worked !== null && hosts !== null && host !== null && !sameState(worked, hosts);
+    const whole = differs && [...checksOf(checks.runs)].every((c) => checksOf(checks.latest!).has(c));
+    if (whole) {
+      if ((last === undefined || Date.parse(host!.at) > last.time) && (last === undefined || !sameState(last.state, hosts!))) fresh.push({ ...hosts!, at: host!.at, run: host!.run, untold: true });
     } else {
       let prev = last?.state ?? null;
       for (const r of resultsOf(checks.runs)) {
@@ -681,11 +691,13 @@ export class Observer {
         fresh.push(r);
         prev = r;
       }
+      const final = fresh.at(-1);
+      if (differs && final !== undefined && worked !== null && sameState(final, worked)) final.differs = true;
     }
     fresh.forEach((r, i) => {
       // The first result of a commit keeps the id that a commit's checks have had; a later one the host's id of the run that completed it.
       const key = last === undefined && i === 0 && !this.known(`checks:${w.sha}`) ? `checks:${w.sha}` : `checks:${w.sha}:${r.run}`;
-      const data = { ...(r.state === "failed" ? { failed: r.failed } : {}), ...(r.untold ? { changes_untold: true } : {}) };
+      const data = { ...(r.state === "failed" ? { failed: r.failed } : {}), ...(r.untold ? { changes_untold: true } : {}), ...(r.differs ? { host_list_differs: true } : {}) };
       events.push(this.event(key, `checks.${r.state}`, r.at, undefined, { ...of, data }, seen));
     });
 
@@ -720,7 +732,7 @@ export class Observer {
     if (checks.runs.length === 0 && last === undefined && fresh.length === 0 && !this.known(`checks:${w.sha}:none`)) {
       events.push(this.event(`checks:${w.sha}:none`, "checks.none", w.end, undefined, of, seen));
     } else if (going && !this.known(`checks:${w.sha}:unfinished`)) {
-      events.push(this.event(`checks:${w.sha}:unfinished`, "checks.unfinished", new Date(limit).toISOString(), undefined, { ...of, data: { unfinished: pendingNames(checks.runs) } }, seen));
+      events.push(this.event(`checks:${w.sha}:unfinished`, "checks.unfinished", new Date(limit).toISOString(), undefined, { ...of, data: { unfinished: pendingNames(checks.runs), failed: latestFailed(checks.runs) } }, seen));
     }
     return { events, ends: true };
   }

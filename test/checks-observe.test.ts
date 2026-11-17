@@ -266,6 +266,30 @@ test("#47: the host's own list of the latest runs says otherwise than the result
   agree.close();
 });
 
+test("#47: the host's list of the latest runs holds only the passed one of two checks named alike in two suites, where the other failed: the event is checks.failed, marked that the host's list differs, and howl show says so", async () => {
+  const d = direct();
+  change(d);
+  d.host.runs(SHA.a, [run("r1", "build", "failed", 1, 5, "suite-1"), run("r2", "build", "passed", 2, 6, "suite-2")], ["r2"]);
+  const events = checked(await d.round(clock(20)));
+  assert.deepEqual(events.map((e) => [e.type, (e.data as any).failed, (e.data as any).host_list_differs, (e.data as any).changes_untold]), [["checks.failed", ["build"], true, undefined]]);
+  const head = showJson(d.ledger, "change:7").changes[0].heads[0];
+  assert.equal(head.checks, "failed", "never passed while a check of it failed and was not run again");
+  assert.match(showText(d), /the host's list of the latest runs differs/);
+  assert.ok(!showText(d).includes("could not be told"));
+  assert.deepEqual(await d.round(clock(21)), [], "and not written again");
+  d.close();
+});
+
+test("#47: the host's list holds every check and says otherwise than the result worked out: the host's is written, marked, and howl show says so in words", async () => {
+  const d = direct();
+  change(d);
+  d.host.runs(SHA.a, [run("r1", "lint", "failed", 1, 5), run("r2", "lint", "passed", 8, 12)], ["r1"]);
+  const events = checked(await d.round(clock(20)));
+  assert.deepEqual(events.map((e) => [e.type, (e.data as any).changes_untold, (e.data as any).host_list_differs]), [["checks.failed", true, undefined]]);
+  assert.match(showText(d), /the changes before it could not be told/);
+  d.close();
+});
+
 test("#47: a round that reads the same runs again writes nothing, also with the cursor removed and the observer restarted", async () => {
   const d = direct();
   change(d);
@@ -485,6 +509,18 @@ test("#47: a head let go while a run of it is still going: checks.unfinished wit
   d.close();
 });
 
+test("#47: a head of an ended change with one check failed and another still going after the hour: checks.unfinished names the one going and, in data.failed, the one that failed", async () => {
+  const d = direct();
+  change(d, merged(30));
+  d.host.runs(SHA.a, [run("r1", "lint", "failed", 1, 5), run("r2", "slow job", "pending", 2), run("r3", "unit", "passed", 1, 6)]);
+  const events = checked(await d.round(clock(95)));
+  assert.deepEqual(events.map((e) => [e.type, (e.data as any).unfinished, (e.data as any).failed]), [["checks.unfinished", ["slow job"], ["lint"]]]);
+  const text = showText(d);
+  assert.match(text, /still running when it was let go: slow job/);
+  assert.match(text, /failed: lint/);
+  d.close();
+});
+
 test("#47: runs that finish after the change ended, within the hour, are results like any other", async () => {
   const d = direct();
   change(d, merged(30));
@@ -528,6 +564,23 @@ test("#47: a result the writer refuses stops the checks of that commit for the r
   // The next round asks again, says so again, and the round goes through.
   const again = await d.round(clock(25));
   assert.deepEqual(checked(again), []);
+  d.close();
+});
+
+test("#47: a result the writer refuses on a head of an ended change: the head is not let go, the warning is true, and the next ask tries again", async () => {
+  let refusing = true;
+  const d = direct({ refuse: (e) => refusing && e.type === "checks.failed" });
+  change(d, merged(30));
+  d.host.runs(SHA.a, [run("r1", "lint", "failed", 1, 5)]);
+  const first = await d.round(clock(200));
+  assert.deepEqual(checked(first), []);
+  assert.match(d.said(), /aaaaaaa/);
+  assert.match(d.said(), /asked about again/);
+  assert.equal(d.cursor().watch.length, 1, "the head is still watched");
+  assert.equal(d.cursor().settled?.[SHA.a], undefined, "and not put among those let go");
+  refusing = false;
+  assert.deepEqual(summary(await d.round(clock(201))), [["checks.failed", `checks:${SHA.a}`, at(5)]]);
+  assert.deepEqual(d.cursor().watch, [], "let go once its event is written");
   d.close();
 });
 
@@ -625,6 +678,19 @@ test("#47: howl show lists the results of a head in the order of time, each with
   assert.match(one, /head aaaaaaa, checks failed at 2026-01-01T08:15:00Z \(lint\)\n/);
   const old = howl(["show", "20", "--utc", "--ledger", ledgerOf([["change.opened", 10], ["checks.passed", 15]])]).stdout;
   assert.match(old, /head aaaaaaa, checks passed at 2026-01-01T08:15:00Z\n/);
+});
+
+test("#47: howl show says in words what a mark on a result means", () => {
+  const path = ledgerOf([
+    ["change.opened", 10],
+    ["checks.failed", 15, { failed: ["build"], host_list_differs: true }],
+    ["checks.passed", 25, { changes_untold: true }],
+  ]);
+  const text = howl(["show", "20", "--utc", "--ledger", path]).stdout;
+  assert.match(text, /checks, result 1: .*the host's list of the latest runs differs/);
+  assert.match(text, /checks, result 2: .*the changes before it could not be told/);
+  const one = howl(["show", "20", "--utc", "--ledger", ledgerOf([["change.opened", 10], ["checks.failed", 15, { failed: ["build"], host_list_differs: true }]])]).stdout;
+  assert.match(one, /head aaaaaaa, checks failed at 2026-01-01T08:15:00Z \(build\)\n.*the host's list of the latest runs differs/);
 });
 
 test("#47: a name in the ledger with a control character does not reach the terminal", () => {

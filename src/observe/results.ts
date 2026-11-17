@@ -138,3 +138,13 @@ export function lastFinish(runs: CheckRun[]): { at: string; run: string } | null
   const last = done.sort((a, b) => b.end - a.end || byId(b.run.id, a.run.id))[0]!;
   return { at: new Date(last.end).toISOString(), run: last.run.id };
 }
+
+/** The checks a set of runs holds, each told by its suite and its name (a run with no usable time holds none). */
+export function checksOf(runs: CheckRun[]): Set<string> {
+  return new Set(timed(runs).map((r) => r.check));
+}
+
+/** The names of the checks whose latest finished run failed, whether or not another run is going. */
+export function latestFailed(runs: CheckRun[]): string[] {
+  return stateAt(timed(runs), Infinity)?.failed ?? [];
+}
