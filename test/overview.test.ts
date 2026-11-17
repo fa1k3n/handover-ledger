@@ -114,8 +114,8 @@ test("#13: /api/overview gives the key figures and the latest handovers of the s
 test("#26: a review through a person's account with no matched agent is counted once, with its change", () => {
   const events = [observed("change.opened", 0, "agent-a"), observed("review.commented", 5, "person-0b0b0b0b"), observed("review.commented", 6, "person-0b0b0b0b", { change: "8" })];
   const figures = keyFigures(events, T0 + DAY);
-  assert.equal(figures.unattributed.count, 2);
-  assert.deepEqual(figures.unattributed.changes, ["7", "8"]);
+  assert.equal(figures.unattributed!.count, 2);
+  assert.deepEqual(figures.unattributed!.changes, ["7", "8"]);
 });
 
 test("#25: the overview lists the changes to .howl/ of the period", () => {

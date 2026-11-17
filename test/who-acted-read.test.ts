@@ -385,13 +385,13 @@ test("a request for changes that is dismissed before the merge: the round shows 
   const plain = events.filter((e) => e.type !== "review.dismissed");
   assert.deepEqual(handovers(events.map((event) => ({ event }))), handovers(plain.map((event) => ({ event }))));
   assert.equal(keyFigures(events, T0 + 3600_000).reviewRoundsMean, keyFigures(plain, T0 + 3600_000).reviewRoundsMean);
-  assert.equal(keyFigures(events, T0 + 3600_000).unattributed.count, keyFigures(plain, T0 + 3600_000).unattributed.count);
+  assert.equal(keyFigures(events, T0 + 3600_000).unattributed!.count, keyFigures(plain, T0 + 3600_000).unattributed!.count);
 });
 
 test("a dismissal is no review on its own: no round, and no matching to an agent", () => {
   const alone = [observed("change.opened", 10, { ...of("63"), actor: agent }), dismissal(25, "9", { actor: other }), observed("change.merged", 40, { ...of("63"), actor: other })];
   assert.equal(handovers(alone.map((event) => ({ event }))).filter((h) => h.step !== "Review → merge").length, 0);
-  assert.equal(keyFigures(alone, T0 + 3600_000).unattributed.count, 0);
+  assert.equal(keyFigures(alone, T0 + 3600_000).unattributed!.count, 0);
   assert.equal(ask(alone).reviews.length, 0);
 });
 

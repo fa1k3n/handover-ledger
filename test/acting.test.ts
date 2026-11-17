@@ -222,5 +222,5 @@ test("#44: a head whose pusher's account no longer exists is not counted as a he
   const gone = pushed(30, { actor: undefined, data: { account_removed: true } });
   const nameless = pushed(31, { sha: "d".repeat(40) });
   const figures = keyFigures([host("change.opened", 10, { actor: { kind: "agent", id: "agent-a" } }), gone, nameless], T0 + 3600_000);
-  assert.equal(figures.unattributed.count, 1);
+  assert.equal(figures.unattributed!.count, 1);
 });
