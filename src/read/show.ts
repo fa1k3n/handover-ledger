@@ -73,10 +73,27 @@ export interface Head {
   inferred?: true;
   /** #44: the push of this head was forced, as the host says. */
   forced?: true;
-  checks?: "passed" | "failed";
+  /** The last result of the head's checks; `none`: its change ended and the head never had a check (#47). */
+  checks?: "passed" | "failed" | "none";
   checksTime?: string;
+  /** #47: each result of the checks, in the order of time, numbered here; the ledger keeps no number. */
+  results?: CheckResult[];
+  /** #47: the head was let go while these checks were still going, and when. */
+  unfinished?: { time: string; names: string[]; failed?: string[] };
   /** #38: what the tests of this commit name, as the code host's repository shows it; none when it was not read. */
   trace?: HeadTrace;
+}
+
+/** #47: one result of the checks of a head, as the ledger holds it: the checks that failed in it by name, and nothing else of them. */
+export interface CheckResult {
+  n: number;
+  result: "passed" | "failed";
+  time: string;
+  failed?: string[];
+  /** The changes before this result could not be told: it is the host's own list of the latest runs. */
+  untold?: true;
+  /** The host's own list of the latest runs differs from this result, and leaves a check out. */
+  hostDiffers?: true;
 }
 
 export interface ChangePart {
@@ -512,11 +529,26 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
         });
       });
     for (const head of heads) {
-      const checks = own.find((e) => (e.type === "checks.passed" || e.type === "checks.failed") && e.sha === head.sha);
-      if (checks) {
-        head.checks = checks.type === "checks.passed" ? "passed" : "failed";
-        head.checksTime = checks.time;
+      // #47: what the code host showed of the checks of this head: each result in the order of time, and where the
+      // change ended with none or the head was let go with runs going, that. A claim of a session is none of it.
+      const results = seen
+        .filter((e) => (e.type === "checks.passed" || e.type === "checks.failed") && e.sha === head.sha)
+        .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))
+        .map((e, i) => defined<CheckResult>({ n: i + 1, result: e.type === "checks.passed" ? "passed" : "failed", time: e.time, failed: namesOf(e, "failed"), untold: markOf(e, "changes_untold"), hostDiffers: markOf(e, "host_list_differs") }));
+      const last = results.at(-1);
+      if (last) {
+        head.checks = last.result;
+        head.checksTime = last.time;
+        head.results = results;
+      } else {
+        const none = seen.find((e) => e.type === "checks.none" && e.sha === head.sha);
+        if (none) {
+          head.checks = "none";
+          head.checksTime = none.time;
+        }
       }
+      const unfinished = seen.find((e) => e.type === "checks.unfinished" && e.sha === head.sha);
+      if (unfinished) head.unfinished = defined({ time: unfinished.time, names: namesOf(unfinished, "unfinished") ?? [], failed: namesOf(unfinished, "failed") });
       // #38: only what was read from the repository counts, never a claim of a session.
       const read = seen.find((e) => e.type === "trace.read" && e.sha === head.sha);
       const data = read?.data as { covered?: unknown; touched?: unknown; tests?: unknown; covering?: unknown } | undefined;
@@ -675,7 +707,12 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
   const given = handover !== undefined && Date.parse(handover.time) <= Date.parse(to) ? handover : undefined;
   const from = (fromHandover ? (given ?? work ?? events[0]!) : (own ?? events[0]!)).time;
   const parts = { work: 0, person: 0, instructions: 0, checks: 0, review: 0, unknown: 0 };
-  const checked = new Set(events.filter((e) => e.type.startsWith("checks.") && e.sha).map((e) => e.sha!));
+  // #47: the heads that have a result of their checks, and when the last of each came: `checks.none` is no wait.
+  const lastResult = new Map<string, number>();
+  for (const e of events) {
+    if ((e.type === "checks.passed" || e.type === "checks.failed") && e.sha) lastResult.set(e.sha, Math.max(lastResult.get(e.sha) ?? -Infinity, Date.parse(e.time)));
+  }
+  const checked = new Set(lastResult.keys());
 
   // Until a session of an agent is seen, nothing is known of it: the change says what is waited for.
   let agent: AgentState | undefined;
@@ -724,6 +761,9 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
         change = "review";
         break;
       case "checks.failed":
+        // #47: waiting for checks ends at the last result: a failed one that a later one follows leaves the change waiting.
+        change = e.sha !== undefined && Date.parse(e.time) < (lastResult.get(e.sha) ?? -Infinity) ? "checks" : "none";
+        break;
       case "review.changes_requested":
       case "review.commented":
         change = "none";
@@ -835,10 +875,25 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
     out.push("", `Change ${c.change}${c.branch ? `  branch ${c.branch}` : ""}`);
     if (c.opened) out.push(`  ${t(c.opened.time)}  observed  opened by ${by(c.opened.by, c.opened.actor)}`);
     for (const [i, h] of c.heads.entries()) {
-      const checks = h.checks ? `, checks ${h.checks} at ${t(h.checksTime!)}` : "";
+      // #47: one result reads on the head's line; more than one, a line each under it. The names of what failed follow.
+      const results = h.results ?? [];
+      const names = (list?: string[]) => (list !== undefined ? ` (${list.join(", ")})` : "");
+      const checks =
+        results.length === 1
+          ? `, checks ${results[0]!.result} at ${t(results[0]!.time)}${names(results[0]!.failed)}`
+          : h.checks === "none"
+            ? `, no checks at ${t(h.checksTime!)}`
+            : "";
       // #44: who pushed it where the host says; the agent matched where it names a person or no one.
       const pusher = h.actor ? ` pushed by ${by(h.by, h.actor)}` : h.gone ? " pushed by an account that no longer exists" : h.by ? ` by ${h.by} (matched)` : "";
       out.push(`  ${t(h.time)}  observed  ${i === 0 ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${h.forced ? ", forced" : ""}${checks}`);
+      if (results.length > 1) for (const r of results) out.push(`      checks, result ${r.n}: ${r.result} at ${t(r.time)}${names(r.failed)}`);
+      // The marks, in words.
+      for (const r of results) {
+        if (r.untold) out.push(`      checks, result ${r.n}: the changes before it could not be told: it is the host's list of the latest runs`);
+        if (r.hostDiffers) out.push(`      checks, result ${r.n}: the host's list of the latest runs differs, and leaves a check out`);
+      }
+      if (h.unfinished) out.push(`      checks still running when it was let go: ${h.unfinished.names.join(", ")}${h.unfinished.failed !== undefined ? `; failed: ${h.unfinished.failed.join(", ")}` : ""} (${t(h.unfinished.time)})`);
       out.push(`      ${traceText(h.trace)}`);
     }
     // #44: the heads the host told no push for. The opening head howl worked out: as the first round saw it, or from
@@ -930,6 +985,18 @@ function duration(total: number): string {
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return rest > 0 ? `${m}m ${rest}s` : `${m}m`;
   return `${rest}s`;
+}
+
+/** #47: whether an event of the checks carries a mark in its data. */
+function markOf(e: LedgerEvent, key: "changes_untold" | "host_list_differs"): true | undefined {
+  return (e.data as Record<string, unknown> | undefined)?.[key] === true ? true : undefined;
+}
+
+/** #47: the names an event of the checks holds under `key`, as text that prints (a control character is taken out); none where it holds none. */
+function namesOf(e: LedgerEvent, key: "failed" | "unfinished"): string[] | undefined {
+  const names = (e.data as Record<string, unknown> | undefined)?.[key];
+  if (!Array.isArray(names) || names.length === 0) return undefined;
+  return names.map((n) => String(n).replace(/[\p{C}\p{Zl}\p{Zp}]/gu, ""));
 }
 
 function defined<T extends object>(value: T): T {

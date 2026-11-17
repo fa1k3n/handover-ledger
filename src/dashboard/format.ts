@@ -2,6 +2,7 @@
 // the fields of a decoded event. No DOM, so node:test can run them.
 // @code_class reading
 import { ACTIVITY_FILE } from "../ledger/names.ts";
+import { checksNames } from "../read/checks-text.ts";
 import { isPair } from "../read/filter-text.ts";
 import { duration } from "../read/overview.ts";
 import type { Claim, Head, Session } from "../read/show.ts";
@@ -173,7 +174,8 @@ export function detail(item: Item): string {
   if (e.type === "tool.used") return [d.tool, d.target, d.outcome].filter((x) => typeof x === "string").join(" ");
   if (e.type === "agent.waiting") return String(d.notification_type ?? "");
   if (e.type === "session.started") return [e.model, e.effort].filter(Boolean).join(" · ");
-  if (e.type.startsWith("change.") || e.type.startsWith("checks.") || e.type.startsWith("review.")) {
+  if (e.type.startsWith("checks.")) return [e.sha?.slice(0, 7), checksNames(e)].filter(Boolean).join(" ");
+  if (e.type.startsWith("change.") || e.type.startsWith("review.")) {
     return [e.branch, e.sha?.slice(0, 7)].filter(Boolean).join(" ");
   }
   return "";
@@ -261,9 +263,20 @@ export function needsInputHref(project: string | null): string {
  */
 export function headText(h: Head, first: boolean): string {
   const pusher = h.actor ? ` pushed by ${h.by ? `${h.by} via ${h.actor.id}` : h.actor.id}` : h.gone ? " pushed by an account that no longer exists" : h.by ? ` by ${h.by} (matched)` : "";
-  return [`${first ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${h.forced ? ", forced" : ""}`, h.inferred ? "as a round of howl saw it" : null, h.checks ? `checks ${h.checks}` : null]
+  return [`${first ? "head" : "new head"} ${h.sha.slice(0, 7)}${pusher}${h.forced ? ", forced" : ""}`, h.inferred ? "as a round of howl saw it" : null, checksText(h)]
     .filter(Boolean)
     .join(" · ");
+}
+
+/**
+ * #47: the checks of a head, short: `checks failed (static-analysis), then passed` for a head with more than one result,
+ * the checks that failed named; a head whose change ended with none says so.
+ */
+function checksText(h: Head): string | null {
+  if (h.checks === "none") return "no checks";
+  if (h.results === undefined || h.results.length === 0) return h.checks ? `checks ${h.checks}` : null;
+  const each = h.results.map((r) => `${r.result}${r.failed !== undefined ? ` (${r.failed.join(", ")})` : ""}`);
+  return `checks ${each.join(", then ")}`;
 }
 
 /** #38: the line under a head in the change view: what its tests name, a gap said plainly, or that nothing was read. */

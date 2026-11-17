@@ -24,6 +24,7 @@ import { events as ledgerEvents, type LedgerWriter } from "../ledger/ledger.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { agentAccounts } from "../howl/project.ts";
 import type { People } from "./people.ts";
+import { checksOf, lastFinish, latestFailed, pendingNames, resultsOf, sameState, stateOf, type Result, type State } from "./results.ts";
 import type { Account, Change, ChecksState, CodeHost, Push, Task } from "./port.ts";
 import { happensBefore } from "./order.ts";
 import type { TraceResult } from "../howl/trace-read.ts";
@@ -36,14 +37,29 @@ export interface ObserveSettings {
   taskFromBranch?: string;
 }
 
-/** A head commit whose checks have not finished: finishing them does not update the change. */
+/**
+ * #47: a head commit whose checks are watched: finishing them, or running them again, does not update the change. How
+ * often it is asked about, and how long, see `plan`.
+ */
 interface Watched {
   sha: string;
   change: number;
   branch: string;
   task?: string;
-  /** Whether the change was open when it was last read. A closed change is asked once more, then let go. */
+  /** Whether the change was open when it was last read. */
   open: boolean;
+  /** When the host last updated the change: a change that is updated starts the asking anew. A cursor from before has none. */
+  updated?: string;
+  /** When the head was pushed, or made; a cursor from before this step has none, and the clock starts when it is read. */
+  headAt?: string;
+  /** When the change was merged or closed, as the host says; none while it is open. */
+  end?: string;
+  /** A run of the head was going when it was last asked about: it is asked about in every round. */
+  busy?: true;
+  /** How long to wait after the last ask, in ms: it doubles with each ask in which nothing is going. */
+  gap?: number;
+  /** When to ask next, by the machine's clock; none: in the next round. */
+  next?: string;
 }
 
 /** #38: a head whose tests have not been read yet: the commit was not on the machine, or the round had read enough. */
@@ -92,6 +108,11 @@ interface Cursor {
   waiting?: Record<string, { sha: string; since: string }>;
   /** #44: the changes whose list of pushes was refused, and how many rounds running. */
   refusals?: Record<string, number>;
+  /**
+   * #47: the heads let go, with the time the host last updated their change: a change read again without an update
+   * does not watch its head again.
+   */
+  settled?: Record<string, string>;
 }
 
 export interface Round {
@@ -123,6 +144,17 @@ export interface ObserverParts {
  */
 export const STILL_MS = 5 * 60_000;
 
+/**
+ * #47: how the checks of a head are watched. While a run of it is going it is asked about in every round. Otherwise
+ * after CHECKS_FIRST_MS, and then after twice as long each time, up to CHECKS_LAST_MS. A change that the host lists as
+ * updated starts that anew. A head of an open change is let go CHECKS_QUIET_MS after its last result; one of a change
+ * that ended CHECKS_ENDED_MS after the end, when `checks.none` or `checks.unfinished` is written if it is due.
+ */
+export const CHECKS_FIRST_MS = 60_000;
+export const CHECKS_LAST_MS = 60 * 60_000;
+export const CHECKS_QUIET_MS = 7 * 24 * 60 * 60_000;
+export const CHECKS_ENDED_MS = 60 * 60_000;
+
 /** #38: the most heads read in one round: the writer is held while they are, and the rest wait for the next round. */
 const MAX_TRACE_READS = 10;
 
@@ -153,6 +185,10 @@ export class Observer {
   private readonly traceAt: ObserverParts["traceAt"];
   /** #38: the heads waiting for their tests to be read, by change and commit; of the round that runs. */
   private pendingTrace = new Map<string, TracePending>();
+  /** #47: the results of checks the ledger holds, as observed under any form of id; read at the start. */
+  private readonly resultsHeld: { id: string; sha: string; time: number; state: State }[] = [];
+  /** #47: for each commit, the last result the ledger holds: only a change of result later than it is written. */
+  private readonly lastResult = new Map<string, { time: number; state: State }>();
 
   constructor(parts: ObserverParts) {
     this.start = parts.start;
@@ -174,6 +210,12 @@ export class Observer {
       // An id made from a name starts with the name the event's `repo` held then.
       if (typeof e.repo === "string" && e.repo !== host.repository && e.id.startsWith(`${host.name}:${e.repo}:`)) this.oldNames.add(e.repo);
       if (e.type === "change.opened" && e.sha) this.openings.push({ id: e.id, change: Number(e.change), sha: e.sha });
+      const sha = e.sha;
+      if ((e.type === "checks.passed" || e.type === "checks.failed") && sha !== undefined) {
+        const names = (e.data as { failed?: unknown } | undefined)?.failed;
+        const state: State = { state: e.type === "checks.passed" ? "passed" : "failed", failed: Array.isArray(names) ? names.map(String).sort() : [] };
+        this.resultsHeld.push({ id: e.id, sha, time: Date.parse(e.time ?? ""), state });
+      }
     }
   }
 
@@ -202,6 +244,12 @@ export class Observer {
     for (const o of this.openings) {
       if (this.prefixes.some((p) => o.id.startsWith(p))) this.openedHeads.set(o.change, o.sha);
     }
+    // #47: the last result of each commit, the latest in time (the later line where two are of one time).
+    for (const r of this.resultsHeld) {
+      if (!this.prefixes.some((p) => r.id.startsWith(p))) continue;
+      const held = this.lastResult.get(r.sha);
+      if (held === undefined || r.time >= held.time) this.lastResult.set(r.sha, { time: r.time, state: r.state });
+    }
   }
 
   async round(now = new Date()): Promise<Round> {
@@ -221,6 +269,7 @@ export class Observer {
     const cursor = this.readCursor();
     if (first && this.start !== undefined) cursor.since = this.start;
     const watch = new Map(cursor.watch.map((w) => [w.sha, w]));
+    const settled = { ...(cursor.settled ?? {}) };
     this.pendingTrace = new Map(cursor.trace.map((p) => [`${p.change}:${p.sha}`, p]));
     const found: LedgerEvent[] = [];
     let complete = true;
@@ -306,24 +355,14 @@ export class Observer {
           refused = true;
           for (const e of events) if ((e.data as { inferred?: unknown } | undefined)?.inferred === true) refusedIds.add(e.id);
         }
-        for (const [sha, w] of watch) if (w.change === change.number) watch.delete(sha);
-        if (!this.known(`checks:${change.head.sha}`)) {
-          watch.set(change.head.sha, {
-            sha: change.head.sha,
-            change: change.number,
-            branch: change.branch,
-            task: this.taskOf(change),
-            open: change.closedAt === undefined,
-          });
-        }
+        this.arm(watch, settled, change, heads);
       }
     }
 
+    // #47: the heads that are due, asked about; one commit's checks never end the round.
+    const goes: Watched[] = [];
     for (const [sha, w] of watch) {
-      if (this.known(`checks:${sha}`)) {
-        watch.delete(sha);
-        continue;
-      }
+      if (w.busy !== true && w.next !== undefined && now.getTime() < Date.parse(w.next)) continue;
       let checks: ChecksState;
       try {
         checks = await this.host.checks(sha);
@@ -331,11 +370,13 @@ export class Observer {
         failed(`checks ${sha}`, e);
         continue;
       }
-      if (checks.state === "passed" || checks.state === "failed") {
-        found.push(this.checksEvent(w, checks, seen));
-        watch.delete(sha);
-      } else if (!w.open) {
-        watch.delete(sha);
+      try {
+        const outcome = this.checksOf(w, checks, now, seen);
+        found.push(...outcome.events);
+        // Let go only once its last event is written: below, after the events are.
+        if (outcome.ends) goes.push(w);
+      } catch (e) {
+        this.warn(`${this.host.repository}: checks of ${sha.slice(0, 7)} of change ${w.change}: ${(e as Error).message}`);
       }
     }
 
@@ -350,12 +391,27 @@ export class Observer {
     let refusedHeads = 0;
     // #112: by time, and at the same time by what can happen first: opened before assigned.
     found.sort(happensBefore);
+    // #47: a result that the writer refuses stops the checks of that one commit for the round, and never the round.
+    const stopped = new Set<string>();
     for (const e of found) {
       if (this.known(e.id.slice(this.prefix!.length))) continue;
-      this.writer.append(e);
+      const ofChecks = e.type.startsWith("checks.") && e.sha !== undefined;
+      if (ofChecks && stopped.has(e.sha!)) continue;
+      try {
+        this.writer.append(e);
+      } catch (err) {
+        if (!ofChecks) throw err;
+        stopped.add(e.sha!);
+        this.warn(`${this.host.repository}: checks of ${e.sha!.slice(0, 7)} of change ${e.change}: ${(err as Error).message}; its events of this round are not written, and its head is asked about again`);
+        continue;
+      }
       appended++;
       if (refusedIds.has(e.id)) refusedHeads++;
       if (e.type === "change.opened" && e.sha) this.openedHeads.set(Number(e.change), e.sha);
+      if ((e.type === "checks.passed" || e.type === "checks.failed") && e.sha) {
+        const names = (e.data as { failed?: unknown } | undefined)?.failed;
+        this.lastResult.set(e.sha, { time: Date.parse(e.time), state: { state: e.type === "checks.passed" ? "passed" : "failed", failed: Array.isArray(names) ? names.map(String) : [] } });
+      }
     }
 
     // #44: a refused list of pushes is said on every round until a list is read again, with the heads it cost since the
@@ -374,8 +430,17 @@ export class Observer {
     }
     if (waited.length > 0) this.warn(`${this.host.repository}: waiting for the list of pushes to reach the head of ${numbers(waited)}`);
 
+    // #47: a head is let go once its last event is written; one whose event the writer refused stays, and is asked again.
+    for (const w of goes) {
+      if (stopped.has(w.sha)) continue;
+      watch.delete(w.sha);
+      if (w.updated !== undefined) settled[w.sha] = w.updated;
+    }
+
     this.people.save();
     const since = complete ? (hold !== null && (latest === null || hold < latest) ? hold : latest) : cursor.since;
+    // #47: a head let go is remembered only while its change can still be listed again.
+    for (const [sha, updated] of Object.entries(settled)) if (since !== null && updated < since) delete settled[sha];
     this.writeCursor({
       since,
       watch: [...watch.values()],
@@ -383,6 +448,7 @@ export class Observer {
       ...(refusal !== undefined ? { refused: refusal } : {}),
       ...(Object.keys(waiting).length > 0 ? { waiting } : {}),
       ...(Object.keys(refusals).length > 0 ? { refusals } : {}),
+      ...(Object.keys(settled).length > 0 ? { settled } : {}),
     });
     return { ingested, appended, complete };
   }
@@ -561,13 +627,114 @@ export class Observer {
     };
   }
 
-  private checksEvent(w: Watched, checks: ChecksState, seen: string): LedgerEvent {
-    return this.event(`checks:${w.sha}`, `checks.${checks.state as "passed" | "failed"}`, checks.at ?? seen, undefined, {
-      change: String(w.change),
-      branch: w.branch,
-      sha: w.sha,
-      task: w.task,
-    }, seen);
+  /**
+   * #47: the head of a change is watched, whether or not it has a result: a run again later is not missed. A change
+   * that is read again and was not updated at the host keeps what its head's watch holds (the intervals); one that was
+   * starts anew. A head that was let go is not watched again by a change that was not updated.
+   */
+  private arm(watch: Map<string, Watched>, settled: Record<string, string>, change: Change, heads: Heads): void {
+    const sha = change.head.sha;
+    for (const [s, w] of watch) if (w.change === change.number && s !== sha) watch.delete(s);
+    const ended = change.closedAt !== undefined || change.mergedAt !== undefined;
+    const end = ended ? (change.mergedAt ?? change.closedAt) : undefined;
+    const held = watch.get(sha);
+    if (held !== undefined && held.change === change.number && held.updated === change.updatedAt) {
+      held.open = !ended;
+      if (end !== undefined) held.end = end;
+      else delete held.end;
+      return;
+    }
+    if (held === undefined && settled[sha] === change.updatedAt) return;
+    delete settled[sha];
+    watch.set(sha, {
+      sha,
+      change: change.number,
+      branch: change.branch,
+      task: this.taskOf(change),
+      open: !ended,
+      updated: change.updatedAt,
+      headAt: heads.headAt,
+      ...(end !== undefined ? { end } : {}),
+    });
+  }
+
+  /**
+   * #47: what an ask about a head gives. The events: each change of the result later than the last one the ledger holds
+   * for the commit, worked out from every run by its own time, and held against the host's own list of the latest runs
+   * (where they differ the host's is written, marked, as the changes before it could not be told); `checks.none` for a
+   * commit that never had a check, and `checks.unfinished` for a head let go with runs still going. And whether the head
+   * is let go, and when it is asked about next.
+   */
+  private checksOf(w: Watched, checks: ChecksState, now: Date, seen: string): { events: LedgerEvent[]; ends: boolean } {
+    const t = now.getTime();
+    const events: LedgerEvent[] = [];
+    const of = { change: String(w.change), branch: w.branch, sha: w.sha, task: w.task };
+    const going = checks.runs.some((r) => r.result === "pending");
+    const last = this.lastResult.get(w.sha);
+
+    // The changes of the result, forward only.
+    const fresh: (Result & { untold?: true; differs?: true })[] = [];
+    const worked = stateOf(checks.runs);
+    const hosts = checks.latest !== undefined ? stateOf(checks.latest) : null;
+    const host = checks.latest !== undefined ? lastFinish(checks.latest) : null;
+    // The host's list is taken only where it holds every check of the set worked out; where it leaves one out, the
+    // result worked out stands and says that the host's list differs.
+    const differs = !going && worked !== null && hosts !== null && host !== null && !sameState(worked, hosts);
+    const whole = differs && [...checksOf(checks.runs)].every((c) => checksOf(checks.latest!).has(c));
+    if (whole) {
+      if ((last === undefined || Date.parse(host!.at) > last.time) && (last === undefined || !sameState(last.state, hosts!))) fresh.push({ ...hosts!, at: host!.at, run: host!.run, untold: true });
+    } else {
+      let prev = last?.state ?? null;
+      for (const r of resultsOf(checks.runs)) {
+        if (last !== undefined && Date.parse(r.at) <= last.time) continue;
+        if (prev !== null && sameState(prev, r)) continue;
+        fresh.push(r);
+        prev = r;
+      }
+      const final = fresh.at(-1);
+      if (differs && final !== undefined && worked !== null && sameState(final, worked)) final.differs = true;
+    }
+    fresh.forEach((r, i) => {
+      // The first result of a commit keeps the id that a commit's checks have had; a later one the host's id of the run that completed it.
+      const key = last === undefined && i === 0 && !this.known(`checks:${w.sha}`) ? `checks:${w.sha}` : `checks:${w.sha}:${r.run}`;
+      const data = { ...(r.state === "failed" ? { failed: r.failed } : {}), ...(r.untold ? { changes_untold: true } : {}), ...(r.differs ? { host_list_differs: true } : {}) };
+      events.push(this.event(key, `checks.${r.state}`, r.at, undefined, { ...of, data }, seen));
+    });
+
+    // How long it is watched, and how often it is asked about.
+    const finished = checks.runs.map((r) => Date.parse(r.at ?? "")).filter((x) => !Number.isNaN(x));
+    const next = (until: number) => {
+      w.gap = w.gap === undefined ? CHECKS_FIRST_MS : Math.min(w.gap * 2, CHECKS_LAST_MS);
+      w.next = new Date(Math.min(t + w.gap, until)).toISOString();
+    };
+    w.headAt ??= seen;
+    if (going) {
+      // Asked about in every round while a run of it goes.
+      w.busy = true;
+      delete w.next;
+      delete w.gap;
+    } else {
+      delete w.busy;
+    }
+    if (w.open) {
+      if (going) return { events, ends: false };
+      const quiet = Math.max(Date.parse(w.headAt), ...finished) + CHECKS_QUIET_MS;
+      if (t >= quiet) return { events, ends: true };
+      next(quiet);
+      return { events, ends: false };
+    }
+    w.end ??= seen;
+    const limit = Date.parse(w.end) + CHECKS_ENDED_MS;
+    if (t < limit) {
+      if (!going) next(limit);
+      return { events, ends: false };
+    }
+    if (checks.runs.length === 0 && last === undefined && fresh.length === 0 && !this.known(`checks:${w.sha}:none`)) {
+      events.push(this.event(`checks:${w.sha}:none`, "checks.none", w.end, undefined, of, seen));
+    } else if (going && !this.known(`checks:${w.sha}:unfinished`)) {
+      events.push(this.event(`checks:${w.sha}:unfinished`, "checks.unfinished", new Date(limit).toISOString(), undefined, { ...of, data: { unfinished: pendingNames(checks.runs), failed: latestFailed(checks.runs) } }, seen));
+    }
+    return { events, ends: true };
   }
 
   private event(
@@ -644,6 +811,7 @@ export class Observer {
         // #44: a cursor with none of these, as one of #130, remembers nothing of them.
         ...(isWaiting(value.waiting) ? { waiting: value.waiting } : {}),
         ...(isRecord(value.refusals, "number") ? { refusals: value.refusals } : {}),
+        ...(isStrings(value.settled) ? { settled: value.settled } : {}),
       };
     } catch {
       return { since: null, watch: [], trace: [] };
@@ -660,6 +828,11 @@ export class Observer {
 /** #44: an object of numbers by change, as a cursor keeps the refusals. */
 function isRecord(value: unknown, kind: "number"): value is Record<string, number> {
   return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((v) => typeof v === kind);
+}
+
+/** #47: an object of text by commit, as a cursor keeps the heads let go. */
+function isStrings(value: unknown): value is Record<string, string> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((v) => typeof v === "string");
 }
 
 /** #44: the waits of a cursor, each a head and a time. Any other form (as a draft of #131 wrote) is nothing remembered. */

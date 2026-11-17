@@ -24,7 +24,7 @@ const ORDER: string[][] = [
   ["config.changed"],
   // What the tests of a head name is told with the head, before its checks.
   ["trace.read"],
-  // A commit has one of the two.
+  // The results of a commit's checks; two of one moment come by their id.
   ["checks.passed", "checks.failed"],
   ["change.commented"],
   // The reviews of one moment come by the host's own ids, whatever their outcome: the host numbered them as they came.
@@ -33,6 +33,8 @@ const ORDER: string[][] = [
   ["review.dismissed"],
   ["change.merged"],
   ["change.closed"],
+  // A commit that never had a check, told at the end of its change: after the merge or the closing; a head let go too.
+  ["checks.none", "checks.unfinished"],
   // Opened again after it was closed.
   ["change.reopened"],
   ["task.closed"],

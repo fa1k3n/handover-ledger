@@ -9,14 +9,18 @@
 //                           `pushes` (#44): each with its `id`, the head `sha`, `at`, and where known `by`, `before`
 //                           and `forced`; a file with none is the fall-back, marked as inferred; an empty list waits as
 //                           a lagging one does; `pushesRefused: true` is a list the host refuses
-//   checks/<sha>.json       a ChecksState; no file is no checks
+//   checks/<sha>.json       #47: {"sha", "runs": [{"id", "name", "suite", "result": "passed|failed|pending", "started", "at"}],
+//                           "latest": ["<id>", ...]}: the runs of a commit's checks (`id` defaults to `r<place in the list>`),
+//                           and the ids of the runs the host lists as the latest of each check, when it lists any. Of the
+//                           older form, {"sha", "state": "passed|failed|pending|none", "at"}: one verdict with no name, read
+//                           as one run of a check that has no name. No file is no checks
 //   repository.json         {"id": ..., "was": ["owner/old"]}: the repository's lasting id and the names it had
 //                           before (#48); without the file, the id is the name and no other name is this repository
 //   fail.json               calls that fail: "list", "task <n>", "change <n>", "checks <sha>"
 // @code_class recording
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isReviewComment, type Change, type ChecksState, type CodeHost, type Comment, type Ref, type Task } from "./port.ts";
+import { isReviewComment, type Change, type CheckRun, type ChecksState, type CodeHost, type Comment, type Ref, type Task } from "./port.ts";
 
 /** A comment as a file holds it: with `review`, or with a `body` the adapter tests and drops. */
 type FileComment = Omit<Comment, "review"> & { review?: boolean; body?: string };
@@ -96,12 +100,33 @@ export class LocalHost implements CodeHost {
 
   async checks(sha: string): Promise<ChecksState> {
     this.maybeFail(`checks ${sha}`);
+    let file: { runs?: unknown; latest?: unknown; state?: unknown; at?: unknown };
     try {
-      return this.read<ChecksState>(join("checks", `${sha}.json`));
+      file = this.read(join("checks", `${sha}.json`));
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") return { sha, state: "none" };
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return { sha, runs: [] };
       throw e;
     }
+    if (file.runs === undefined) {
+      // The older form: one verdict, and no name of a check.
+      if (file.state === "passed" || file.state === "failed") return { sha, runs: [{ id: "1", result: file.state, ...(typeof file.at === "string" ? { at: file.at } : {}) }] };
+      return { sha, runs: file.state === "pending" ? [{ id: "1", result: "pending" }] : [] };
+    }
+    if (!Array.isArray(file.runs)) throw new Error(`checks/${sha}.json needs "runs": a list`);
+    const runs = (file.runs as (Partial<CheckRun> & Record<string, unknown>)[]).map((r, i): CheckRun => {
+      // Only what a run is made of is read: the rest of it (an output, a link) is never looked at.
+      if (r.result !== "passed" && r.result !== "failed" && r.result !== "pending") throw new Error(`a run in checks/${sha}.json needs "result": passed, failed or pending`);
+      return {
+        id: typeof r.id === "string" ? r.id : `r${i + 1}`,
+        ...(typeof r.name === "string" ? { name: r.name } : {}),
+        ...(typeof r.suite === "string" ? { suite: r.suite } : {}),
+        result: r.result,
+        ...(typeof r.started === "string" ? { started: r.started } : {}),
+        ...(typeof r.at === "string" ? { at: r.at } : {}),
+      };
+    });
+    const latest = Array.isArray(file.latest) ? runs.filter((r) => (file.latest as unknown[]).includes(r.id)) : undefined;
+    return { sha, runs, ...(latest !== undefined ? { latest } : {}) };
   }
 
   private all<T>(sub: string): T[] {

@@ -176,21 +176,183 @@ test("the tasks a change closes are read from the closing words of its descripti
   assert.deepEqual(closingTasks(null, "team/product"), []);
 });
 
-test("the checks of a commit: check runs and statuses together", async () => {
-  const sha = "b".repeat(40);
-  const run = (status: string, conclusion: string | null, completed_at: string | null) => ({ status, conclusion, completed_at });
-  const cases: [Reply, Reply, string, string | undefined][] = [
-    [{ body: { check_runs: [run("completed", "success", "2026-01-01T00:02:00Z"), run("completed", "skipped", "2026-01-01T00:03:00Z")] } },
-      { body: { state: "success", statuses: [{ state: "success", updated_at: "2026-01-01T00:04:00Z" }] } }, "passed", "2026-01-01T00:04:00Z"],
-    [{ body: { check_runs: [run("completed", "failure", "2026-01-01T00:02:00Z")] } }, { body: { state: "pending", statuses: [] } }, "failed", "2026-01-01T00:02:00Z"],
-    [{ body: { check_runs: [run("in_progress", null, null), run("completed", "success", "2026-01-01T00:02:00Z")] } }, { body: { statuses: [] } }, "pending", undefined],
-    [{ body: { check_runs: [] } }, { body: { statuses: [{ state: "pending", updated_at: "x" }] } }, "pending", undefined],
-    [{ body: { check_runs: [] } }, { body: { statuses: [] } }, "none", undefined],
-  ];
-  for (const [runs, status, state, at] of cases) {
-    const { host } = github({ [`${R}/commits/${sha}/check-runs`]: runs, [`${R}/commits/${sha}/status`]: status });
-    assert.deepEqual(await host.checks(sha), at ? { sha, state, at } : { sha, state });
-  }
+/** #47: a check run as the host gives it: its output and links are there, and are not read. Made-up names and ids. */
+function checkRun(id: number, name: string, status: string, conclusion: string | null, started: string | null, completed: string | null, suite = 700) {
+  return {
+    id,
+    name,
+    status,
+    conclusion,
+    started_at: started,
+    completed_at: completed,
+    head_sha: "b".repeat(40),
+    app: { id: 4, slug: "example-ci" },
+    check_suite: { id: suite },
+    html_url: "https://example.test/runs/secret-link",
+    details_url: "https://example.test/details/secret-link",
+    output: { title: "SECRET-TITLE", summary: "SECRET-SUMMARY", text: "SECRET-TEXT", annotations_count: 3 },
+  };
+}
+
+const CHECKS = "b".repeat(40);
+/** The call for every run, and the call without `filter=all`, which gives the latest run of each check. */
+const everyRun = `${R}/commits/${CHECKS}/check-runs?filter=all`;
+const latestRuns = `${R}/commits/${CHECKS}/check-runs?per_page`;
+const statusesUrl = `${R}/commits/${CHECKS}/statuses`;
+const T = (minutes: number) => `2026-01-01T00:${String(minutes).padStart(2, "0")}:00Z`;
+
+/** A table that answers every call `checks` makes: the runs of the first, and for the latest of each check the runs of `latest`. */
+function table(every: Reply | Reply[], latest: Reply | Reply[] = { body: { check_runs: [] } }, statuses: Reply | Reply[] = { body: [] }) {
+  return { [everyRun]: every, [latestRuns]: latest, [statusesUrl]: statuses };
+}
+
+test("#47: the checks of a commit are its runs: id, name, suite, result, when it started and finished", async () => {
+  const build2 = checkRun(9003, "build", "completed", "success", T(10), T(12));
+  const lint = checkRun(9002, "lint", "completed", "neutral", T(1), T(2));
+  const build1 = checkRun(9001, "build", "completed", "failure", T(1), T(4));
+  const { host, asked } = github(table({ body: { total_count: 3, check_runs: [build2, lint, build1] } }, { body: { check_runs: [build2, lint] } }));
+  const state = await host.checks(CHECKS);
+  const run = (id: string, name: string, result: string, started: string, at: string) => ({ id, name, suite: "700", result, started, at });
+  assert.deepEqual(state.runs, [run("9001", "build", "failed", T(1), T(4)), run("9002", "lint", "passed", T(1), T(2)), run("9003", "build", "passed", T(10), T(12))]);
+  assert.deepEqual(state.latest, [run("9002", "lint", "passed", T(1), T(2)), run("9003", "build", "passed", T(10), T(12))], "the host's latest, in the order of when they began");
+  assert.ok(!JSON.stringify(state).includes("SECRET") && !JSON.stringify(state).includes("example.test"), "no output, no link");
+  assert.ok(asked.some((a) => a.url.startsWith(`${R}/commits/${CHECKS}/check-runs?filter=all`)), "every run is asked for, not the latest of each check");
+  assert.ok(asked.some((a) => a.url.startsWith(latestRuns)), "and the host's list of the latest runs");
+});
+
+test("#47: ids that do not follow the order of the start: the order is the order of the start", async () => {
+  const { host } = github(
+    table({
+      body: {
+        check_runs: [
+          checkRun(9500, "build", "completed", "failure", T(20), T(24)),
+          checkRun(9100, "build", "completed", "success", T(30), T(33)),
+          checkRun(9900, "lint", "completed", "success", T(1), T(2)),
+        ],
+      },
+    }),
+  );
+  assert.deepEqual((await host.checks(CHECKS)).runs.map((r) => r.id), ["9900", "9500", "9100"]);
+});
+
+test("#47: the results of a run: success, neutral and skipped passed; any other finished result failed; one not finished is pending with no time of its end", async () => {
+  const conclusions = ["success", "neutral", "skipped", "failure", "cancelled", "timed_out", "action_required", "stale"];
+  const runs = conclusions.map((c, i) => checkRun(9100 + i, `check-${i}`, "completed", c, T(1), T(2)));
+  runs.push(checkRun(9200, "going", "in_progress", null, T(1), null), checkRun(9201, "waiting", "queued", null, null, null));
+  const { host } = github(table({ body: { check_runs: runs } }));
+  const state = await host.checks(CHECKS);
+  assert.deepEqual(state.runs.map((r) => [r.id, r.result]), [
+    ["9100", "passed"], ["9101", "passed"], ["9102", "passed"], ["9103", "failed"], ["9104", "failed"], ["9105", "failed"], ["9106", "failed"], ["9107", "failed"], ["9200", "pending"], ["9201", "pending"],
+  ]);
+  const pending = state.runs.filter((r) => r.result === "pending");
+  assert.ok(pending.every((r) => r.at === undefined), "a run not finished has no time of its finish");
+  assert.equal(pending.find((r) => r.name === "waiting")!.started, undefined, "a queued run that has not started says no start");
+});
+
+test("#47: two runs named alike in two suites are told apart by their suite", async () => {
+  const { host } = github(
+    table({
+      body: {
+        check_runs: [
+          checkRun(9301, "build", "completed", "failure", T(1), T(4), 701),
+          checkRun(9302, "build", "completed", "success", T(2), T(5), 702),
+        ],
+      },
+    }),
+  );
+  assert.deepEqual((await host.checks(CHECKS)).runs.map((r) => [r.id, r.name, r.suite]), [["9301", "build", "701"], ["9302", "build", "702"]]);
+});
+
+test("#47: a run with a time that cannot be read is passed over, with a word of it", async () => {
+  const said: string[] = [];
+  const f = fake(
+    table({
+      body: {
+        check_runs: [
+          checkRun(9401, "good", "completed", "success", T(1), T(2)),
+          checkRun(9402, "odd", "completed", "success", T(1), "not a time"),
+          { ...checkRun(9403, "none", "completed", "success", T(1), null) },
+        ],
+      },
+    }),
+  );
+  const host = new GitHub({ repository: "team/product", token: "t0ken", fetch: f.fetch, sleep: async () => {}, warn: (m) => said.push(m) });
+  assert.deepEqual((await host.checks(CHECKS)).runs.map((r) => r.id), ["9401"]);
+  assert.equal(said.length, 1);
+  assert.match(said[0]!, /2 check runs of bbbbbbb/);
+});
+
+test("#47: the runs of every page are read, by the link the host sends", async () => {
+  const { host } = github(
+    table(
+      [
+        {
+          body: { total_count: 2, check_runs: [checkRun(9401, "build", "completed", "success", T(1), T(2))] },
+          headers: { link: `<https://api.github.com${R}/commits/${CHECKS}/check-runs?filter=all&per_page=1&page=2>; rel="next"` },
+        },
+        { body: { total_count: 2, check_runs: [checkRun(9402, "docs", "completed", "failure", T(3), T(4))] } },
+      ],
+      { body: { check_runs: [] } },
+    ),
+  );
+  assert.deepEqual((await host.checks(CHECKS)).runs.map((r) => [r.id, r.name, r.result]), [["9401", "build", "passed"], ["9402", "docs", "failed"]]);
+});
+
+test("#47: a status is a check of its own, told by its context: each pending state begins a run and the next state ends it", async () => {
+  const status = (id: number, context: string, state: string, created: string) => ({ id, context, state, created_at: created, updated_at: created, target_url: "https://example.test/secret-link", description: "SECRET-TEXT" });
+  const { host, asked } = github(
+    table(
+      { body: { check_runs: [] } },
+      { body: { check_runs: [] } },
+      {
+        // The newest first, as the host lists them.
+        body: [
+          status(5, "ci/lint", "pending", T(6)),
+          status(4, "ci/unit", "success", T(5)),
+          status(3, "ci/lint", "success", T(4)),
+          status(2, "ci/lint", "pending", T(3)),
+          status(1, "ci/lint", "failure", T(2)),
+          status(0, "ci/lint", "pending", T(1)),
+        ],
+      },
+    ),
+  );
+  const state = await host.checks(CHECKS);
+  const run = (id: string, name: string, result: string, started: string, at?: string) => ({ id, name, suite: "status", result, started, ...(at !== undefined ? { at } : {}) });
+  assert.deepEqual(state.runs, [
+    run("status-1", "ci/lint", "failed", T(1), T(2)),
+    run("status-3", "ci/lint", "passed", T(3), T(4)),
+    run("status-4", "ci/unit", "passed", T(5), T(5)),
+    run("status-5", "ci/lint", "pending", T(6)),
+  ]);
+  assert.deepEqual(state.latest, [run("status-5", "ci/lint", "pending", T(6)), run("status-4", "ci/unit", "passed", T(5), T(5))]);
+  assert.ok(!JSON.stringify(state).includes("SECRET") && !JSON.stringify(state).includes("example.test"));
+  assert.ok(asked.some((a) => a.url.startsWith(statusesUrl)), "each state of a status is asked for");
+});
+
+test("#47: a status posted twice with one state is two runs of one check, so no change of result; a status that went to error is failed", async () => {
+  const status = (id: number, context: string, state: string, created: string) => ({ id, context, state, created_at: created });
+  const { host } = github(
+    table({ body: { check_runs: [] } }, { body: { check_runs: [] } }, { body: [status(3, "ci/b", "error", T(5)), status(2, "ci/a", "success", T(4)), status(1, "ci/a", "success", T(3))] }),
+  );
+  const state = await host.checks(CHECKS);
+  assert.deepEqual(state.runs.map((r) => [r.name, r.result]), [["ci/a", "passed"], ["ci/a", "passed"], ["ci/b", "failed"]]);
+  assert.equal(state.latest!.filter((r) => r.name === "ci/a").length, 1, "the host's latest of a context is one");
+});
+
+test("#47: a status with no time is passed over, with a word of it, and does not throw", async () => {
+  const said: string[] = [];
+  const f = fake(table({ body: { check_runs: [] } }, { body: { check_runs: [] } }, { body: [{ id: 2, context: "ci/a", state: "success" }, { id: 1, context: "ci/b", state: "success", created_at: T(3) }] }));
+  const host = new GitHub({ repository: "team/product", token: "t0ken", fetch: f.fetch, sleep: async () => {}, warn: (m) => said.push(m) });
+  const state = await host.checks(CHECKS);
+  assert.deepEqual(state.runs.map((r) => r.name), ["ci/b"]);
+  assert.equal(said.length, 1);
+  assert.match(said[0]!, /1 status of bbbbbbb with no time/);
+});
+
+test("#47: a commit with no check runs and no statuses has no runs", async () => {
+  const { host } = github(table({ body: { total_count: 0, check_runs: [] } }));
+  assert.deepEqual(await host.checks(CHECKS), { sha: CHECKS, runs: [], latest: [] });
 });
 
 test("a call asked again sends its ETag, and a 304 gives the answer from before", async () => {
@@ -584,7 +746,7 @@ function observed(activity: Reply | Reply[]) {
       body: { number: 7, user: { login: "agent-bot", type: "User" }, created_at: "2026-01-01T00:10:00Z", head: { ref: "task-5-x", sha, repo }, base: { ref: "main", repo }, updated_at: "2026-01-01T00:30:00Z" },
     },
     [`${R}/commits/${sha}/check-runs`]: { body: { check_runs: [] } },
-    [`${R}/commits/${sha}/status`]: { body: { statuses: [] } },
+    [`${R}/commits/${sha}/statuses`]: { body: [] },
     [`${R}/commits/${sha}`]: { body: { sha, commit: { committer: { date: "2026-01-01T00:05:00Z" } } } },
     [R]: { body: { id: 1234567 } },
   });

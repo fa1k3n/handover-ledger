@@ -166,12 +166,34 @@ export interface Change {
   updatedAt: string;
 }
 
+/**
+ * #47: one run of a check, as the host gives it. Only what the ledger keeps: the name, the result and the times. The
+ * output of a check, its text and its links are never read.
+ */
+export interface CheckRun {
+  /** The host's own id of the run: the same every time it is read. */
+  id: string;
+  /** The name of the check, as the host gives it. None for a verdict that names no check (the older file of the local host). */
+  name?: string;
+  /**
+   * The suite the check belongs to, as the host tells it (a commit status has a suite of its own, `status`). A check is
+   * told by its suite and its name: two runs of it are two runs of one check only when both are the same.
+   */
+  suite?: string;
+  /** passed: success, neutral or skipped. failed: any other result of a run that finished. pending: not finished. */
+  result: "passed" | "failed" | "pending";
+  /** When it began, when the host says. */
+  started?: string;
+  /** When it finished, for passed and failed. */
+  at?: string;
+}
+
+/** #47: the runs of the checks of a commit, all of them and not the latest of each check. No runs: no checks, yet. */
 export interface ChecksState {
   sha: string;
-  /** none: no checks at all, yet. pending: some have not finished. */
-  state: "passed" | "failed" | "pending" | "none";
-  /** When the last check finished, for passed and failed. */
-  at?: string;
+  runs: CheckRun[];
+  /** The host's own list of the latest run of each check, when it gives one: what the result now is held against. */
+  latest?: CheckRun[];
 }
 
 export interface Ref {
@@ -200,6 +222,6 @@ export interface CodeHost {
   listUpdated(since: string | null): Promise<Ref[]>;
   task(number: number): Promise<Task>;
   change(number: number): Promise<Change>;
-  /** The checks of a commit: finishing them does not update the change at the host. */
+  /** The runs of the checks of a commit (#47): finishing them, or running them again, does not update the change at the host. */
   checks(sha: string): Promise<ChecksState>;
 }

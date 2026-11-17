@@ -3,6 +3,7 @@
 import { LedgerError } from "../ledger/errors.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { readFilters, wantsActivity } from "./filter.ts";
+import { checksNames } from "./checks-text.ts";
 import { activityBeside, byTime, Tail, type Read } from "./reader.ts";
 import { waitsForPerson } from "./wait.ts";
 
@@ -101,7 +102,8 @@ function short(event: LedgerEvent): string {
     default:
       // #44: a forced push says so.
       if (event.type.startsWith("change.")) return [event.branch, sha, event.type === "change.updated" && d.forced === true ? "forced" : null].filter(Boolean).join(" ");
-      if (event.type.startsWith("checks.") || event.type.startsWith("review.")) return sha;
+      if (event.type.startsWith("checks.")) return [sha, checksNames(event)].filter(Boolean).join(" ");
+      if (event.type.startsWith("review.")) return sha;
       return Object.entries(d)
         .filter(([k]) => k !== "seen")
         .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
