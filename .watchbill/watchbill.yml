@@ -1,7 +1,7 @@
 # How Watchbill is set up in this repository. Written by `wb init`.
 # `watchbill` is the version of the package the repository is set up for.
-watchbill: 0.0.2
-revision: '9cc7a143007b0ef6533b45146765e2c137f03b8d7e0973efd591113533039ce0'
+watchbill: 0.0.3
+revision: '9c2205b7599c70349beece448734c50f1321ea73494aaa7e492b26646eb7fa82'
 project: handover-ledger
 git_server: github
 repository: fa1k3n/handover-ledger

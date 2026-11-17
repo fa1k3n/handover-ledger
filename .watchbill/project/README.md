@@ -13,7 +13,7 @@ A prompt is the role's text of the revision, then one line saying that this text
 the role must not do stays so, whatever is written here.
 
 A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`,
-with no `$` just before it. `{task}`, `{change}`, `{requirements}` and `{round}` are known and are
-filled in; any other placeholder is refused. Anything else in braces is text: `${BUILD_DIR}`,
+with no `$` just before it. The words of `.watchbill/revision/roles/placeholders.md`, such as `{task}`
+and `{branch}`, are known and are filled in; any other placeholder is refused. Anything else in braces is text: `${BUILD_DIR}`,
 `{Task}`, `{task-id}` and `{ task }` stay as they are. A review of a change to `.watchbill/` reads that this text does not
 speak against the role.
