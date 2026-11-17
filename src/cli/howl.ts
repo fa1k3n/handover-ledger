@@ -21,7 +21,7 @@ const USAGE = `usage:
   howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--utc] [--json] [--no-follow]
   howl show <task or change> [--utc] [--json]
   howl status [--follow] [--json]
-  howl serve [--port <n>]
+  howl serve [--port <n>] [--all]
   howl classes [--check] [--json]
   howl trace [--at <commit>] [--check] [--json]
 
@@ -78,10 +78,11 @@ const USAGE = `usage:
             agent that asks in the text of its answer looks done and shows
             as waiting. --follow redraws it every second
   serve     the dashboard on http://127.0.0.1:4317: the team right now and the
-            event stream of every project, picked in the page; --project
-            shows that one first, --ledger serves one ledger only.
-            Read-only, on this machine only. Build the page first with
-            npm run build:dashboard
+            event stream of the project (of the nearest howl.yml, or
+            --project); --all serves every project, picked in the page, the
+            project first; --ledger serves one ledger only. Read-only, on
+            this machine only: a request that names another host is refused.
+            Build the page first with npm run build:dashboard
 
   classes   the code class of every file git tracks, by path (classes in
             .howl/howl.yml) and from the file's header (class_header, in the
@@ -897,9 +898,18 @@ async function traceReader(root: string) {
 }
 
 async function serveCommand(args: string[]): Promise<number> {
-  const { values } = parse(args, { ledger: { type: "string" }, project: { type: "string" }, port: { type: "string" } });
+  const { values } = parse(args, { ledger: { type: "string" }, project: { type: "string" }, all: { type: "boolean" }, port: { type: "string" } });
   const port = values.port === undefined ? 4317 : Number(values.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError("--port must be a port number");
+  if (values.ledger !== undefined && values.all) throw new UsageError("give --ledger or --all, not both");
+  // #54: one project unless --all asks for every one; the project is found before anything is started.
+  const { howlHome, isProjectName } = await import("../ledger/place.ts");
+  const { findProject } = await import("../howl/project.ts");
+  if (values.project !== undefined && !isProjectName(values.project)) throw new UsageError(`no project ${values.project}`);
+  const project = values.ledger === undefined ? (values.project ?? findProject(process.cwd())?.project) : undefined;
+  if (values.ledger === undefined && !values.all && project === undefined) {
+    throw new UsageError("no project here: no howl.yml above this folder. Give --project <name> for one project, or --all for every project");
+  }
   const { existsSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
   const root = fileURLToPath(new URL("../../dist/dashboard", import.meta.url));
@@ -916,15 +926,17 @@ async function serveCommand(args: string[]): Promise<number> {
     statSync(values.ledger);
     server = await startServer({ ledger: values.ledger, port, root, taskFromBranch, agents });
     console.log(`howl serve: ${server.url} (read-only, ${values.ledger})`);
-  } else {
+  } else if (values.all) {
     // Every project of the howl home; first the one asked for, else that of the nearest howl.yml.
-    const { howlHome, isProjectName } = await import("../ledger/place.ts");
-    const { findProject } = await import("../howl/project.ts");
-    if (values.project !== undefined && !isProjectName(values.project)) throw new UsageError(`no project ${values.project}`);
     const home = howlHome();
-    const defaultProject = values.project ?? findProject(process.cwd())?.project;
+    const defaultProject = project;
     server = await startServer({ home, defaultProject, port, root, taskFromBranch, agents });
     console.log(`howl serve: ${server.url} (read-only, every project in ${home}${defaultProject ? `, ${defaultProject} first` : ""})`);
+  } else {
+    // #54: the one project, and no other.
+    const home = howlHome();
+    server = await startServer({ home, project, port, root, taskFromBranch, agents });
+    console.log(`howl serve: ${server.url} (read-only, the project ${project} in ${home})`);
   }
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);

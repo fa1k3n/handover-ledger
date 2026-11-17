@@ -29,6 +29,8 @@ export interface ServeOptions {
   ledger?: string;
   /** Else every project in this folder that holds a ledger. */
   home?: string;
+  /** #54: with `home`, serve this project only. Without it, `home` serves every project, as today (`--all`). */
+  project?: string;
   /** The project shown first; else the first by name. */
   defaultProject?: string;
   /** 0 picks a free port. */
@@ -70,6 +72,24 @@ export interface Item extends Read {
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
+/** #54: the names a request may give in its Host, each with the server's own port. */
+const NAMES = ["127.0.0.1", "localhost", "[::1]"];
+
+/** #54: a request for a project this server does not serve. */
+class NotServed extends Error {}
+
+/**
+ * #54: whether a request is meant for this server: its Host is one of the loopback
+ * names with the server's port, and its Origin, when it has one, is that over http://.
+ * A page of another name pointed at 127.0.0.1 (DNS rebinding) fails here.
+ */
+function meantForUs(req: IncomingMessage, port: number): boolean {
+  const hosts = NAMES.map((name) => `${name}:${port}`);
+  const host = req.headers.host;
+  if (host === undefined || !hosts.includes(host.toLowerCase())) return false;
+  const origin = req.headers.origin;
+  return origin === undefined || hosts.some((h) => origin.toLowerCase() === `http://${h}`);
+}
 const DEFAULT_LIMIT = 500;
 
 const TYPES: Record<string, string> = {
@@ -103,7 +123,12 @@ export async function startServer(options: ServeOptions): Promise<Served> {
   // #85: the lines of each ledger and each activity file as the event log gives them, kept until the file changes.
   const lines: Lines = { ledger: new Kept<Item[]>(), activity: new Kept<Item[]>() };
 
+  let port = options.port;
   const server = createServer((req, res) => {
+    if (!meantForUs(req, port)) {
+      json(res, 403, { error: "not a request for this server" });
+      return;
+    }
     try {
       if (options.write !== undefined && req.method === "POST") {
         const path = pathOf(req);
@@ -112,7 +137,7 @@ export async function startServer(options: ServeOptions): Promise<Served> {
       }
       handle(req, res, options, ledgerVerdict, lines);
     } catch (e) {
-      const status = e instanceof LedgerError ? 400 : 500;
+      const status = e instanceof NotServed ? 404 : e instanceof LedgerError ? 400 : 500;
       json(res, status, { error: (e as Error).message });
     }
   });
@@ -121,7 +146,7 @@ export async function startServer(options: ServeOptions): Promise<Served> {
     server.listen(options.port, host, () => resolve());
   });
   const address = server.address();
-  const port = typeof address === "object" && address ? address.port : options.port;
+  if (typeof address === "object" && address) port = address.port;
   const shown = host === "::1" ? "[::1]" : host === "localhost" ? "127.0.0.1" : host;
   return {
     url: `http://${shown}:${port}`,
@@ -141,7 +166,7 @@ function pathOf(req: IncomingMessage): string {
   }
 }
 
-/** The projects served: the one ledger, or every folder of the home that holds a ledger, by name. */
+/** The projects served: the one ledger, the one project of the home (#54), or every folder of the home that holds a ledger, by name. */
 function projectsOf(options: ServeOptions): Project[] {
   if (options.ledger !== undefined) {
     const name = basename(dirname(options.ledger));
@@ -154,19 +179,26 @@ function projectsOf(options: ServeOptions): Project[] {
     return [];
   }
   return names
-    .filter((name) => isProjectName(name) && existsSync(join(options.home!, name, LEDGER_FILE)))
+    .filter((name) => (options.project === undefined || name === options.project) && isProjectName(name) && existsSync(join(options.home!, name, LEDGER_FILE)))
     .sort()
     .map((name) => ({ name, ledger: join(options.home!, name, LEDGER_FILE) }));
 }
 
 function defaultOf(projects: Project[], options: ServeOptions): Project | undefined {
-  return projects.find((p) => p.name === options.defaultProject) ?? projects[0];
+  return projects.find((p) => p.name === firstOf(options)) ?? projects[0];
+}
+
+/** The project shown first, whose settings (`taskFromBranch`, `agents`) the server was given: the one project, else `defaultProject`. */
+function firstOf(options: ServeOptions): string | undefined {
+  return options.project ?? options.defaultProject;
 }
 
 /** The project a call asks for: only a name from the list, never a path. */
 function projectFor(params: URLSearchParams, options: ServeOptions): Project {
   const projects = projectsOf(options);
   const asked = params.get("project");
+  // #54: started for one project, another is not there to be asked for.
+  if (options.project !== undefined && asked !== null && asked !== options.project) throw new NotServed(`no project ${JSON.stringify(asked)}`);
   const found = asked === null ? defaultOf(projects, options) : projects.find((p) => p.name === asked);
   if (!found) throw new LedgerError(asked === null ? "no project with a ledger" : `no project ${JSON.stringify(asked)}`);
   return found;
@@ -189,11 +221,11 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     const one = options.ledger !== undefined;
     json(res, 200, {
       now: Date.now(),
-      single: one,
+      single: one || options.project !== undefined,
       default: defaultOf(projects, options)?.name ?? null,
       projects: projects.map((p) => ({ name: p.name, lines: lineCount(p.ledger), ...(one ? {} : writingOf(p.ledger)) })),
       // A project with events waiting and no ledger yet is in no list above: nothing has written it, ever.
-      ...(one ? {} : { unstarted: projectsWriting(options.home!).filter((p) => !p.ledger).map(({ name, waiting, oldest }) => ({ name, waiting, oldest })) }),
+      ...(one ? {} : { unstarted: projectsWriting(options.home!).filter((p) => !p.ledger && (options.project === undefined || p.name === options.project)).map(({ name, waiting, oldest }) => ({ name, waiting, oldest })) }),
     });
     return;
   }
@@ -212,8 +244,8 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   }
   const project = projectFor(url.searchParams, options);
   const ledger = project.ledger;
-  const pattern = options.ledger !== undefined || project.name === options.defaultProject ? options.taskFromBranch : undefined;
-  const agents = options.ledger !== undefined || project.name === options.defaultProject ? options.agents : undefined;
+  const pattern = options.ledger !== undefined || project.name === firstOf(options) ? options.taskFromBranch : undefined;
+  const agents = options.ledger !== undefined || project.name === firstOf(options) ? options.agents : undefined;
   switch (url.pathname) {
     case "/api/agents": {
       const now = Date.now();
