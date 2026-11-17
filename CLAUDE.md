@@ -12,9 +12,9 @@ Handover Ledger: an audit-ready ledger of handovers in teams of people and AI ag
 ## The work
 
 - Each step is an issue. The issue is the spec: build what it says, and write any deviation into the issue before or with the code.
-- Tests first, from the issue's list, with `node:test`. No test framework. Few dependencies.
+- Tests first, from the issue's list. Unit tests with `node:test` for the TypeScript and `cargo test` for the Rust. No test framework. Few dependencies. The tests that run `howl` as a process stay in `node:test` through the move to Rust: they are the conformance suite of both versions.
 - `npm test` runs every test from the root; `npm run check` also type-checks and checks the generated types.
-- One package, not workspaces: `src/ledger` (schema, writer, check) and `src/cli` (`howl`).
+- One package, not workspaces: `src/ledger` (schema, writer, check) and `src/cli` (`howl`). During the move to Rust, one crate in `rust/` stands beside the TypeScript; after the cut, the crate and the page.
 - A change goes to `main` only through a pull request, from a branch `issue-<number>-<words>`. The session that wrote it does not merge it; the owner merges, with a squash.
 - The review is a fresh session that starts from the issue and the diff, never from the author's summary. It writes its findings as one comment on the pull request whose first line starts with `[review]`.
 - An existing test is changed only when the issue says so, and the pull request names each one.
@@ -22,17 +22,17 @@ Handover Ledger: an audit-ready ledger of handovers in teams of people and AI ag
 
 ## Languages
 
-- The engine, the CLI, the dashboard and the extension are TypeScript.
+- The engine and the CLI are Rust, moving from TypeScript side by side until the cut ([docs/decisions.md](docs/decisions.md)). The dashboard's page and the extension are TypeScript.
 - What a team programs itself (checks, adapters to in-house tools, scripts in `.howl/`) is Python or shell. The boundary is a process: JSON on standard input, JSON on standard output. No API inside the engine for it.
 - The event types are a fixed list in the schema. A step that needs a new type adds it to the list, in the same change.
-- The event schema in `schema/` is the source. The TypeScript types are generated from it (`npm run gen`) and never edited by hand.
-- Node is needed to build and test. A `howl` that needs no Node on the developer's machine comes later.
+- The event schema in `schema/` is the source. The TypeScript types are generated from it (`npm run gen`) and never edited by hand. The Rust side reads the schema (embedded); Rust types generated from it, when a piece makes them, are checked by `npm run check` as the TypeScript ones are, and never edited by hand.
+- Node and Rust are needed to build and test during the move. The released `howl` needs neither.
 
 ## The ledger
 
 - Append-only, one JSON line per event, each line holding the SHA-256 of the line before.
 - An event does not know its place: `prev` and the hash of the event belong to the line, not to the event.
-- The fixed form of an event is JCS (RFC 8785). Only `fixedForm` and `eventHash` in `src/ledger/fixed.ts` make it.
+- The fixed form of an event is JCS (RFC 8785). Only `fixedForm` and `eventHash` in `src/ledger/fixed.ts`, and their one Rust twin, make it.
 - Test vectors that must match byte for byte, escapes included, are kept in `test/fixtures/`, not written into the tests.
 - The chain holds evidence. Activity (tool calls) goes to a file of its own without a chain and expires.
 - Only an agent's session is recorded. A person is named by a pseudonym kept beside the ledger, and no figure is given per person.
