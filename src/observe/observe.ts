@@ -115,6 +115,8 @@ interface Cursor {
    * does not watch its head again.
    */
   settled?: Record<string, string>;
+  /** #162: the heads let go after a day of refusals, with their change: not watched again for the same commit, updated or not. */
+  gone?: Record<string, number>;
 }
 
 export interface Round {
@@ -274,6 +276,7 @@ export class Observer {
     if (first && this.start !== undefined) cursor.since = this.start;
     const watch = new Map(cursor.watch.map((w) => [w.sha, w]));
     const settled = { ...(cursor.settled ?? {}) };
+    const gone = { ...(cursor.gone ?? {}) };
     this.pendingTrace = new Map(cursor.trace.map((p) => [`${p.change}:${p.sha}`, p]));
     const found: LedgerEvent[] = [];
     let complete = true;
@@ -359,7 +362,7 @@ export class Observer {
           refused = true;
           for (const e of events) if ((e.data as { inferred?: unknown } | undefined)?.inferred === true) refusedIds.add(e.id);
         }
-        this.arm(watch, settled, change, heads);
+        this.arm(watch, settled, gone, change, heads);
       }
     }
 
@@ -413,6 +416,7 @@ export class Observer {
           w.refusedAt ??= now.toISOString();
           if (now.getTime() - Date.parse(w.refusedAt) >= REFUSED_MS) {
             giveUp.add(e.sha!);
+            gone[e.sha!] = w.change;
             this.warn(`${this.host.repository}: checks of ${e.sha!.slice(0, 7)} of change ${e.change}: the writer refused them for a day; its checks were not written, and its head is let go`);
             continue;
           }
@@ -474,6 +478,7 @@ export class Observer {
       ...(Object.keys(waiting).length > 0 ? { waiting } : {}),
       ...(Object.keys(refusals).length > 0 ? { refusals } : {}),
       ...(Object.keys(settled).length > 0 ? { settled } : {}),
+      ...(Object.keys(gone).length > 0 ? { gone } : {}),
     });
     return { ingested, appended, complete };
   }
@@ -657,8 +662,14 @@ export class Observer {
    * that is read again and was not updated at the host keeps what its head's watch holds (the intervals); one that was
    * starts anew. A head that was let go is not watched again by a change that was not updated.
    */
-  private arm(watch: Map<string, Watched>, settled: Record<string, string>, change: Change, heads: Heads): void {
+  private arm(watch: Map<string, Watched>, settled: Record<string, string>, gone: Record<string, number>, change: Change, heads: Heads): void {
     const sha = change.head.sha;
+    // #162: a head let go after a day of refusals stays let go while it is the head; a new head of the change forgets it.
+    for (const [s, n] of Object.entries(gone)) if (n === change.number && s !== sha) delete gone[s];
+    if (gone[sha] === change.number) {
+      watch.delete(sha);
+      return;
+    }
     for (const [s, w] of watch) if (w.change === change.number && s !== sha) watch.delete(s);
     const ended = change.closedAt !== undefined || change.mergedAt !== undefined;
     const end = ended ? (change.mergedAt ?? change.closedAt) : undefined;
@@ -671,6 +682,7 @@ export class Observer {
     }
     if (held === undefined && settled[sha] === change.updatedAt) return;
     delete settled[sha];
+    // #162: the day of refusals runs on across updates of the change.
     watch.set(sha, {
       sha,
       change: change.number,
@@ -679,6 +691,7 @@ export class Observer {
       open: !ended,
       updated: change.updatedAt,
       headAt: heads.headAt,
+      ...(held?.change === change.number && held.refusedAt !== undefined ? { refusedAt: held.refusedAt } : {}),
       ...(end !== undefined ? { end } : {}),
     });
   }
@@ -837,6 +850,7 @@ export class Observer {
         ...(isWaiting(value.waiting) ? { waiting: value.waiting } : {}),
         ...(isRecord(value.refusals, "number") ? { refusals: value.refusals } : {}),
         ...(isStrings(value.settled) ? { settled: value.settled } : {}),
+        ...(isRecord(value.gone, "number") ? { gone: value.gone } : {}),
       };
     } catch {
       return { since: null, watch: [], trace: [] };
