@@ -48,9 +48,12 @@ The dashboard is a page built with React and Tailwind; howl serves it on this ma
 
 ```sh
 npm run build:dashboard                         # into dist/dashboard, at most 300 kB gzipped
-npm run howl -- serve --project example         # http://127.0.0.1:4317, every project, example first
+npm run howl -- serve --project example         # http://127.0.0.1:4317, the project example only
+npm run howl -- serve --all                     # every project of howl's home, picked in the page
 npm run dev:dashboard                           # while working on the page, beside a running howl serve
 ```
+
+`howl serve` serves one project: the one of the nearest `.howl/howl.yml`, or the one `--project` names. A request for another project is answered with 404. `--all` serves every project of howl's home, with a menu to pick one, and says so when it starts. With no `howl.yml` above the folder and none of `--project`, `--all` and `--ledger`, it serves nothing and ends with 2. The server answers only a request whose `Host` is `127.0.0.1`, `localhost` or `[::1]` with its own port, and whose `Origin`, when there is one, is the same over `http://`. Any other is refused with 403, so a page of another name that points at 127.0.0.1 cannot read the ledger through the browser.
 
 The event log of the page is one list of every project the server serves, in the order of time. Tool calls are in it when the box "Show tool calls" is ticked, or when a filter names `tool.used`. The filter line starts empty, and "Clear" empties it. A filter is a CEL expression over `event` (see `howl watch` below), and a click anywhere on a row opens the event in a dialog: what the page reads of it on the left, the line as it is stored on the right, to be held against each other. "Copy line" copies the line byte for byte, "Older" and "Newer" and the arrow keys step through the list, and "Show only this" beside the project or the repository adds it to the filter. A column for the project shows when more than one is served, and one for the repository when the rows come from more than one. The list is a view: each project keeps its own ledger and its own chain, so a line number and a hash are named with their project. The team, the overview and one change are shown for the project picked in the menu.
 
