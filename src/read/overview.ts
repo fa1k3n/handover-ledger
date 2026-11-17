@@ -141,7 +141,8 @@ export interface KeyFigures {
   /** #25: the changes to .howl/ in the period, the newest first. */
   configChanges: { change: string; time: string; paths: string[] }[];
   /** #26: changes and reviews through a person's account that no agent was matched to, in the period: where the chain may be broken. */
-  unattributed: { count: number; changes: string[] };
+  /** #52: absent when the ledger holds no agent in the period: with none, every change would count. */
+  unattributed?: { count: number; changes: string[] };
   /**
    * #38: of the changes merged in the period, those whose merged head names a requirement in its tests,
    * as the repository showed it; `without` names the others that were read, `unrecorded` those never read.
@@ -206,9 +207,13 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
     .filter((e) => e.type === "config.changed" && e.change !== undefined && now - Date.parse(e.time) <= PERIOD_MS)
     .map((e) => ({ change: e.change!, time: e.time, paths: ((e.data as { paths?: string[] } | undefined)?.paths ?? []).filter((p) => typeof p === "string") }))
     .reverse();
+  // #52: an agent is behind an account only where the ledger holds one: a claimed event of a session, or an observed event of an agent.
+  const hasAgent = sorted.some(
+    (e) => now - Date.parse(e.time) <= PERIOD_MS && ((e.source.kind === "claimed" && e.session !== undefined) || (observed(e) && e.actor?.kind === "agent")),
+  );
   return {
     configChanges,
-    unattributed: { count: missing.length, changes: [...new Set(missing.map((e) => e.change!))].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b)) },
+    ...(hasAgent ? { unattributed: { count: missing.length, changes: [...new Set(missing.map((e) => e.change!))].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b)) } } : {}),
     open: [...state.values()].filter((s) => s === "open").length,
     merged: rounds.length,
     leadTimeMedianMs: median(leadTimes),

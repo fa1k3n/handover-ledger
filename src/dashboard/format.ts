@@ -4,7 +4,7 @@
 import { ACTIVITY_FILE } from "../ledger/names.ts";
 import { checksNames } from "../read/checks-text.ts";
 import { isPair } from "../read/filter-text.ts";
-import { duration } from "../read/overview.ts";
+import { duration, type KeyFigures } from "../read/overview.ts";
 import type { Claim, Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
@@ -426,4 +426,9 @@ export function indentStored(raw: string): string {
     else if (!/\s/.test(c)) out += c;
   }
   return out;
+}
+
+/** #52: whether the tile "No agent matched" and its list are shown: only when the ledger holds an agent in the period. */
+export function showsUnattributed(figures: KeyFigures): boolean {
+  return figures.unattributed !== undefined;
 }
