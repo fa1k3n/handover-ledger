@@ -5,7 +5,7 @@ classes:                                   # from the highest demand to the lowe
   - name: evidence                         # what the proof rests on: a fault can make a broken chain look whole
     paths: [src/ledger/**, src/keys/**, src/anchor/**, src/export/**, schema/**]
   - name: rules                            # what decides how a change is built, checked and merged
-    paths: [.howl/**, .github/**, scripts/**, CLAUDE.md, package.json, package-lock.json, 'tsconfig*.json', .gitignore]
+    paths: [.howl/**, .github/**, .watchbill/**, scripts/**, CLAUDE.md, package.json, package-lock.json, 'tsconfig*.json', .gitignore]
   - name: recording                        # what writes events: a fault loses or distorts what happened
     paths: [src/hook/**, src/observe/**, src/inbox/**, src/howl/**, src/cli/**]
   - name: reading                          # what only reads and shows
