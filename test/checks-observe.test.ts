@@ -852,3 +852,51 @@ test("R162.1: an open head whose checks event the writer refuses is asked on the
 test("R162.1: an ended head inside its hour whose checks event the writer refuses is asked on the schedule of a watched head, bounded by the end of its hour (finding F1 of round 1)", async () => {
   assert.deepEqual((await gapsOf(merged(30), 31)).slice(0, 6), [1, 2, 4, 8, 16, 28]);
 });
+
+// ---- #162, R162.4: the first refusal and the let-go survive an update of the change ----
+
+/** The host lists the change as updated at the machine's minute `minute`. */
+const updated = (d: Direct, minute: number) => change(d, { ...merged(30), updatedAt: at(minute) });
+
+test("R162.4: the day of the refusals runs on across updates of the change: a head let go about 24 hours after its first refusal, though its change was updated every few hours", async () => {
+  const counts = new Map<string, number>();
+  const d = refused(() => true, counts);
+  const DAY = 24 * 60;
+  const start = 200;
+  let letGo: number | undefined;
+  for (let k = 0; k <= DAY + 400; k += 10) {
+    if (k > 0 && k % 180 === 0 && letGo === undefined) updated(d, start + k - 1);
+    await d.round(clock(start + k));
+    if (d.cursor().watch.length === 0 && letGo === undefined) letGo = k;
+  }
+  assert.ok(letGo !== undefined, "let go");
+  assert.ok(letGo >= DAY - 60 && letGo <= DAY + 120, `let go ${letGo} minutes after the first refusal, and not a day after the last update`);
+  d.close();
+});
+
+test("R162.4: a head let go after a day of refusals is not watched again for the same commit after an update of its change, and its let-go warning comes once", async () => {
+  const counts = new Map<string, number>();
+  const d = refused(() => true, counts);
+  const DAY = 24 * 60;
+  const start = 200;
+  const warnings: string[] = [];
+  let letGo: number | undefined;
+  for (let k = 0; k <= DAY + 120 && letGo === undefined; k += 10) {
+    await d.round(clock(start + k));
+    if (d.cursor().watch.length === 0) letGo = k;
+    if (d.said() !== "" && d.cursor().watch.length === 0) warnings.push(d.said());
+  }
+  assert.ok(letGo !== undefined, "let go");
+  assert.equal(warnings.length, 1, "the let-go warning");
+  const calls = counts.get(SHA.a);
+  for (let k = 1; k <= 6; k++) {
+    updated(d, start + letGo + k * 60 - 1);
+    await d.round(clock(start + letGo + k * 60));
+    if (d.said() !== "") warnings.push(d.said());
+    assert.deepEqual(d.cursor().watch, [], `not watched again after update ${k}`);
+  }
+  assert.equal(counts.get(SHA.a), calls, "not asked again after updates");
+  assert.equal(warnings.length, 1, `one warning in all: ${warnings.join(" | ")}`);
+  assert.deepEqual(checked([...ledgerEvents(d.ledger)] as LedgerEvent[]), [], "nothing is written");
+  d.close();
+});
