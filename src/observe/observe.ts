@@ -60,6 +60,8 @@ interface Watched {
   gap?: number;
   /** When to ask next, by the machine's clock; none: in the next round. */
   next?: string;
+  /** #162: when the writer first refused an event of the head; kept while refusals go on, dropped when an event of it is written. A cursor from before has none. */
+  refusedAt?: string;
 }
 
 /** #38: a head whose tests have not been read yet: the commit was not on the machine, or the round had read enough. */
@@ -152,6 +154,8 @@ export const STILL_MS = 5 * 60_000;
  */
 export const CHECKS_FIRST_MS = 60_000;
 export const CHECKS_LAST_MS = 60 * 60_000;
+/** #162: how long a head is asked about after the writer first refused its events, before it is let go. */
+const REFUSED_MS = 24 * 60 * 60_000;
 export const CHECKS_QUIET_MS = 7 * 24 * 60 * 60_000;
 export const CHECKS_ENDED_MS = 60 * 60_000;
 
@@ -393,6 +397,7 @@ export class Observer {
     found.sort(happensBefore);
     // #47: a result that the writer refuses stops the checks of that one commit for the round, and never the round.
     const stopped = new Set<string>();
+    const giveUp = new Set<string>();
     for (const e of found) {
       if (this.known(e.id.slice(this.prefix!.length))) continue;
       const ofChecks = e.type.startsWith("checks.") && e.sha !== undefined;
@@ -402,10 +407,25 @@ export class Observer {
       } catch (err) {
         if (!ofChecks) throw err;
         stopped.add(e.sha!);
+        // #162: asked again on the schedule of any watched head, and let go once the refusals have gone on for a day.
+        const w = watch.get(e.sha!);
+        if (w !== undefined) {
+          w.refusedAt ??= now.toISOString();
+          if (now.getTime() - Date.parse(w.refusedAt) >= REFUSED_MS) {
+            giveUp.add(e.sha!);
+            this.warn(`${this.host.repository}: checks of ${e.sha!.slice(0, 7)} of change ${e.change}: the writer refused them for a day; its checks were not written, and its head is let go`);
+            continue;
+          }
+          if (w.busy !== true) {
+            w.gap = w.gap === undefined ? CHECKS_FIRST_MS : Math.min(w.gap * 2, CHECKS_LAST_MS);
+            w.next = new Date(now.getTime() + w.gap).toISOString();
+          }
+        }
         this.warn(`${this.host.repository}: checks of ${e.sha!.slice(0, 7)} of change ${e.change}: ${(err as Error).message}; its events of this round are not written, and its head is asked about again`);
         continue;
       }
       appended++;
+      if (ofChecks) delete watch.get(e.sha!)?.refusedAt;
       if (refusedIds.has(e.id)) refusedHeads++;
       if (e.type === "change.opened" && e.sha) this.openedHeads.set(Number(e.change), e.sha);
       if ((e.type === "checks.passed" || e.type === "checks.failed") && e.sha) {
@@ -431,8 +451,12 @@ export class Observer {
     if (waited.length > 0) this.warn(`${this.host.repository}: waiting for the list of pushes to reach the head of ${numbers(waited)}`);
 
     // #47: a head is let go once its last event is written; one whose event the writer refused stays, and is asked again.
+    for (const sha of giveUp) {
+      const w = watch.get(sha);
+      if (w !== undefined && !goes.includes(w)) goes.push(w);
+    }
     for (const w of goes) {
-      if (stopped.has(w.sha)) continue;
+      if (stopped.has(w.sha) && !giveUp.has(w.sha)) continue;
       watch.delete(w.sha);
       if (w.updated !== undefined) settled[w.sha] = w.updated;
     }
