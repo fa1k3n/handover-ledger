@@ -491,7 +491,7 @@ scripts/bench.sh --demo ~/path/to/demo --keep out/a  # also the demo's flow, abo
 scripts/bench.sh --compare out/a out/b               # two --keep folders, times and ids masked
 ```
 
-With `--demo`, the demo is copied to a scratch place and played with a `HOWL_HOME` of its own; the folder given is never changed. After each step `howl show 21` and `howl status --json` are kept, so the same flow run with two versions of `howl` can be compared. The figures are shown, never enforced. Making the inputs needs Node, whatever `HOWL_BIN` is.
+With `--demo`, the demo is copied to a scratch place and played with a `HOWL_HOME` of its own; the folder given is never changed. After each step `howl show 21` and `howl status --json` are kept, so the same flow run with two versions of `howl` can be compared. Each timed run includes a few milliseconds for `env` and `/usr/bin/time`, the same for every version. The task kept is 21 unless `--task` says another. The figures are shown, never enforced. Making the inputs needs Node, whatever `HOWL_BIN` is.
 
 ## Howl on itself
 

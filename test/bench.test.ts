@@ -152,11 +152,11 @@ test("the text form has a line for each case, says what it ran on, and has no de
 
 test("--compare masks times and ids and names what still differs", () => {
   const [a, b] = [folder(), folder()];
-  writeFileSync(join(a, "1.show.txt"), "2026-11-17 08:49:22  head 13b63c3 by person-599cbb79, 19s\nround 1\n");
-  writeFileSync(join(b, "1.show.txt"), "2026-11-18 09:01:00  head ec039de by person-a545e572, 24s\nround 1\n");
+  writeFileSync(join(a, "1.show.txt"), "2026-11-17 08:49:22  head 13b63c3 and 1eb1e6d by person-599cbb79, 19s\nround 1\n");
+  writeFileSync(join(b, "1.show.txt"), "2026-11-18 09:01:00  head ec039de and ceb481a by person-a545e572, 24s\nround 1\n");
   const same = bench(["--compare", a, b]);
   assert.equal(same.status, 0, same.stdout);
-  writeFileSync(join(b, "1.show.txt"), "2026-11-18 09:01:00  head ec039de by person-a545e572, 24s\nround 2\n");
+  writeFileSync(join(b, "1.show.txt"), "2026-11-18 09:01:00  head ec039de and ceb481a by person-a545e572, 24s\nround 2\n");
   const different = bench(["--compare", a, b]);
   assert.equal(different.status, 1);
   assert.match(different.stdout, /differs: 1\.show\.txt/);

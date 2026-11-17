@@ -9,6 +9,7 @@
 #   scripts/bench.sh --seed 7              the seed of the inputs (default 1)
 #   scripts/bench.sh --anyway              run although the processor's clock is low
 #   scripts/bench.sh --demo FOLDER         also the demo's flow, played in a copy of FOLDER
+#   scripts/bench.sh --task 21             with --demo: the task whose `howl show` is kept (default 21, the demo's story)
 #   scripts/bench.sh --keep FOLDER         with --demo: keep `howl show` and `howl status --json` after each step
 #   scripts/bench.sh --only seeded|demo    leave the other part out
 #   scripts/bench.sh --make FOLDER         only make the inputs in FOLDER, and end
@@ -31,6 +32,7 @@ JSON=0
 ANYWAY=0
 DEMO=
 KEEP=
+TASK=21
 ONLY=
 MAKE=
 COMPARE=()
@@ -46,6 +48,7 @@ while [ $# -gt 0 ]; do
     --sizes) [ $# -ge 2 ] || die "--sizes needs a list"; SIZES=$2; shift ;;
     --seed) [ $# -ge 2 ] || die "--seed needs a number"; SEED=$2; shift ;;
     --demo) [ $# -ge 2 ] || die "--demo needs a folder"; DEMO=$2; shift ;;
+    --task) [ $# -ge 2 ] || die "--task needs a task number"; TASK=$2; shift ;;
     --keep) [ $# -ge 2 ] || die "--keep needs a folder"; KEEP=$2; shift ;;
     --only) [ $# -ge 2 ] || die "--only needs seeded or demo"; ONLY=$2; shift ;;
     --make) [ $# -ge 2 ] || die "--make needs a folder"; MAKE=$2; shift ;;
@@ -67,14 +70,15 @@ for s in "${SIZE_LIST[@]}"; do [ "$s" -ge 2 ] || die "a ledger has at least 2 li
 
 # What differs from one run to the next for no reason of the version: times, spans, ids, sessions, pseudonyms.
 mask() {
+  # The ids come before the clock times and the spans: a short hash that ends in digits and `d` or `s` is no span.
   sed -E \
     -e 's/[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2})?(\.[0-9]+)?Z?/<time>/g' \
+    -e 's/\b[0-9a-f]{7,64}\b/<id>/g' \
     -e 's/[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?/<time>/g' \
     -e 's/[0-9]+ ?(d|h|min|m|s|ms)([^A-Za-z0-9]|$)/<span>\2/g' \
     -e 's/demo-agent-[0-9]+/<session>/g' \
-    -e 's#/[^ ]*howl-bench\.[A-Za-z0-9]+#<scratch>#g' \
     -e 's/person-[0-9a-f]{8}/<person>/g' \
-    -e 's/\b[0-9a-f]{7,64}\b/<id>/g' "$1"
+    -e 's#/[^ ]*howl-bench\.[A-Za-z0-9]+#<scratch>#g' "$1"
 }
 
 if [ ${#COMPARE[@]} -gt 0 ]; then
@@ -382,7 +386,7 @@ demo() {
         # What the step left, kept from the warm-up so that the timed runs are not disturbed by it.
         local base
         base=$(printf '%02d-%s' "$n" "$step")
-        (cd "$W/demo" && demo_env $HOWL_BIN show 21 > "$keepdir/$base.show.txt" 2>&1; echo "exit: $?" >> "$keepdir/$base.show.txt"
+        (cd "$W/demo" && demo_env $HOWL_BIN show "$TASK" > "$keepdir/$base.show.txt" 2>&1; echo "exit: $?" >> "$keepdir/$base.show.txt"
           demo_env $HOWL_BIN status --json > "$keepdir/$base.status.json" 2>&1; echo "exit: $?" >> "$keepdir/$base.status.json") < /dev/null
       fi
     done
@@ -414,8 +418,8 @@ commit=$(git -C "$ROOT" rev-parse HEAD 2> /dev/null)
 [ -z "$(git -C "$ROOT" status --porcelain 2> /dev/null)" ] || commit="$commit+dirty"
 demo_commit=
 if [ -n "$DEMO" ] && [ "$ONLY" != seeded ]; then
-  demo_commit=$(git -C "$DEMO" rev-parse HEAD 2> /dev/null)
-  [ -z "$(git -C "$DEMO" status --porcelain 2> /dev/null)" ] || demo_commit="$demo_commit+dirty"
+  demo_commit=$(git --no-optional-locks -C "$DEMO" rev-parse HEAD 2> /dev/null)
+  [ -z "$(git --no-optional-locks -C "$DEMO" status --porcelain 2> /dev/null)" ] || demo_commit="$demo_commit+dirty"
 fi
 
 if [ $JSON -eq 0 ]; then
