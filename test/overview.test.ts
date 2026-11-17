@@ -159,3 +159,53 @@ test("#48: a review with no actor and no word that the account is gone is still 
   delete e.actor;
   assert.deepEqual(handovers(items([observed("change.opened", 0, "agent-a"), e])), []);
 });
+
+/** #52: a claimed event of an agent's session. */
+function session(minute: number, agent: string): LedgerEvent {
+  return {
+    v: 0,
+    id: `s-${++n}`,
+    time: at(minute),
+    type: "session.started",
+    source: { adapter: "claude-code-hook", kind: "claimed" },
+    project: PROJECT,
+    actor: { kind: "agent", id: agent },
+    session: `session-${agent}`,
+    branch: "task-9-elsewhere",
+  };
+}
+
+test("#52 R52.1: on a ledger of people only, there is no unattributed figure, and the other figures are as before", () => {
+  const events = [
+    observed("change.opened", 0, "person-0a0a0a0a", { change: "7" }),
+    observed("review.commented", 5, "person-0b0b0b0b", { change: "7" }),
+    observed("review.approved", 10, "person-0b0b0b0b", { change: "7" }),
+    observed("change.merged", 12, "person-0a0a0a0a", { change: "7" }),
+    observed("change.opened", 20, "person-0a0a0a0a", { change: "8", task: "4" }),
+    observed("review.commented", 25, "person-0b0b0b0b", { change: "8", task: "4" }),
+  ];
+  const figures = keyFigures(events, T0 + DAY);
+  assert.equal(figures.unattributed, undefined);
+  assert.ok(!("unattributed" in figures));
+  assert.equal(figures.open, 1);
+  assert.equal(figures.merged, 1);
+  assert.equal(figures.leadTimeMedianMs, 12 * 60_000);
+  assert.equal(figures.reviewRoundsMean, 2);
+  assert.equal(figures.periodDays, 30);
+  assert.deepEqual(figures.configChanges, []);
+});
+
+test("#52 R52.2: with one session of an agent in the period, a review through a person's account it does not match is counted once", () => {
+  const events = [session(0, "agent-a"), observed("review.commented", 5, "person-0b0b0b0b", { change: "8" })];
+  const figures = keyFigures(events, T0 + DAY);
+  assert.notEqual(figures.unattributed, undefined);
+  assert.equal(figures.unattributed!.count, 1);
+  assert.deepEqual(figures.unattributed!.changes, ["8"]);
+});
+
+test("#52 R52.3: a session of an agent older than the period does not bring the unattributed figure back", () => {
+  const events = [session(0, "agent-a"), observed("review.commented", 40 * 24 * 60 + 5, "person-0b0b0b0b", { change: "8" })];
+  const figures = keyFigures(events, T0 + 41 * DAY);
+  assert.equal(figures.unattributed, undefined);
+  assert.ok(!("unattributed" in figures));
+});
