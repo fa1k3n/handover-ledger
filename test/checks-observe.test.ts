@@ -741,3 +741,179 @@ test("#47: the view of one change and a bundle show the results of their own cha
   const types = rawLines(path).filter((_, i) => selected.includes(i + 1)).map((l) => (JSON.parse(l) as { event: LedgerEvent }).event.type);
   assert.equal(types.filter((t) => t.startsWith("checks.")).length, 3, "every result and the word of none is selected");
 });
+
+// ---- #162: a head whose checks the writer always refuses ----
+
+/** An ended change whose head failed its checks, and a writer that refuses `checks.failed` while `refusing()` says so. */
+function refused(refusing: () => boolean, counts: Map<string, number>, over: Partial<Change> = merged(30)): Direct {
+  const d = direct({ wrap: counting(counts), refuse: (e) => refusing() && e.type === "checks.failed" });
+  change(d, over);
+  d.host.runs(SHA.a, [run("r1", "lint", "failed", 1, 5)]);
+  return d;
+}
+
+test("R162.1: a head whose checks event the writer refuses is asked again after a minute, then twice as long each time up to an hour, and not in every round", async () => {
+  const counts = new Map<string, number>();
+  const d = refused(() => true, counts);
+  const asked: number[] = [];
+  for (let k = 0; k < 240; k++) {
+    const before = counts.get(SHA.a) ?? 0;
+    await d.round(clock(200 + k));
+    if ((counts.get(SHA.a) ?? 0) > before) asked.push(k);
+  }
+  assert.equal(asked[0], 0, "asked in the first round");
+  const gaps = asked.slice(1).map((k, i) => k - asked[i]!);
+  assert.deepEqual(gaps.slice(0, 8), [1, 2, 4, 8, 16, 32, 60, 60], `the minutes between asks: ${gaps}`);
+  assert.ok(asked.length <= 12, `${asked.length} asks in four hours`);
+  assert.deepEqual(checked([...ledgerEvents(d.ledger)] as LedgerEvent[]), [], "nothing is written");
+  d.close();
+});
+
+test("R162.2: a head refused in every ask for 24 hours since the first refusal is let go, with one warning that names the head, its change and that its checks were not written; none after that", async () => {
+  const counts = new Map<string, number>();
+  const d = refused(() => true, counts);
+  const DAY = 24 * 60;
+  const start = 200;
+  let letGo: number | undefined;
+  const said = new Map<number, string>();
+  for (let k = 0; k <= DAY + 180; k += 10) {
+    await d.round(clock(start + k));
+    said.set(k, d.said());
+    const watched = d.cursor().watch.length;
+    if (k < DAY - 60) assert.equal(watched, 1, `still watched ${k} minutes after the first refusal`);
+    if (watched === 0 && letGo === undefined) letGo = k;
+  }
+  assert.ok(letGo !== undefined, "let go");
+  assert.ok(letGo >= DAY - 60 && letGo <= DAY + 120, `let go ${letGo} minutes after the first refusal`);
+  const warning = said.get(letGo!)!;
+  assert.match(warning, /aaaaaaa/, "names the head by its 7 characters");
+  assert.doesNotMatch(warning, /aaaaaaaa/, "and no more than 7");
+  assert.match(warning, /\b7\b/, "and its change");
+  assert.match(warning, /checks[^]*not written|not written[^]*checks/i, warning);
+  assert.doesNotMatch(warning, /asked about again/, "it is the let-go and not another refusal");
+  for (const [k, text] of said) if (k > letGo!) assert.equal(text, "", `no warning ${k} minutes after the first refusal: ${text}`);
+  const callsAtLetGo = counts.get(SHA.a);
+  await d.round(clock(start + DAY + 300));
+  assert.equal(counts.get(SHA.a), callsAtLetGo, "not asked after it is let go");
+  assert.equal(d.said(), "");
+  d.close();
+});
+
+test("R162.3: a head whose event is refused once and taken at the next ask is written and let go, and no warning of a let-go follows", async () => {
+  let refusing = true;
+  const counts = new Map<string, number>();
+  const d = refused(() => refusing, counts);
+  assert.deepEqual(checked(await d.round(clock(200))), []);
+  assert.equal(d.cursor().watch.length, 1, "kept after the refusal");
+  refusing = false;
+  assert.deepEqual(summary(await d.round(clock(201))), [["checks.failed", `checks:${SHA.a}`, at(5)]]);
+  assert.deepEqual(d.cursor().watch, []);
+  const calls = counts.get(SHA.a);
+  for (let k = 0; k < 30; k++) {
+    assert.deepEqual(await d.round(clock(202 + k * 60)), []);
+    assert.equal(d.said(), "");
+  }
+  assert.equal(counts.get(SHA.a), calls, "not asked again");
+  d.close();
+});
+
+test("R162.3: a head refused in every ask for a few hours and taken after is written and let go, the first refusal forgotten", async () => {
+  let refusing = true;
+  const counts = new Map<string, number>();
+  const d = refused(() => refusing, counts);
+  for (let k = 0; k < 300; k += 10) await d.round(clock(200 + k));
+  assert.equal(d.cursor().watch.length, 1);
+  refusing = false;
+  let written: LedgerEvent[] = [];
+  for (let k = 300; k < 400 && written.length === 0; k += 10) written = checked(await d.round(clock(200 + k)));
+  assert.deepEqual(written.map((e) => e.type), ["checks.failed"]);
+  assert.deepEqual(d.cursor().watch, []);
+  d.close();
+});
+
+/** The minutes between the asks of the head, one round a minute, from `first`, while the writer refuses. */
+async function gapsOf(over: Partial<Change>, first: number): Promise<number[]> {
+  const counts = new Map<string, number>();
+  const d = refused(() => true, counts, over);
+  const asked: number[] = [];
+  for (let k = 0; k < 240; k++) {
+    const before = counts.get(SHA.a) ?? 0;
+    await d.round(clock(first + k));
+    if ((counts.get(SHA.a) ?? 0) > before) asked.push(k);
+  }
+  d.close();
+  return asked.slice(1).map((k, i) => k - asked[i]!);
+}
+
+test("R162.1: an open head whose checks event the writer refuses is asked on the schedule of a watched head: 1, 2, 4, 8, 16, 32, 60 minutes (finding F1 of round 1)", async () => {
+  assert.deepEqual((await gapsOf({}, 200)).slice(0, 8), [1, 2, 4, 8, 16, 32, 60, 60]);
+});
+
+test("R162.1: an ended head inside its hour whose checks event the writer refuses is asked on the schedule of a watched head, bounded by the end of its hour (finding F1 of round 1)", async () => {
+  assert.deepEqual((await gapsOf(merged(30), 31)).slice(0, 6), [1, 2, 4, 8, 16, 28]);
+});
+
+// ---- #162, R162.4: the first refusal and the let-go survive an update of the change ----
+
+/** The host lists the change as updated at the machine's minute `minute`. */
+const updated = (d: Direct, minute: number) => change(d, { ...merged(30), updatedAt: at(minute) });
+
+test("R162.4: the day of the refusals runs on across updates of the change: a head let go about 24 hours after its first refusal, though its change was updated every few hours", async () => {
+  const counts = new Map<string, number>();
+  const d = refused(() => true, counts);
+  const DAY = 24 * 60;
+  const start = 200;
+  let letGo: number | undefined;
+  for (let k = 0; k <= DAY + 400; k += 10) {
+    if (k > 0 && k % 180 === 0 && letGo === undefined) updated(d, start + k - 1);
+    await d.round(clock(start + k));
+    if (d.cursor().watch.length === 0 && letGo === undefined) letGo = k;
+  }
+  assert.ok(letGo !== undefined, "let go");
+  assert.ok(letGo >= DAY - 60 && letGo <= DAY + 120, `let go ${letGo} minutes after the first refusal, and not a day after the last update`);
+  d.close();
+});
+
+test("R162.4: a head let go after a day of refusals is not watched again for the same commit after an update of its change, and its let-go warning comes once", async () => {
+  const counts = new Map<string, number>();
+  const d = refused(() => true, counts);
+  const DAY = 24 * 60;
+  const start = 200;
+  const warnings: string[] = [];
+  let letGo: number | undefined;
+  for (let k = 0; k <= DAY + 120 && letGo === undefined; k += 10) {
+    await d.round(clock(start + k));
+    if (d.cursor().watch.length === 0) letGo = k;
+    if (d.said() !== "" && d.cursor().watch.length === 0) warnings.push(d.said());
+  }
+  assert.ok(letGo !== undefined, "let go");
+  assert.equal(warnings.length, 1, "the let-go warning");
+  const calls = counts.get(SHA.a);
+  for (let k = 1; k <= 6; k++) {
+    updated(d, start + letGo + k * 60 - 1);
+    await d.round(clock(start + letGo + k * 60));
+    if (d.said() !== "") warnings.push(d.said());
+    assert.deepEqual(d.cursor().watch, [], `not watched again after update ${k}`);
+  }
+  assert.equal(counts.get(SHA.a), calls, "not asked again after updates");
+  assert.equal(warnings.length, 1, `one warning in all: ${warnings.join(" | ")}`);
+  assert.deepEqual(checked([...ledgerEvents(d.ledger)] as LedgerEvent[]), [], "nothing is written");
+  d.close();
+});
+
+test("R162.1: an ended head past its hour with a run still going, whose checks.unfinished the writer refuses, is asked on the schedule of a watched head, not in every round (finding F7 of round 2)", async () => {
+  const counts = new Map<string, number>();
+  const d = direct({ wrap: counting(counts), refuse: (e) => e.type === "checks.unfinished" });
+  change(d, merged(30));
+  d.host.runs(SHA.a, [run("r1", "slow job", "pending", 1)]);
+  const asked: number[] = [];
+  for (let k = 0; k < 240; k++) {
+    const before = counts.get(SHA.a) ?? 0;
+    await d.round(clock(200 + k));
+    if ((counts.get(SHA.a) ?? 0) > before) asked.push(k);
+  }
+  d.close();
+  assert.equal(asked[0], 0, "asked in the first round");
+  const gaps = asked.slice(1).map((k, i) => k - asked[i]!);
+  assert.deepEqual(gaps.slice(0, 8), [1, 2, 4, 8, 16, 32, 60, 60], `the minutes between asks: ${gaps}`);
+});
