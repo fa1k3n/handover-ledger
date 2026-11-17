@@ -7,7 +7,7 @@ import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSyn
 import { join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { folder } from "./helpers.ts";
+import { folder, sha256 } from "./helpers.ts";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/bench.sh", import.meta.url));
 
@@ -86,6 +86,19 @@ test("the same seed gives byte-identical inputs, another seed does not", () => {
   assert.notDeepEqual(snapshot(c).get("home-100/bench/ledger.jsonl"), first.get("home-100/bench/ledger.jsonl"));
   const ledger = Buffer.from(first.get("home-100/bench/ledger.jsonl")!, "base64").toString("utf8");
   assert.equal(ledger.split("\n").length - 1, 100);
+});
+
+test("the ledgers of seed 1 are the bytes they were: a change in openLedger or the fixed form shows here", () => {
+  const dir = folder();
+  assert.equal(bench(["--make", dir]).status, 0);
+  const digests = {
+    "100": "8fe5c09ea015df13da0b852ccb8817313e72c22fbc8aea11b28afb68b433102b",
+    "10000": "266f18c886ba720528258c9199a73bb26755f1fa083904cbcdfff328ffcf4ce2",
+    "100000": "ada3b0d7c84d1325c47c197ac06a9267bec2093d8b51b646061baff1a271f501",
+  };
+  for (const [size, digest] of Object.entries(digests)) {
+    assert.equal(sha256(readFileSync(join(dir, `home-${size}`, "bench", "ledger.jsonl"), "utf8")), digest, `${size} lines`);
+  }
 });
 
 test("a ledger made for the cases verifies", () => {
