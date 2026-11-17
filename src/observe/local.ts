@@ -9,10 +9,11 @@
 //                           `pushes` (#44): each with its `id`, the head `sha`, `at`, and where known `by`, `before`
 //                           and `forced`; a file with none is the fall-back, marked as inferred; an empty list waits as
 //                           a lagging one does; `pushesRefused: true` is a list the host refuses
-//   checks/<sha>.json       #47: {"sha", "runs": [{"name", "result": "passed|failed|pending", "at", "attempt"}]}, the runs
-//                           of a commit's checks; a run without `attempt` has its place among the runs of its name in the
-//                           file. Of the older form, {"sha", "state": "passed|failed|pending|none", "at"}: one verdict
-//                           with no name, read as one attempt of a check that has no name. No file is no checks
+//   checks/<sha>.json       #47: {"sha", "runs": [{"id", "name", "suite", "result": "passed|failed|pending", "started", "at"}],
+//                           "latest": ["<id>", ...]}: the runs of a commit's checks (`id` defaults to `r<place in the list>`),
+//                           and the ids of the runs the host lists as the latest of each check, when it lists any. Of the
+//                           older form, {"sha", "state": "passed|failed|pending|none", "at"}: one verdict with no name, read
+//                           as one run of a check that has no name. No file is no checks
 //   repository.json         {"id": ..., "was": ["owner/old"]}: the repository's lasting id and the names it had
 //                           before (#48); without the file, the id is the name and no other name is this repository
 //   fail.json               calls that fail: "list", "task <n>", "change <n>", "checks <sha>"
@@ -99,7 +100,7 @@ export class LocalHost implements CodeHost {
 
   async checks(sha: string): Promise<ChecksState> {
     this.maybeFail(`checks ${sha}`);
-    let file: { runs?: unknown; state?: unknown; at?: unknown };
+    let file: { runs?: unknown; latest?: unknown; state?: unknown; at?: unknown };
     try {
       file = this.read(join("checks", `${sha}.json`));
     } catch (e) {
@@ -108,25 +109,24 @@ export class LocalHost implements CodeHost {
     }
     if (file.runs === undefined) {
       // The older form: one verdict, and no name of a check.
-      if (file.state === "passed" || file.state === "failed") return { sha, runs: [{ result: file.state, ...(typeof file.at === "string" ? { at: file.at } : {}), attempt: 1 }] };
-      return { sha, runs: file.state === "pending" ? [{ result: "pending", attempt: 1 }] : [] };
+      if (file.state === "passed" || file.state === "failed") return { sha, runs: [{ id: "1", result: file.state, ...(typeof file.at === "string" ? { at: file.at } : {}) }] };
+      return { sha, runs: file.state === "pending" ? [{ id: "1", result: "pending" }] : [] };
     }
     if (!Array.isArray(file.runs)) throw new Error(`checks/${sha}.json needs "runs": a list`);
-    const places = new Map<string, number>();
-    const runs = (file.runs as (Partial<CheckRun> & Record<string, unknown>)[]).map((r): CheckRun => {
-      // Only the name, the result, the time and the attempt are read: the rest of a run is never looked at.
-      const key = typeof r.name === "string" ? r.name : "";
-      const place = (places.get(key) ?? 0) + 1;
-      places.set(key, place);
+    const runs = (file.runs as (Partial<CheckRun> & Record<string, unknown>)[]).map((r, i): CheckRun => {
+      // Only what a run is made of is read: the rest of it (an output, a link) is never looked at.
       if (r.result !== "passed" && r.result !== "failed" && r.result !== "pending") throw new Error(`a run in checks/${sha}.json needs "result": passed, failed or pending`);
       return {
+        id: typeof r.id === "string" ? r.id : `r${i + 1}`,
         ...(typeof r.name === "string" ? { name: r.name } : {}),
+        ...(typeof r.suite === "string" ? { suite: r.suite } : {}),
         result: r.result,
+        ...(typeof r.started === "string" ? { started: r.started } : {}),
         ...(typeof r.at === "string" ? { at: r.at } : {}),
-        attempt: typeof r.attempt === "number" ? r.attempt : place,
       };
     });
-    return { sha, runs };
+    const latest = Array.isArray(file.latest) ? runs.filter((r) => (file.latest as unknown[]).includes(r.id)) : undefined;
+    return { sha, runs, ...(latest !== undefined ? { latest } : {}) };
   }
 
   private all<T>(sub: string): T[] {

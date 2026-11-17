@@ -30,12 +30,17 @@ export class LocalHost {
   }
 
   /**
-   * #47: the runs of a commit's checks, in the new form of `checks/<sha>.json`. A run with no `attempt` has its place
-   * among the runs of its name in the file. Anything else a run holds (as the host's `output`) is kept in the file, and
-   * is never read.
+   * #47: the runs of a commit's checks, in the form of `checks/<sha>.json` that holds them: each with its `id` (default
+   * `r<place in the list>`), `name`, `suite`, `result`, `started` and `at`. `latest` lists the ids of the runs the host
+   * gives as the latest of each check; without it the host gives no such list. Anything else a run holds (as the host's
+   * `output`) is kept in the file, and is never read.
    */
-  runs(sha: string, runs: { name?: string; result: "passed" | "failed" | "pending"; at?: string; attempt?: number; [other: string]: unknown }[]): this {
-    writeFileSync(join(this.dir, "checks", `${sha}.json`), JSON.stringify({ sha, runs }));
+  runs(
+    sha: string,
+    runs: { id?: string; name?: string; suite?: string; result: "passed" | "failed" | "pending"; started?: string; at?: string; [other: string]: unknown }[],
+    latest?: string[],
+  ): this {
+    writeFileSync(join(this.dir, "checks", `${sha}.json`), JSON.stringify({ sha, runs, ...(latest !== undefined ? { latest } : {}) }));
     return this;
   }
 

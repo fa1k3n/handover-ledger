@@ -15,7 +15,7 @@ export function observed(event: LedgerEvent): boolean {
 
 /** A claim of what only the code host shows: an event of a task, a change or a review that no adapter read. */
 export function claimOfHost(event: LedgerEvent): boolean {
-  return !observed(event) && /^(task|change|review|trace)\./.test(event.type);
+  return !observed(event) && /^(task|change|review|trace|checks)\./.test(event.type);
 }
 
 /** A review that was handed in: not the dismissal of one (`review.dismissed`, #45), which is no review. */

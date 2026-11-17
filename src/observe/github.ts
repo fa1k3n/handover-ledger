@@ -184,61 +184,95 @@ export class GitHub implements CodeHost {
   }
 
   /**
-   * #47: every run of the checks of a commit: the check runs, all of them (`filter=all`: without it the host gives only
-   * the latest run of each name, and a run that failed and was run again is not there), and the states each status
-   * went through (`statuses`: the combined status gives only the latest state of each context). Only the name, the
-   * result and the times are read; the output of a run and its links never are. The host numbers no attempt on a
-   * run, so its place among the runs of its name, by when it started, is its attempt.
+   * #47: every run of the checks of a commit: the check runs, all of them (`filter=all`: without it the host gives
+   * only the latest run of each check, and a run that failed and was run again is not there), and the states each status
+   * went through (`statuses`: the combined status gives only the latest state of each context). The host's own list of
+   * the latest runs (the call without `filter=all`) comes with them, for the result now to be held against. Only the
+   * id, the name, the suite, the result and the times are read; the output of a run and its links never are. A run
+   * or a status whose time cannot be read is passed over, with a word of it.
    */
   async checks(sha: string): Promise<ChecksState> {
-    const runs: Started[] = [];
-    for (let next: string | null = this.url(`commits/${sha}/check-runs`, { filter: "all", per_page: "100" }); next !== null; ) {
+    const runs = await this.checkRuns(sha, { filter: "all", per_page: "100" });
+    const latest = await this.checkRuns(sha, { per_page: "100" });
+    const statuses = this.statusRuns(sha, await this.all(this.url(`commits/${sha}/statuses`, { per_page: "100" })));
+    return { sha, runs: [...runs, ...statuses.runs], latest: [...latest, ...statuses.latest] };
+  }
+
+  /** The check runs of a commit, every page, in the order of when they began (then of their ids). */
+  private async checkRuns(sha: string, params: Record<string, string>): Promise<CheckRun[]> {
+    const found: CheckRun[] = [];
+    const skipped: string[] = [];
+    for (let next: string | null = this.url(`commits/${sha}/check-runs`, params); next !== null; ) {
       const page: { body: unknown; next: string | null } = await this.get(next);
       for (const r of ((page.body as Json).check_runs ?? []) as Json[]) {
         const done = r.status === "completed";
-        runs.push({
-          name: String(r.name),
-          result: !done ? "pending" : ["success", "neutral", "skipped"].includes(r.conclusion) ? "passed" : "failed",
-          ...(done && typeof r.completed_at === "string" ? { at: r.completed_at } : {}),
-          started: typeof r.started_at === "string" ? Date.parse(r.started_at) : Infinity,
-          order: Number(r.id),
-        });
+        const started = typeof r.started_at === "string" ? r.started_at : undefined;
+        const finished = typeof r.completed_at === "string" ? r.completed_at : undefined;
+        // A time that is no time is a run that cannot be placed.
+        if ((done && (finished === undefined || Number.isNaN(Date.parse(finished)))) || (started !== undefined && Number.isNaN(Date.parse(started)))) {
+          skipped.push(String(r.id));
+          continue;
+        }
+        found.push(
+          defined<CheckRun>({
+            id: String(r.id),
+            name: typeof r.name === "string" ? r.name : undefined,
+            suite: r.check_suite?.id !== undefined ? String(r.check_suite.id) : undefined,
+            result: !done ? "pending" : ["success", "neutral", "skipped"].includes(r.conclusion) ? "passed" : "failed",
+            started,
+            at: done ? finished : undefined,
+          }),
+        );
       }
       next = page.next;
     }
-    // Each state of each status, oldest first: a pending state begins a run of its context, the next state ends it.
-    const states = (await this.all(this.url(`commits/${sha}/statuses`, { per_page: "100" })))
-      .map((s) => ({ context: String(s.context), state: String(s.state), at: String(s.created_at ?? s.updated_at), id: Number(s.id) }))
-      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id - b.id);
-    const going = new Map<string, Started>();
+    if (skipped.length > 0) this.warn(`${this.repository}: ${skipped.length} check run${skipped.length === 1 ? "" : "s"} of ${sha.slice(0, 7)} with a time that cannot be read: passed over`);
+    return found.sort(order);
+  }
+
+  /**
+   * The runs of the statuses of a commit: a status is a check of its own, told by its context, and the states it went
+   * through are its runs. A `pending` state begins a run, and the next state ends it; a state that ends no run is a run
+   * that began and ended in that moment. The latest run of each context is the host's latest.
+   */
+  private statusRuns(sha: string, list: Json[]): { runs: CheckRun[]; latest: CheckRun[] } {
+    let untimed = 0;
+    const states = list
+      .filter((s) => {
+        const ok = typeof s.created_at === "string" && !Number.isNaN(Date.parse(s.created_at));
+        if (!ok) untimed++;
+        return ok;
+      })
+      .map((s) => ({ context: String(s.context), state: String(s.state), at: s.created_at as string, id: String(s.id) }))
+      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || byNumber(a.id, b.id));
+    if (untimed > 0) this.warn(`${this.repository}: ${untimed} status${untimed === 1 ? "" : "es"} of ${sha.slice(0, 7)} with no time that can be read: passed over`);
+    const runs: CheckRun[] = [];
+    const going = new Map<string, CheckRun>();
+    const last = new Map<string, CheckRun>();
     for (const s of states) {
       const begun = going.get(s.context);
       if (s.state === "pending") {
         if (begun === undefined) {
-          const run: Started = { name: s.context, result: "pending", started: Date.parse(s.at), order: s.id };
+          const run: CheckRun = { id: `status-${s.id}`, name: s.context, suite: "status", result: "pending", started: s.at };
           going.set(s.context, run);
           runs.push(run);
+          last.set(s.context, run);
         }
         continue;
       }
       const result = s.state === "success" ? "passed" : "failed";
-      if (begun === undefined) runs.push({ name: s.context, result, at: s.at, started: Date.parse(s.at), order: s.id });
-      else {
+      if (begun === undefined) {
+        const run: CheckRun = { id: `status-${s.id}`, name: s.context, suite: "status", result, started: s.at, at: s.at };
+        runs.push(run);
+        last.set(s.context, run);
+      } else {
+        begun.id = `status-${s.id}`;
         begun.result = result;
         begun.at = s.at;
         going.delete(s.context);
       }
     }
-    runs.sort((a, b) => a.started - b.started || a.order - b.order);
-    const places = new Map<string, number>();
-    return {
-      sha,
-      runs: runs.map((r): CheckRun => {
-        const attempt = (places.get(r.name) ?? 0) + 1;
-        places.set(r.name, attempt);
-        return { name: r.name, result: r.result, ...(r.at !== undefined ? { at: r.at } : {}), attempt };
-      }),
-    };
+    return { runs: runs.sort(order), latest: [...last.values()].sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")) };
   }
 
   private url(path: string, params: Record<string, string> = {}): string {
@@ -389,6 +423,13 @@ interface Started {
   at?: string;
   started: number;
   order: number;
+}
+
+/** Runs in the order of when they began: one that has not begun last, and then by the host's id. */
+function order(a: CheckRun, b: CheckRun): number {
+  const x = a.started === undefined ? Infinity : Date.parse(a.started);
+  const y = b.started === undefined ? Infinity : Date.parse(b.started);
+  return x === y ? byNumber(a.id, b.id) : x < y ? -1 : 1;
 }
 
 /** An object without its undefined members. */

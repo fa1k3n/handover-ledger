@@ -31,6 +31,7 @@ export interface LedgerEvent {
     | "checks.passed"
     | "checks.failed"
     | "checks.none"
+    | "checks.unfinished"
     | "review.approved"
     | "review.changes_requested"
     | "session.started"
