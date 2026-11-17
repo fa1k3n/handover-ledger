@@ -80,7 +80,7 @@ The core knows only its own concepts: task, team member (agent or person), assig
 | Dashboard | Views over the ledger | No |
 | VS Code extension | The team and the chain per change, in the editor | No |
 
-The dashboard and the extension read only the ledger, so they work whatever the tracker. One repository. The engine, the CLI, the dashboard and the extension are TypeScript; what a team programs itself is Python (below).
+The dashboard and the extension read only the ledger, so they work whatever the tracker. One repository. The engine and the CLI are Rust, moving from TypeScript side by side until the cut; the dashboard's page and the extension are TypeScript; what a team programs itself is Python (below).
 
 The first version only **records**: a ledger over a flow that exists (level 0). Steering comes after.
 
@@ -96,11 +96,11 @@ Rules are configuration first, and code only where configuration is not enough.
 
 An adapter to a tool that many teams use (a code host, a tracker, a requirements tool) is not among these: it is part of `howl`, as the GitHub adapter is, and a team configures it and does not write it.
 
-The boundary is a protocol between processes, not an API inside the engine: the engine starts the script, sends JSON on standard input and reads JSON on standard output. Python then needs no place inside the TypeScript code, and a shell script or any other language works as well. `howl emit` writes an event from a script without building the JSON by hand.
+The boundary is a protocol between processes, not an API inside the engine: the engine starts the script, sends JSON on standard input and reads JSON on standard output. Python then needs no place inside the engine's code, and a shell script or any other language works as well. `howl emit` writes an event from a script without building the JSON by hand.
 
 - The event schema is written as JSON Schema. The TypeScript types and a Python package are generated from it.
 - The Python package has no dependencies, runs on old Python versions and can be copied in as files: development networks are often closed and their Python environments locked.
-- `howl` is delivered so that a developer's machine and a CI runner need no Node.
+- `howl` is delivered so that a developer's machine and a CI runner need no Node: the Rust build delivers it, as one static executable.
 
 ## The event
 

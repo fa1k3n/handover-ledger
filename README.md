@@ -32,11 +32,11 @@ The method is the offer. The tool makes the method binding and measurable.
 | Dashboard | Views over the ledger; it never writes | The overview, which starts with the team right now; the event log of every project; one change or task | The rest of the design, when the ledger holds its data |
 | VS Code extension | The team and the chain per change, in the editor | Nothing | All of it, when someone asks for it |
 
-One repository, TypeScript throughout. The order of the work is in [docs/decisions.md](docs/decisions.md), and each step is an issue.
+One repository. The engine and the command line are moving from TypeScript to Rust, side by side until the cut; the dashboard's page stays TypeScript. The order of the work is in [docs/decisions.md](docs/decisions.md), and each step is an issue.
 
 ## Running it
 
-Node 24 or later is needed to build and test. A `howl` that needs no Node on the developer's machine comes later. Nothing installs a `howl` command yet: where an example below says `howl`, run `npm run howl --` in this checkout, or `node /path/to/handover-ledger/src/cli/howl.ts` from another folder.
+Node 24 or later is needed to build and test. The Rust build will deliver a `howl` that needs no Node on the developer's machine; until the cut, the examples below run the TypeScript. Nothing installs a `howl` command yet: where an example below says `howl`, run `npm run howl --` in this checkout, or `node /path/to/handover-ledger/src/cli/howl.ts` from another folder.
 
 ```sh
 npm install
