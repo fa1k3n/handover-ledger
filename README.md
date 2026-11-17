@@ -480,6 +480,19 @@ Not read yet: whether the tests passed, which needs a test run, and requirements
 - [docs/target.md](docs/target.md): where the platform may go: rule packs, vulnerabilities, storage, a log that follows the repository, people. Not planned.
 - [docs/decisions.md](docs/decisions.md): what is decided, what is open, and the order of the work.
 
+## Measuring it
+
+`scripts/bench.sh` takes the figures of `howl` on fixed inputs, so a change can show what it moved: the median and the 90th percentile of the wall time and the peak memory (KB) of each command, and the size of what must be installed. It makes its inputs from one seed in a scratch `HOWL_HOME`, never a real ledger: ledgers of 100, 10,000 and 100,000 lines with their activity files, an inbox of 1,000 files and a local code host. The same seed gives the same bytes. `HOWL_BIN` names the command to run (default `node src/cli/howl.ts`). It refuses to run when the processor's clock is below half its maximum, unless `--anyway`.
+
+```sh
+scripts/bench.sh                                     # every case, 7 runs after one warm-up, about 3 minutes
+scripts/bench.sh --json --runs 1 --sizes 100         # a quick look, as JSON
+scripts/bench.sh --demo ~/path/to/demo --keep out/a  # also the demo's flow, about 6 minutes more
+scripts/bench.sh --compare out/a out/b               # two --keep folders, times and ids masked
+```
+
+With `--demo`, the demo is copied to a scratch place and played with a `HOWL_HOME` of its own; the folder given is never changed. After each step `howl show 21` and `howl status --json` are kept, so the same flow run with two versions of `howl` can be compared. The figures are shown, never enforced. Making the inputs needs Node, whatever `HOWL_BIN` is.
+
 ## Howl on itself
 
 Run `node src/cli/howl.ts observe` (or `up`, for the dashboard as well) in this repository, and it records its own pull requests and reviews (see `.howl/howl.yml`).
