@@ -232,6 +232,23 @@ export function menuShown(view: View, projects: { single: boolean } | null): boo
   return view !== "stream" && projects !== null && !projects.single;
 }
 
+/** #93: the question the event log asks: the filter texts and whether tool calls are shown. */
+export type Question = { filters: string[]; tools: boolean };
+
+/**
+ * #93: whether the answer to `asked` is still wanted while the page holds
+ * `now`. Two questions are the same when the filter texts are the same in the
+ * same order and `tools` is the same. An answer carries no number: it is
+ * matched by the question it was asked for.
+ */
+export function answerWanted(asked: Question, now: Question): boolean {
+  return (
+    asked.tools === now.tools &&
+    asked.filters.length === now.filters.length &&
+    asked.filters.every((f, i) => f === now.filters[i])
+  );
+}
+
 /**
  * #85: a call for a poll that is not made again while its last answer is still
  * on its way. The page asks every two seconds; a server that needs longer than

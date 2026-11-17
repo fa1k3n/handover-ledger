@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, detail, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, takenBackText, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
+import { answerWanted, concerns, decodedFields, detail, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, takenBackText, streamColumns, tabTitle, whenShort, writingLines, type Question, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -468,14 +468,23 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
   const [picked, setPicked] = useState<Item | null>(null);
   const filterLine = useRef<HTMLInputElement>(null);
 
+  // #93: the question the page holds now. An answer to an older one is dropped.
+  const now = useRef<Question>({ filters, tools });
+  now.current = { filters, tools };
+
   const load = useCallback(() => {
+    const asked: Question = { filters, tools };
     return api.events(filters, tools).then(
       (r) => {
+        if (!answerWanted(asked, now.current)) return;
         setItems([...r.events].reverse());
         setFilterError(null);
         setFailed(r.failed ?? null);
       },
-      (e: Error) => (filters.length > 0 ? setFilterError(e.message) : onError(e)),
+      (e: Error) => {
+        if (!answerWanted(asked, now.current)) return;
+        return filters.length > 0 ? setFilterError(e.message) : onError(e);
+      },
     );
   }, [filters, tools, onError]);
   usePoll(load, POLL_MS, !paused);
