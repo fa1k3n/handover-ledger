@@ -260,7 +260,7 @@ test("a claimed review is not a session at the change: it stands behind no perso
   const claimedOnly = [opening(), review(), claim("agent-x")];
   assert.equal(row(claimedOnly).to, person.id);
   assert.equal(row(claimedOnly).via, undefined);
-  assert.equal(keyFigures(claimedOnly, NOW).unattributed.count, 1);
+  assert.equal(keyFigures(claimedOnly, NOW).unattributed!.count, 1);
   assert.equal(show(claimedOnly, { kind: "change", id: "30" }, null)!.reviews[0]!.reviews[0]!.by, undefined);
 
   // A session of its own at the change is still matched, and another agent's claim does not stand in its way.
@@ -268,7 +268,7 @@ test("a claimed review is not a session at the change: it stands behind no perso
   const withSession = [opening(), session, review(), claim("agent-x")];
   assert.equal(row(withSession).to, "agent-r");
   assert.equal(row(withSession).via, person.id);
-  assert.equal(keyFigures(withSession, NOW).unattributed.count, 0);
+  assert.equal(keyFigures(withSession, NOW).unattributed!.count, 0);
 });
 
 test("a claim of a change or a review links no change to a task; a session's own event still does", () => {

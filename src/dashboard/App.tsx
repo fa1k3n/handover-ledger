@@ -7,7 +7,7 @@ import { since, worksOn } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { concerns, decodedFields, detail, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, takenBackText, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
+import { concerns, decodedFields, detail, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, takenBackText, streamColumns, tabTitle, whenShort, writingLines, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -223,7 +223,7 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
               },
             ]
           : []),
-        { label: texts.overview.unattributed, value: String(f.unattributed.count), note: texts.overview.unattributedNote(f.periodDays) },
+        ...(showsUnattributed(f) ? [{ label: texts.overview.unattributed, value: String(f.unattributed!.count), note: texts.overview.unattributedNote(f.periodDays) }] : []),
       ]
     : [];
   const th = "px-3 py-2.5 font-medium";
@@ -238,10 +238,10 @@ function Overview({ onError, project }: { onError: (e: unknown) => void; project
           </div>
         ))}
       </section>
-      {f && f.unattributed.changes.length > 0 && (
+      {f && showsUnattributed(f) && f.unattributed!.changes.length > 0 && (
         <p className="m-0 flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-mute">
           {texts.overview.unattributedList}
-          {f.unattributed.changes.map((c) => (
+          {f.unattributed!.changes.map((c) => (
             <a key={c} href={hashFor("change", project, `change:${c}`)} className="font-mono text-ink">
               {c}
             </a>
