@@ -421,7 +421,9 @@ export class Observer {
             continue;
           }
           // A head still watched has had its next ask set by its checks; only one that its checks let go has none.
-          if (w.busy !== true && goes.includes(w)) {
+          // One of an ended change past its hour may still have a run going: that run no longer asks for every round.
+          if (goes.includes(w)) {
+            delete w.busy;
             w.gap = w.gap === undefined ? CHECKS_FIRST_MS : Math.min(w.gap * 2, CHECKS_LAST_MS);
             w.next = new Date(now.getTime() + w.gap).toISOString();
           }
@@ -750,7 +752,8 @@ export class Observer {
       // Asked about in every round while a run of it goes.
       w.busy = true;
       delete w.next;
-      delete w.gap;
+      // A head of an ended change past its hour is let go this round; if the writer refuses its event, its gap goes on doubling.
+      if (w.end === undefined || t < Date.parse(w.end) + CHECKS_ENDED_MS) delete w.gap;
     } else {
       delete w.busy;
     }

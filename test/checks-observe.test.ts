@@ -900,3 +900,20 @@ test("R162.4: a head let go after a day of refusals is not watched again for the
   assert.deepEqual(checked([...ledgerEvents(d.ledger)] as LedgerEvent[]), [], "nothing is written");
   d.close();
 });
+
+test("R162.1: an ended head past its hour with a run still going, whose checks.unfinished the writer refuses, is asked on the schedule of a watched head, not in every round (finding F7 of round 2)", async () => {
+  const counts = new Map<string, number>();
+  const d = direct({ wrap: counting(counts), refuse: (e) => e.type === "checks.unfinished" });
+  change(d, merged(30));
+  d.host.runs(SHA.a, [run("r1", "slow job", "pending", 1)]);
+  const asked: number[] = [];
+  for (let k = 0; k < 240; k++) {
+    const before = counts.get(SHA.a) ?? 0;
+    await d.round(clock(200 + k));
+    if ((counts.get(SHA.a) ?? 0) > before) asked.push(k);
+  }
+  d.close();
+  assert.equal(asked[0], 0, "asked in the first round");
+  const gaps = asked.slice(1).map((k, i) => k - asked[i]!);
+  assert.deepEqual(gaps.slice(0, 8), [1, 2, 4, 8, 16, 32, 60, 60], `the minutes between asks: ${gaps}`);
+});
