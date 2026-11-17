@@ -25,7 +25,7 @@ Handover Ledger: an audit-ready ledger of handovers in teams of people and AI ag
 - The engine and the CLI are Rust, moving from TypeScript side by side until the cut ([docs/decisions.md](docs/decisions.md)). The dashboard's page and the extension are TypeScript.
 - What a team programs itself (checks, adapters to in-house tools, scripts in `.howl/`) is Python or shell. The boundary is a process: JSON on standard input, JSON on standard output. No API inside the engine for it.
 - The event types are a fixed list in the schema. A step that needs a new type adds it to the list, in the same change.
-- The event schema in `schema/` is the source. The TypeScript types and the Rust types are generated from it (`npm run gen`), checked by `npm run check`, and never edited by hand.
+- The event schema in `schema/` is the source. The TypeScript types are generated from it (`npm run gen`) and never edited by hand. The Rust side reads the schema (embedded); Rust types generated from it, when a piece makes them, are checked by `npm run check` as the TypeScript ones are, and never edited by hand.
 - Node and Rust are needed to build and test during the move. The released `howl` needs neither.
 
 ## The ledger
