@@ -416,7 +416,8 @@ export class Observer {
             this.warn(`${this.host.repository}: checks of ${e.sha!.slice(0, 7)} of change ${e.change}: the writer refused them for a day; its checks were not written, and its head is let go`);
             continue;
           }
-          if (w.busy !== true) {
+          // A head still watched has had its next ask set by its checks; only one that its checks let go has none.
+          if (w.busy !== true && goes.includes(w)) {
             w.gap = w.gap === undefined ? CHECKS_FIRST_MS : Math.min(w.gap * 2, CHECKS_LAST_MS);
             w.next = new Date(now.getTime() + w.gap).toISOString();
           }

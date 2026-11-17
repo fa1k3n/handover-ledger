@@ -745,9 +745,9 @@ test("#47: the view of one change and a bundle show the results of their own cha
 // ---- #162: a head whose checks the writer always refuses ----
 
 /** An ended change whose head failed its checks, and a writer that refuses `checks.failed` while `refusing()` says so. */
-function refused(refusing: () => boolean, counts: Map<string, number>): Direct {
+function refused(refusing: () => boolean, counts: Map<string, number>, over: Partial<Change> = merged(30)): Direct {
   const d = direct({ wrap: counting(counts), refuse: (e) => refusing() && e.type === "checks.failed" });
-  change(d, merged(30));
+  change(d, over);
   d.host.runs(SHA.a, [run("r1", "lint", "failed", 1, 5)]);
   return d;
 }
@@ -829,4 +829,26 @@ test("R162.3: a head refused in every ask for a few hours and taken after is wri
   assert.deepEqual(written.map((e) => e.type), ["checks.failed"]);
   assert.deepEqual(d.cursor().watch, []);
   d.close();
+});
+
+/** The minutes between the asks of the head, one round a minute, from `first`, while the writer refuses. */
+async function gapsOf(over: Partial<Change>, first: number): Promise<number[]> {
+  const counts = new Map<string, number>();
+  const d = refused(() => true, counts, over);
+  const asked: number[] = [];
+  for (let k = 0; k < 240; k++) {
+    const before = counts.get(SHA.a) ?? 0;
+    await d.round(clock(first + k));
+    if ((counts.get(SHA.a) ?? 0) > before) asked.push(k);
+  }
+  d.close();
+  return asked.slice(1).map((k, i) => k - asked[i]!);
+}
+
+test("R162.1: an open head whose checks event the writer refuses is asked on the schedule of a watched head: 1, 2, 4, 8, 16, 32, 60 minutes (finding F1 of round 1)", async () => {
+  assert.deepEqual((await gapsOf({}, 200)).slice(0, 8), [1, 2, 4, 8, 16, 32, 60, 60]);
+});
+
+test("R162.1: an ended head inside its hour whose checks event the writer refuses is asked on the schedule of a watched head, bounded by the end of its hour (finding F1 of round 1)", async () => {
+  assert.deepEqual((await gapsOf(merged(30), 31)).slice(0, 6), [1, 2, 4, 8, 16, 28]);
 });
