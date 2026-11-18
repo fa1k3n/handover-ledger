@@ -3,10 +3,10 @@
 ## Where the work is
 
 - The repository is `fa1k3n/handover-ledger` on GitHub. Work in the checkout you were started in. Do not clone it again.
-- Read the issue with `gh issue view {issue} --comments`. The issue is the spec. When its file `.watchbill/issues/{issue}.yml` is accepted, the requirements are the points of that file (`{issue}.1`, `{issue}.2`, …) and your prompt holds them. Otherwise they are the numbered items in the issue. This project has no table of requirements.
+- Read the issue with `gh issue view {issue}` and its comments with `gh issue view {issue} --comments`. The issue is the spec. When its file `.watchbill/issues/{issue}.yml` is accepted, the requirements are the points of that file (`{issue}.1`, `{issue}.2`, …) and your prompt holds them. Otherwise they are the numbered items in the issue. This project has no table of requirements.
 - A change is a pull request, from the branch `{branch}`, made from `main` before the breakdown starts. The breakdown commits the issue's file on it first, alone. The tester, the build and the fix work on that branch and push to it.
 - The build opens the pull request as a draft, with "Closes #{issue}" in its description. Nobody else opens one.
-- Read a pull request with `gh pr view <number> --comments` and `gh pr diff <number>`. Post on it with `gh pr comment <number> --body-file <file>`.
+- Read a pull request with `gh pr view <number>`, its comments with `gh pr view <number> --comments`, and its diff with `gh pr diff <number>`. Post on it with `gh pr comment <number> --body-file <file>`.
 - The review posts its findings as one comment whose first line starts with `[review] round <n>`. The fix posts its answers as one comment whose first line starts with `[fix] round <n>`.
 - Never mark a pull request ready, never merge, and never run `scripts/ruleset.sh`.
 
