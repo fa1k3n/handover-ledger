@@ -511,7 +511,7 @@ async function observeCommand(args: string[]): Promise<number> {
 async function observing(command: "observe" | "up", values: { once?: boolean; interval?: string; since?: string; "anchor-every"?: string }) {
   const anchorEvery = values["anchor-every"] === undefined ? null : Number(values["anchor-every"]);
   if (anchorEvery !== null && !(anchorEvery > 0)) throw new UsageError("--anchor-every must be a number of minutes above 0");
-  const { findProject, agentsProblems } = await import("../howl/project.ts");
+  const { findProject, agentsProblems, settingPattern } = await import("../howl/project.ts");
   const { activityPath, cursorPath, inboxPath, ledgerPath, peoplePath } = await import("../ledger/place.ts");
   const { openLedger } = await import("../ledger/ledger.ts");
   const { People } = await import("../observe/people.ts");
@@ -526,13 +526,9 @@ async function observing(command: "observe" | "up", values: { once?: boolean; in
   if (faults.length > 0) throw new LedgerError(`${command} does not start: ${faults.join("; ")}`);
   const interval = values.interval === undefined ? 60 : Number(values.interval);
   if (!(interval > 0)) throw new UsageError("--interval must be a number of seconds above 0");
-  if (found.taskFromBranch !== undefined) {
-    try {
-      new RegExp(found.taskFromBranch);
-    } catch {
-      throw new LedgerError(`task_from_branch in .howl/howl.yml is not a regular expression: ${found.taskFromBranch}`);
-    }
-  }
+  // #41: said before anything is written; the one place that compiles them is project.ts.
+  settingPattern(found, "task_from_branch");
+  settingPattern(found, "review_comment_pattern");
   // #6: where the first round starts. Only without a cursor: it says where to go on.
   let start: string | undefined;
   if (values.since !== undefined) {
@@ -675,7 +671,6 @@ async function upCommand(args: string[]): Promise<number> {
       defaultProject: o.project,
       port,
       root,
-      taskFromBranch: await branchPattern(),
       agents: await knownAgents(),
       write: {
         project: o.project,
@@ -918,24 +913,23 @@ async function serveCommand(args: string[]): Promise<number> {
     throw new LedgerError(`no built dashboard in ${root}: run npm run build:dashboard first`);
   }
   const { startServer } = await import("../serve/server.ts");
-  const taskFromBranch = await branchPattern();
   const agents = await knownAgents(values);
   let server;
   if (values.ledger !== undefined) {
     const { statSync } = await import("node:fs");
     statSync(values.ledger);
-    server = await startServer({ ledger: values.ledger, port, root, taskFromBranch, agents });
+    server = await startServer({ ledger: values.ledger, port, root, agents });
     console.log(`howl serve: ${server.url} (read-only, ${values.ledger})`);
   } else if (values.all) {
     // Every project of the howl home; first the one asked for, else that of the nearest howl.yml.
     const home = howlHome();
     const defaultProject = project;
-    server = await startServer({ home, defaultProject, port, root, taskFromBranch, agents });
+    server = await startServer({ home, defaultProject, port, root, agents });
     console.log(`howl serve: ${server.url} (read-only, every project in ${home}${defaultProject ? `, ${defaultProject} first` : ""})`);
   } else {
     // #54: the one project, and no other.
     const home = howlHome();
-    server = await startServer({ home, project, port, root, taskFromBranch, agents });
+    server = await startServer({ home, project, port, root, agents });
     console.log(`howl serve: ${server.url} (read-only, the project ${project} in ${home})`);
   }
   await new Promise<void>((resolve) => {
@@ -964,17 +958,6 @@ async function knownAgents(reading: { project?: string; ledger?: string } = {}):
   return agentNames(found.agents);
 }
 
-/** The project's task_from_branch, when there is a valid one. */
-async function branchPattern(): Promise<RegExp | undefined> {
-  const { findProject } = await import("../howl/project.ts");
-  const found = findProject(process.cwd());
-  try {
-    return found?.taskFromBranch === undefined ? undefined : new RegExp(found.taskFromBranch);
-  } catch {
-    return undefined;
-  }
-}
-
 async function statusCommand(args: string[]): Promise<number> {
   const { values } = parse(args, {
     ledger: { type: "string" },
@@ -987,9 +970,8 @@ async function statusCommand(args: string[]): Promise<number> {
   statSync(ledger);
   const { readAll } = await import("../read/reader.ts");
   const { agentStates, renderStatus } = await import("../read/state.ts");
-  const taskFromBranch = await branchPattern();
   const agents = await knownAgents(values);
-  const rows = () => agentStates(readAll(ledger).map((r) => r.event), Date.now(), { taskFromBranch, agents });
+  const rows = () => agentStates(readAll(ledger).map((r) => r.event), Date.now(), { agents });
   if (values.json) {
     console.log(JSON.stringify(rows(), null, 2));
     return 0;
@@ -1014,18 +996,12 @@ async function statusCommand(args: string[]): Promise<number> {
 /** The code host of a project: from howl.yml, else from the remote origin. */
 async function codeHost(found: import("../howl/project.ts").Project) {
   const { LedgerError } = await import("../ledger/errors.ts");
+  const { settingPattern } = await import("../howl/project.ts");
   const { originUrl } = await import("../howl/git.ts");
   const { originRepository, GitHub } = await import("../observe/github.ts");
   const { resolve } = await import("node:path");
 
-  let reviewCommentPattern: RegExp | undefined;
-  if (found.reviewCommentPattern !== undefined) {
-    try {
-      reviewCommentPattern = new RegExp(found.reviewCommentPattern);
-    } catch (e) {
-      throw new LedgerError(`review_comment_pattern in .howl/howl.yml is not a regular expression: ${(e as Error).message}`);
-    }
-  }
+  const reviewCommentPattern = settingPattern(found, "review_comment_pattern");
   const origin = found.host === undefined || found.repository === undefined ? originRepository(originUrl(found.root)) : null;
   const host = found.host ?? origin?.host;
   if (host === "local") {

@@ -88,8 +88,8 @@ test("#11: an event that names change gives the row its change, over the branch"
   assert.equal(named.task, "13");
 });
 
-test("#11: the task comes from the branch name when the project says how", () => {
-  const row = agentStates([tool("agent-1", 30, "Bash", "make", { branch: "task-14-x" })], NOW, { taskFromBranch: /^task-([0-9]+)/ })[0]!;
+test("#11: the task of the event is the row's task, and the branch gives none (#41)", () => {
+  const row = agentStates([tool("agent-1", 30, "Bash", "make", { branch: "task-14-x", task: "14" })], NOW)[0]!;
   assert.equal(row.task, "14");
   assert.equal(row.change, undefined);
 });

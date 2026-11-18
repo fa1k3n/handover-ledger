@@ -39,8 +39,6 @@ export interface ServeOptions {
   root: string;
   /** Only a loopback address is accepted. */
   host?: string;
-  /** For the default project (or the one ledger) only: it comes from that project's howl.yml. */
-  taskFromBranch?: RegExp;
   /** #46: the names of the default project's agents, for the gap "not a known agent". */
   agents?: ReadonlySet<string>;
   /** #64: the writer behind this server. Without it the server only reads. */
@@ -188,7 +186,7 @@ function defaultOf(projects: Project[], options: ServeOptions): Project | undefi
   return projects.find((p) => p.name === firstOf(options)) ?? projects[0];
 }
 
-/** The project shown first, whose settings (`taskFromBranch`, `agents`) the server was given: the one project, else `defaultProject`. */
+/** The project shown first, whose settings (`agents`) the server was given: the one project, else `defaultProject`. */
 function firstOf(options: ServeOptions): string | undefined {
   return options.project ?? options.defaultProject;
 }
@@ -244,12 +242,11 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   }
   const project = projectFor(url.searchParams, options);
   const ledger = project.ledger;
-  const pattern = options.ledger !== undefined || project.name === firstOf(options) ? options.taskFromBranch : undefined;
   const agents = options.ledger !== undefined || project.name === firstOf(options) ? options.agents : undefined;
   switch (url.pathname) {
     case "/api/agents": {
       const now = Date.now();
-      json(res, 200, { now, rows: agentStates(readAll(ledger).map((r) => r.event), now, { taskFromBranch: pattern, agents }) });
+      json(res, 200, { now, rows: agentStates(readAll(ledger).map((r) => r.event), now, { agents }) });
       return;
     }
     case "/api/overview": {

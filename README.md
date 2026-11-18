@@ -99,7 +99,7 @@ echo agent-1 > .howl/actor
 echo .howl/actor >> .gitignore
 ```
 
-Whoever starts a session may also name its work: `HOWL_CHANGE` and `HOWL_TASK` in its environment go onto every event of the session. This matters for a reviewer that works in a folder of its own on the default branch, where the branch says nothing:
+Whoever starts a session may also name its work: `HOWL_CHANGE` and `HOWL_TASK` in its environment go onto every event of the session. Where a session names no task, `howl hook` takes it from the branch by `task_from_branch` (below), and the state reads the task from the events only. Events written before this have no task from the hook: the state then shows the branch. This matters for a reviewer that works in a folder of its own on the default branch, where the branch says nothing:
 
 ```sh
 HOWL_ACTOR=agent-2 HOWL_CHANGE=30 HOWL_TASK=12 HOWL_ROLE=review HOWL_ROLE_PROMPT=roles/review.md claude …
@@ -219,7 +219,7 @@ node /path/to/handover-ledger/src/cli/howl.ts observe --once       # one round
 ```yaml
 host: github                      # else read from the remote origin
 repository: owner/name            # else read from the remote origin
-task_from_branch: '^task-(\d+)'   # takes a task's number from a branch name: the first group
+task_from_branch: '^task-(\d+)'   # takes a task's number from a branch name: the first group; `howl hook` writes it on its events
 agents: [agent-1, agent-2=agent-2-bot]   # the agents: a name, or name=account at the host
 review_comment_pattern: '^\[review\]'   # a comment whose first line matches counts as a review; quote it
 ```

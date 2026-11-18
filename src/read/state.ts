@@ -35,8 +35,6 @@ export interface AgentRow {
 }
 
 export interface StateOptions {
-  /** Takes a task's number from a branch name: its first group, else the whole match. */
-  taskFromBranch?: RegExp;
   /** #46: the names in `agents` of the project. When there are any, a session of another name has a gap. */
   agents?: ReadonlySet<string>;
 }
@@ -92,7 +90,7 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     const named = { change: latest("change") as string | undefined, task: latest("task") as string | undefined };
     const fromBranch = row.branch === undefined ? undefined : onBranch.get(row.branch);
     const change = named.change ?? (named.task === undefined ? fromBranch?.change : undefined);
-    const task = named.task ?? (named.change === undefined ? fromBranch?.task : undefined) ?? taskOf(row.branch, options.taskFromBranch);
+    const task = named.task ?? (named.change === undefined ? fromBranch?.task : undefined);
     if (change !== undefined) row.change = change;
     if (task !== undefined) row.task = task;
     if (lastOwn) {
@@ -118,12 +116,6 @@ function stateOf(own: LedgerEvent[], now: number): AgentState {
   // An event stamped a moment ahead of this clock is read as now, as before.
   const last = points.findLast((p) => p.state !== "idle");
   return stateAt(points, Math.max(now, last === undefined ? now : Date.parse(last.time))) ?? "idle";
-}
-
-function taskOf(branch: string | undefined, pattern: RegExp | undefined): string | undefined {
-  if (branch === undefined || pattern === undefined) return undefined;
-  const found = branch.match(pattern);
-  return found ? (found[1] ?? found[0]) : undefined;
 }
 
 /** How long ago, short: 12 s, 4 min, 1 h 05 min, 3 d. */
