@@ -27,7 +27,7 @@ import { claimOfHost, isReview, observed } from "./observed.ts";
 import { byTime } from "./order.ts";
 import { waitsFor } from "./wait.ts";
 import { agentTimeline, movesAgent, type AgentState } from "./agent.ts";
-import { roundText } from "./rounds.ts";
+import { reviewIdOf, roundText, rounds, type Round } from "./rounds.ts";
 import { shortTime, zoneLine } from "./watch.ts";
 
 type Actor = NonNullable<LedgerEvent["actor"]>;
@@ -106,17 +106,6 @@ export interface ChangePart {
   comments: number;
   /** #117: the end of this change: its own merge or closing, as the code host showed it. */
   end: End;
-}
-
-export interface Round {
-  /** #117: the change the round is of. A new head of one change ends no round of another. */
-  change?: string;
-  /** `dismissed`: #45: the review happened and was dismissed, when and by whom. */
-  reviews: { time: string; actor?: Actor; outcome: string; by?: string; dismissed?: { time: string; actor?: Actor } }[];
-  /** The type of what came next: a new head, the merge, or none yet. */
-  followedBy: string | null;
-  /** #45: when the change was closed and then went on (opened again, closed again, merged): what came after, in the order it happened. */
-  then?: string[];
 }
 
 export interface Giving {
@@ -231,6 +220,7 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
   // The end of a change that is asked for is its own; the end of a task is that of its last change (#118).
   const end = asksChange ? (parts[0]?.end ?? { state: "open" as const }) : endOfTask(parts, events);
   const given = givings(events);
+  const reviews = rounds(events, acting);
   return {
     task,
     asked: asksChange ? "change" : "task",
@@ -251,11 +241,11 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
     unseenDismissals: dismissals(events, "review_unseen"),
     unnamedDismissals: dismissals(events, "review_unnamed"),
     sessions: sessionParts(events, activityFrom, found.whole),
-    reviews: rounds(events, acting),
+    reviews,
     claimed: events.filter(claimOfHost).map((e) => defined({ time: e.time, type: e.type, task: e.task, change: e.change, actor: e.actor })),
     end,
     // The first change of a task is measured from the hand-over; a later one from its own first event.
-    summary: summarise(events, end, fromHandover),
+    summary: summarise(events, end, fromHandover, reviews.length),
   };
 }
 
@@ -571,63 +561,6 @@ function changeParts(events: LedgerEvent[], changes: Set<string>, acting: Map<st
 }
 
 /**
- * Reviews as rounds: a review after a new head commit starts a new round. From observed events only (#51).
- * #117: made per change, so a new head of one change ends no round of another.
- */
-function rounds(all: LedgerEvent[], acting: Map<string, Acting> = new Map()): Round[] {
-  const events = all.filter(observed);
-  // An event that names no change belongs to the one change there is, when there is only one.
-  const named = new Set(events.flatMap((e) => (e.change === undefined ? [] : [e.change])));
-  const only = named.size === 1 ? [...named][0] : undefined;
-  const groups = new Map<string, LedgerEvent[]>();
-  for (const e of events) {
-    const key = e.change ?? only ?? "";
-    groups.set(key, [...(groups.get(key) ?? []), e]);
-  }
-  const found: Round[] = [];
-  for (const [change, own] of groups) found.push(...roundsOf(own, acting, change === "" ? undefined : change));
-  return found;
-}
-
-function roundsOf(events: LedgerEvent[], acting: Map<string, Acting>, change: string | undefined): Round[] {
-  const found: Round[] = [];
-  let current: Round | null = null;
-  let newHead = false;
-  let lastReview = -1;
-  const entries = new Map<string, Round["reviews"][number]>();
-  for (const [i, e] of events.entries()) {
-    if (isReview(e)) {
-      if (current === null || newHead) {
-        current = defined({ change, reviews: [], followedBy: null });
-        found.push(current);
-        newHead = false;
-      }
-      const entry = defined({ time: e.time, actor: e.actor, outcome: e.type.slice("review.".length), by: acting.get(e.id)?.agent });
-      current.reviews.push(entry);
-      const key = reviewIdOf(e);
-      if (key !== undefined) entries.set(key, entry);
-      lastReview = i;
-    } else if (e.type === "change.updated" && current !== null) {
-      newHead = true;
-    }
-    if (current && i > lastReview && current.followedBy === null && /^change\.(updated|merged|closed)$/.test(e.type)) {
-      current.followedBy = e.type;
-      if (e.type === "change.closed") {
-        const after = events.slice(i + 1).filter((x) => /^change\.(reopened|closed|merged)$/.test(x.type));
-        if (after.length > 0) current.then = after.map((x) => x.type);
-      }
-    }
-  }
-  // #45: a review that was dismissed is a review that happened, marked with when and by whom. The first dismissal counts.
-  for (const e of events) {
-    const id = e.type === "review.dismissed" ? (e.data as { review?: unknown } | undefined)?.review : undefined;
-    const entry = typeof id === "string" ? entries.get(id) : undefined;
-    if (entry !== undefined && entry.dismissed === undefined) entry.dismissed = defined({ time: e.time, actor: e.actor });
-  }
-  return found;
-}
-
-/**
  * The event that ends one change, as the code host showed it: its first merge, or else its last closing. A closing
  * that a reopening follows ends nothing (#45), and a merge is never undone. In the order of time, not of the lines.
  */
@@ -640,11 +573,6 @@ function endedBy(own: LedgerEvent[]): LedgerEvent | undefined {
     else if (e.type === "change.reopened") closed = undefined;
   }
   return merged ?? closed;
-}
-
-/** The host's id of a review, from the id of its event: `github:1:review:77` is 77. Not of a comment (`review:c5`) or a dismissal (`review:dismissed:5`). */
-function reviewIdOf(e: LedgerEvent): string | undefined {
-  return /(?:^|:)review:([^:]+)$/.exec(e.id)?.[1];
 }
 
 /** The end of one change as the code host showed it: see `endedBy`. */
@@ -688,7 +616,7 @@ function endOfTask(all: ChangePart[], events: LedgerEvent[]): End {
  * #51: a claim of what the code host owns moves nothing here: not the start,
  * not the state of the change, not the end, and not who took part.
  */
-function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary {
+function summarise(all: LedgerEvent[], end: End, fromHandover: boolean, reviewRounds: number): Summary {
   const events = all.filter((e) => !claimOfHost(e));
   if (events.length === 0) {
     // Only claims name the assignment: nothing was seen, so nothing is measured.
@@ -797,7 +725,7 @@ function summarise(all: LedgerEvent[], end: End, fromHandover: boolean): Summary
     open: end.state === "open",
     seconds: (stop - start) / 1000,
     parts,
-    reviewRounds: rounds(all).length,
+    reviewRounds,
     actors: [...actors.values()],
   };
 }

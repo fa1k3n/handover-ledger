@@ -7,6 +7,7 @@ import { actingAgents, namelessHead } from "./acting.ts";
 import { accountsGone, assignee, giver, givings } from "./assignee.ts";
 import { isReview, observed } from "./observed.ts";
 import { byTime } from "./order.ts";
+import { rounds as roundsOf } from "./rounds.ts";
 
 const DAY = 24 * 3600_000;
 /** The period of the figures. */
@@ -155,7 +156,7 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
   const state = new Map<string, "open" | "done">();
   const mergedChanges = new Set<string>();
   const firstOpened = new Map<string, number>();
-  const reviews = new Map<string, number>();
+  const seen = new Map<string, LedgerEvent[]>();
   const leadTimes: number[] = [];
   const rounds: number[] = [];
   // #38: what the tests of each head name, and the head each merged change was merged at.
@@ -164,6 +165,9 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
   for (const e of sorted) {
     // #51: the figures count what the code host showed, never a claim.
     if (e.change === undefined || !observed(e)) continue;
+    const own = seen.get(e.change) ?? [];
+    seen.set(e.change, own);
+    own.push(e);
     const t = Date.parse(e.time);
     const work = e.task ?? `change ${e.change}`;
     if (e.type === "trace.read" && e.sha !== undefined) {
@@ -179,8 +183,6 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
     } else if (e.type === "change.reopened") {
       // #45: open again until it ends again. A merge is never undone.
       if (!mergedChanges.has(e.change)) state.set(e.change, "open");
-    } else if (isReview(e)) {
-      reviews.set(e.change, (reviews.get(e.change) ?? 0) + 1);
     } else if (e.type === "change.merged") {
       state.set(e.change, "done");
       mergedChanges.add(e.change);
@@ -189,7 +191,8 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
         else mergedAt.set(e.change, "");
         const opened = firstOpened.get(work);
         if (opened !== undefined) leadTimes.push(t - opened);
-        rounds.push(reviews.get(e.change) ?? 0);
+        // #42: a round is the reviews of a change between two heads, as `howl show` counts them; the span is the reviews before the merge.
+        rounds.push(roundsOf(seen.get(e.change) ?? []).length);
       }
     }
   }
