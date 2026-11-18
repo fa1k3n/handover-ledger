@@ -146,5 +146,5 @@ test("#28: the handovers and the overview's figures use reviews only", () => {
   const steps = handovers(events.map((event) => ({ event }))).map((h) => h.step);
   assert.deepEqual(steps, ["Review → merge", "Implementation → review", "Review → fix"]);
   const figures = keyFigures(events, Date.parse(at(60)));
-  assert.equal(figures.reviewRoundsMean, 2, "two reviews, not five");
+  assert.equal(figures.reviewRoundsMean, 1, "one round, not five");
 });
