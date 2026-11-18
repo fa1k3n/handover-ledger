@@ -37,14 +37,20 @@ requirements:
     source: 'What to build, point 3; Existing tests this changes, point 2'
     guard: '#28: an invalid review_comment_pattern stops howl observe with a message, not silently'
   - id: '41.12'
-    text: 'With a `task_from_branch` that is not a regular expression, `howl hook` stays silent and writes no task.'
-    source: 'What to build, point 3'
+    text: 'With a `task_from_branch` that is not a regular expression, `howl hook` stays silent and writes no task: the event is still written, without a task; the hook prints nothing on the screen and ends with 0. A setting never loses an event.'
+    source: 'What to build, point 3; answer 41.q3'
   - id: '41.13'
     text: 'Events written before this have no task from the hook: the state then shows the branch, as it does today when no pattern matches.'
     source: 'What to build, point 4'
   - id: '41.14'
     text: 'The README says that events written before this have no task from the hook, and that the state then shows the branch. A reading of the README shows it.'
     source: 'What to build, point 4'
+  - id: '41.15'
+    text: 'The task comes from the branch whenever the session names no task (`HOWL_TASK`), whether or not it names a change: a hook event on `task-12-x` with the pattern `^task-([0-9]+)`, `HOWL_CHANGE` set and no `HOWL_TASK`, has `task: "12"`.'
+    source: 'What to build, point 1 ("when the session names none"); answer 41.q1'
+  - id: '41.16'
+    text: 'Hook events sent to the writer''s server (`/api/hook`, adapter `claude-code-http`) get the task from the branch as `howl hook` does, through the same `eventOfHook` and without code of their own, shown by one test of their own in `test/hook-http.test.ts`.'
+    source: 'answer 41.q2'
 interface: |
   The issue names no new function. The tests reach the change through these, as they are in the code today:
 
@@ -53,6 +59,8 @@ interface: |
     in the project's inbox; the event's `branch` and `task` are read from it.
   - `howl status --project <name> [--json]`: one row per agent; with `--json` the rows as `AgentRow[]`.
   - `howl observe --once`: ends with a status other than 0 and a message on standard error when a setting is refused.
+  - `POST /api/hook` on the writer's server (`howl up`), with the hook's JSON and the `x-howl-*` headers; the test helpers
+    `up`, `send`, `until`, `claim` in `test/up-helpers.ts`. The event lands in the ledger with the adapter `claude-code-http`.
   - `howl serve`, and in the process `startServer(options: ServeOptions): Promise<Served>` from `src/serve/server.ts`;
     `GET /api/agents?project=<name>` gives `{ now, rows: AgentRow[] }`.
   - `agentStates(events: LedgerEvent[], now: number, options?: StateOptions): AgentRow[]` in `src/read/state.ts`.
@@ -64,16 +72,13 @@ interface: |
   - `eventOfHook(hook: Record<string, unknown>, env: Record<string, string | undefined>, dir: string, adapter: string): { project: Project; event: LedgerEvent } | null` in `src/hook/hook.ts`.
   - Test helpers in `test/helpers.ts`: `workspace({ yml?, actor? }): Workspace`, `howl(args, { cwd?, env?, input? }): Run`,
     `inboxEvents(inbox): LedgerEvent[]`, `git(dir, ...args): string`, `folder(): string`, `event(over): LedgerEvent`, `PROJECT`.
-changes: [src/hook/hook.ts, src/howl/project.ts, src/read/state.ts, src/cli/howl.ts, src/serve/server.ts, src/observe/observe.ts, README.md, test/state.test.ts, test/task-from-branch.test.ts]
+changes: [src/hook/hook.ts, src/howl/project.ts, src/read/state.ts, src/cli/howl.ts, src/serve/server.ts, src/observe/observe.ts, README.md, test/state.test.ts, test/task-from-branch.test.ts, test/hook-http.test.ts]
 reads:
-  tester: [package.json, test/helpers.ts, test/local-host.ts, test/hook.test.ts, test/hook-names.test.ts, test/comments.test.ts, test/observe.test.ts, test/status.test.ts, test/projects.test.ts, src/ledger/schema.ts]
-  build: [package.json, tsconfig.json, .howl/howl.yml, test/helpers.ts, test/local-host.ts, test/story.ts, test/hook.test.ts, test/hook-names.test.ts, test/comments.test.ts, test/observe.test.ts, test/status.test.ts, test/project.test.ts, test/projects.test.ts, src/inbox/receive.ts, src/observe/github.ts, src/observe/local.ts, src/howl/git.ts, src/ledger/schema.ts, src/ledger/errors.ts]
-  review: [package.json, tsconfig.json, .howl/howl.yml, .github/workflows/check.yml, test/helpers.ts, test/local-host.ts, test/story.ts, test/hook.test.ts, test/hook-names.test.ts, test/comments.test.ts, test/observe.test.ts, test/status.test.ts, test/project.test.ts, test/projects.test.ts, src/inbox/receive.ts, src/observe/github.ts, src/observe/local.ts, src/howl/git.ts, src/ledger/schema.ts, src/ledger/errors.ts]
-  fix: [package.json, tsconfig.json, .howl/howl.yml, test/helpers.ts, test/local-host.ts, test/story.ts, test/hook.test.ts, test/hook-names.test.ts, test/comments.test.ts, test/observe.test.ts, test/status.test.ts, test/project.test.ts, test/projects.test.ts, src/inbox/receive.ts, src/observe/github.ts, src/observe/local.ts, src/howl/git.ts, src/ledger/schema.ts, src/ledger/errors.ts]
+  tester: [package.json, test/helpers.ts, test/local-host.ts, test/up-helpers.ts, test/hook.test.ts, test/hook-names.test.ts, test/comments.test.ts, test/observe.test.ts, test/status.test.ts, test/projects.test.ts, src/ledger/schema.ts]
+  build: [package.json, tsconfig.json, .howl/howl.yml, test/helpers.ts, test/local-host.ts, test/up-helpers.ts, test/story.ts, test/hook.test.ts, test/hook-names.test.ts, test/comments.test.ts, test/observe.test.ts, test/status.test.ts, test/project.test.ts, test/projects.test.ts, src/inbox/receive.ts, src/observe/github.ts, src/observe/local.ts, src/howl/git.ts, src/ledger/schema.ts, src/ledger/errors.ts]
+  review: [package.json, tsconfig.json, .howl/howl.yml, .github/workflows/check.yml, test/helpers.ts, test/local-host.ts, test/up-helpers.ts, test/story.ts, test/hook.test.ts, test/hook-names.test.ts, test/comments.test.ts, test/observe.test.ts, test/status.test.ts, test/project.test.ts, test/projects.test.ts, src/inbox/receive.ts, src/observe/github.ts, src/observe/local.ts, src/howl/git.ts, src/ledger/schema.ts, src/ledger/errors.ts]
+  fix: [package.json, tsconfig.json, .howl/howl.yml, test/helpers.ts, test/local-host.ts, test/up-helpers.ts, test/story.ts, test/hook.test.ts, test/hook-names.test.ts, test/comments.test.ts, test/observe.test.ts, test/status.test.ts, test/project.test.ts, test/projects.test.ts, src/inbox/receive.ts, src/observe/github.ts, src/observe/local.ts, src/howl/git.ts, src/ledger/schema.ts, src/ledger/errors.ts]
 existing_tests_changed:
   - '#11: the task comes from the branch name when the project says how (test/state.test.ts): it gives `agentStates` a `taskFromBranch`; it becomes a test of the hook writing the task, and the state''s test then reads the task from the event.'
   - '#28: an invalid review_comment_pattern stops howl observe with a message, not silently (test/comments.test.ts): holds, the message may be worded by the one place.'
-questions:
-  - '41.q1: "when the session names none": does a session that names a change (`HOWL_CHANGE`) but no task still get the task from its branch? Today `agentStates` takes the task from the branch name even when a change is named, but the change''s task from the branch only when none is (`src/read/state.ts:344`).'
-  - '41.q2: Hook events sent to the writer''s server (`/api/hook`, adapter `claude-code-http`) are built by the same `eventOfHook` in `src/inbox/receive.ts`, and the test "each of the five hooks sent to /api/hook gives the event howl hook gives, but for id, time and the adapter" holds them equal. Do they get the task from the branch too, with a test of their own? The issue names `howl hook` only, and its files leave out `src/inbox/receive.ts` and `test/hook-http.test.ts`.'
-  - '41.q3: With a `task_from_branch` that is not a regular expression, "the hook stays silent and writes no task": is the event still written, without a task, or is no event written?'
+questions: []
