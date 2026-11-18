@@ -37,7 +37,7 @@ requirements:
     source: 'What to build, point 3; Existing tests this changes, point 2'
     guard: '#28: an invalid review_comment_pattern stops howl observe with a message, not silently'
   - id: '41.12'
-    text: 'With a `task_from_branch` that is not a regular expression, `howl hook` stays silent and writes no task: the event is still written, without a task; the hook prints nothing on the screen and ends with 0. A setting never loses an event.'
+    text: 'With a `task_from_branch` that is not a regular expression, `howl hook` stays silent and writes no task: no event is written; the hook prints nothing on the screen and ends with 0.'
     source: 'What to build, point 3; answer 41.q3'
   - id: '41.13'
     text: 'Events written before this have no task from the hook: the state then shows the branch, as it does today when no pattern matches.'
