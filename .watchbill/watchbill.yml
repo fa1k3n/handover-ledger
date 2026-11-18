@@ -1,10 +1,13 @@
 # How Watchbill is set up in this repository. Written by `wb init`.
 # `watchbill` is the version of the package the repository is set up for.
-watchbill: 0.0.3
-revision: '9c2205b7599c70349beece448734c50f1321ea73494aaa7e492b26646eb7fa82'
+watchbill: 0.0.6
+revision: '88b3a5794746078c53d3a33bf2966586a603b0b012c9b8149afa3f2a752575f1'
 project: handover-ledger
 git_server: github
 repository: fa1k3n/handover-ledger
 tracker: github
 requirements: none
 ci: github-actions
+issue_address: 'gh issue view {issue} --repo fa1k3n/handover-ledger --comments'
+change_address: 'gh pr view {change} --repo fa1k3n/handover-ledger --comments'
+branch: 'issue-{issue}'
