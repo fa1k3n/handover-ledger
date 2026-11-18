@@ -3,9 +3,9 @@
 ## Where the work is
 
 - The repository is `fa1k3n/handover-ledger` on GitHub. Work in the checkout you were started in. Do not clone it again.
-- Read the task with `gh issue view {task} --comments`. The issue is the spec. Its requirements are the numbered items in it (R{task}.1, R{task}.2, …). This project has no table of requirements.
-- A change is a pull request, from a branch `issue-{task}-<a few words>` made from `main`. The tester makes the branch and pushes it. The build and the fix work on that branch and push to it.
-- The build opens the pull request as a draft, with "Closes #{task}" in its description. Nobody else opens one.
+- Read the issue with `gh issue view {issue} --comments`. The issue is the spec. When its file `.watchbill/issues/{issue}.yml` is accepted, the requirements are the points of that file (`{issue}.1`, `{issue}.2`, …) and your prompt holds them. Otherwise they are the numbered items in the issue. This project has no table of requirements.
+- A change is a pull request, from the branch `{branch}`, made from `main` before the breakdown starts. The breakdown commits the issue's file on it first, alone. The tester, the build and the fix work on that branch and push to it.
+- The build opens the pull request as a draft, with "Closes #{issue}" in its description. Nobody else opens one.
 - Read a pull request with `gh pr view <number> --comments` and `gh pr diff <number>`. Post on it with `gh pr comment <number> --body-file <file>`.
 - The review posts its findings as one comment whose first line starts with `[review] round <n>`. The fix posts its answers as one comment whose first line starts with `[fix] round <n>`.
 - Never mark a pull request ready, never merge, and never run `scripts/ruleset.sh`.
@@ -26,7 +26,7 @@
 
 ## Tests
 
-- Tests use `node:test` and no framework. A test's name starts with the requirement it covers: `R{task}.1: …`.
+- Tests use `node:test` and no framework. A test's name starts with the requirement it covers: `R` and the requirement's ID: `R{issue}.1: …`.
 - A test for a clause that already holds before the change is a guard. Write it, run it, see it pass, and list it as a guard in your last message. It cannot be red, and it is not a fault that it is not.
 - Test data that must match byte for byte goes in `test/fixtures/`, not in the test.
 
