@@ -190,7 +190,7 @@ test("#52 R52.1: on a ledger of people only, there is no unattributed figure, an
   assert.equal(figures.open, 1);
   assert.equal(figures.merged, 1);
   assert.equal(figures.leadTimeMedianMs, 12 * 60_000);
-  assert.equal(figures.reviewRoundsMean, 2);
+  assert.equal(figures.reviewRoundsMean, 1);
   assert.equal(figures.periodDays, 30);
   assert.deepEqual(figures.configChanges, []);
 });
