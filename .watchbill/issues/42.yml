@@ -1,0 +1,84 @@
+issue: '42'
+from: 31e8acbfa60469493080e0a5ff8e2d064569b4291b73d6b2de613d695cb64df6
+requirements:
+  - id: '42.1'
+    text: '`rounds` moves to `src/read/rounds.ts` (beside `roundText`), with no Node.'
+    source: 'What to build, point 1'
+  - id: '42.2'
+    text: '`rounds` in `src/read/rounds.ts` is the one place that says what a round is: the reviews of a change between two heads.'
+    source: 'What to build, point 1'
+    guard: 'test/show.test.ts: two reviews with a new head commit between them are two rounds'
+  - id: '42.3'
+    text: '`keyFigures` counts rounds with it: a merged change with three reviews on one head and one on the next gives two rounds in the overview''s mean.'
+    source: 'What to build, point 2; Tests first, point 1'
+  - id: '42.4'
+    text: 'The same merged change, with three reviews on one head and one on the next, gives two rounds in `howl show`.'
+    source: 'Tests first, point 1'
+  - id: '42.5'
+    text: 'The figure keeps its name (`reviewRoundsMean`).'
+    source: 'What to build, point 2'
+    guard: 'test/overview.test.ts: #13: lead time, rounds and open changes on the story'
+  - id: '42.6'
+    text: 'The overview''s text says "rounds", and the number of reviews is not shown as rounds anywhere.'
+    source: 'What to build, point 2'
+  - id: '42.7'
+    text: '`show` calls `rounds` once: the list of rounds and the summary''s count come from the same call.'
+    source: 'What to build, point 3; Why, last paragraph'
+  - id: '42.8'
+    text: 'A task with reviews on two changes: in `howl show` the rounds are counted per change, and a `Round` names its `change`; it holds after the move.'
+    source: 'Tests first, point 2'
+    guard: 'test/show-one-change.test.ts: reviews on two changes of one task: the rounds are counted per change, and a head of one ends no round of the other'
+  - id: '42.9'
+    text: 'A task with reviews on two changes: the overview counts the rounds per change, the same way as `howl show`.'
+    source: 'Tests first, point 2'
+  - id: '42.10'
+    text: 'The existing tests of `howl show`''s rounds hold unchanged.'
+    source: 'Tests first, point 3'
+    guard: 'test/comments.test.ts: #28: howl show counts rounds from reviews only and lists the comments apart, a count per change'
+  - id: '42.11'
+    text: 'In `test/comments.test.ts`, "the handovers and the overview''s figures use reviews only": the two reviews are on one head, so the mean becomes 1, and the message "two reviews, not five" becomes "one round, not five".'
+    source: 'Existing tests this changes, point 1'
+  - id: '42.12'
+    text: 'In `test/overview.test.ts`, the test of `reviewRoundsMean`: its number changes only if the new rule says so (the story''s change 30 has its two reviews on two heads, so it stays 2).'
+    source: 'Existing tests this changes, point 2'
+    guard: 'test/overview.test.ts: #13: lead time, rounds and open changes on the story'
+interface: |
+  // src/read/rounds.ts: gets `rounds`, moved from src/read/show.ts; no Node.
+  export function rounds(all: LedgerEvent[], acting?: Map<string, Acting>): Round[]
+  export function roundText(reviews: RoundReview[], time?: (t: string) => string): string   // unchanged
+  // Round, as now in src/read/show.ts:
+  export interface Round {
+    change?: string;
+    reviews: { time: string; actor?: Actor; outcome: string; by?: string; dismissed?: { time: string; actor?: Actor } }[];
+    followedBy: string | null;
+    then?: string[];
+  }
+
+  // src/read/show.ts: loses `rounds`; these stay as they are.
+  export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | null, options?: { matched?: boolean }): Shown | null
+    // Shown.reviews: Round[]; Shown.summary.reviewRounds: number
+  export function parseAsked(text: string): Asked
+  export function render(shown: Shown, options?: { utc?: boolean }): string
+
+  // src/read/overview.ts: keyFigures counts rounds with `rounds`.
+  export function keyFigures(events: LedgerEvent[], now: number): KeyFigures
+    // KeyFigures.reviewRoundsMean: number | null  (the mean of rounds per change merged in the period)
+    // KeyFigures.merged: number
+  export const PERIOD_MS: number
+
+  // Types the tests use: LedgerEvent from src/ledger/schema.ts; Acting from src/read/acting.ts.
+changes: [src/read/rounds.ts, src/read/show.ts, src/read/overview.ts, src/dashboard/texts.ts, README.md, test/comments.test.ts, test/rounds.test.ts]
+reads:
+  tester: [src/ledger/schema.ts, test/helpers.ts, test/story.ts, test/local-host.ts, test/overview.test.ts, test/show.test.ts, test/show-one-change.test.ts, package.json]
+  build: [src/read/observed.ts, src/read/acting.ts, src/read/order.ts, src/ledger/schema.ts, src/dashboard/App.tsx, src/dashboard/ChangeView.tsx, src/dashboard/tsconfig.json, test/helpers.ts, test/story.ts, test/local-host.ts, test/overview.test.ts, test/show.test.ts, test/show-one-change.test.ts, test/claimed.test.ts, test/who-acted-read.test.ts, test/rounds-text.test.ts, package.json, tsconfig.json, .github/workflows/check.yml]
+  review: [src/read/observed.ts, src/read/acting.ts, src/read/order.ts, src/ledger/schema.ts, src/dashboard/App.tsx, src/dashboard/ChangeView.tsx, src/dashboard/tsconfig.json, test/helpers.ts, test/story.ts, test/local-host.ts, test/overview.test.ts, test/show.test.ts, test/show-one-change.test.ts, test/claimed.test.ts, test/who-acted-read.test.ts, test/rounds-text.test.ts, package.json, .howl/howl.yml, .github/workflows/check.yml]
+  fix: [src/read/observed.ts, src/read/acting.ts, src/read/order.ts, src/ledger/schema.ts, src/dashboard/App.tsx, src/dashboard/ChangeView.tsx, src/dashboard/tsconfig.json, test/helpers.ts, test/story.ts, test/local-host.ts, test/overview.test.ts, test/show.test.ts, test/show-one-change.test.ts, test/claimed.test.ts, test/who-acted-read.test.ts, test/rounds-text.test.ts, package.json, tsconfig.json, .github/workflows/check.yml]
+existing_tests_changed: ['test/comments.test.ts: #28: the handovers and the overview''s figures use reviews only']
+questions:
+  - '`keyFigures` counts the reviews of a merged change up to its merge. With `rounds`, does it count the rounds of all the change''s observed reviews in the ledger, reviews after the merge included, or only the rounds before the merge?'
+  - 'test/overview.test.ts, "#52 R52.1: on a ledger of people only, there is no unattributed figure, and the other figures are as before", asserts `reviewRoundsMean` 2 from a `review.commented` and a `review.approved` on one head of change 7. Under the new rule it is 1. The issue names only "the test of `reviewRoundsMean`". May this test change, and is it to be listed under existing_tests_changed?'
+  - 'src/dashboard/texts.ts: the figure is already titled "Review rounds per change", and its note says "mean of N merged changes, last D days". What is the note under the figure to say after the change?'
+  - 'README.md, "where the overview is described": which text changes, and to what? The nearest is the paragraph "A review is a review", which says "Review rounds, handovers and the overview''s figures count reviews only".'
+  - 'Does the type `Round` move to src/read/rounds.ts with `rounds`, or stay in src/read/show.ts? The page imports rounds.ts, which must stay without Node.'
+  - '"`show` calls it once": is this to be shown by a test (for example one that reads src/read/show.ts), or left to the review?'
+  - 'The new tests are placed in test/rounds.test.ts here, beside test/rounds-text.test.ts. Is that the file, or do they go in test/overview.test.ts and test/show.test.ts?'
