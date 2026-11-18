@@ -8,6 +8,6 @@ repository: fa1k3n/handover-ledger
 tracker: github
 requirements: none
 ci: github-actions
-issue_address: 'gh issue view {issue} --repo fa1k3n/handover-ledger --comments'
-change_address: 'gh pr view {change} --repo fa1k3n/handover-ledger --comments'
+issue_address: 'gh issue view {issue} --repo fa1k3n/handover-ledger; gh issue view {issue} --repo fa1k3n/handover-ledger --comments'
+change_address: 'gh pr view {change} --repo fa1k3n/handover-ledger; gh pr view {change} --repo fa1k3n/handover-ledger --comments'
 branch: 'issue-{issue}'
