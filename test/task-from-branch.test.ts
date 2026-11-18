@@ -140,9 +140,9 @@ test("R41.13: howl status shows the branch of events with no task, though the pr
 
 test("R41.5: taskFromBranch is no option of StateOptions or ServeOptions", () => {
   // @ts-expect-error StateOptions has no taskFromBranch after #41.
-  const state: Parameters<typeof agentStates>[2] = { taskFromBranch: PATTERN };
+  const state: Parameters<typeof agentStates>[2] = { taskFromBranch: new RegExp(PATTERN) };
   // @ts-expect-error ServeOptions has no taskFromBranch after #41.
-  const serve: Parameters<typeof startServer>[0] = { port: 0, root: "x", taskFromBranch: PATTERN };
+  const serve: Parameters<typeof startServer>[0] = { port: 0, root: "x", taskFromBranch: new RegExp(PATTERN) };
   assert.ok(state && serve);
 });
 
