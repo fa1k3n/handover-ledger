@@ -1,0 +1,61 @@
+issue: '175'
+from: 77125198970e3b716d674b6a2d57032393fe3134ef35d2749baf46472e6887b6
+requirements:
+  - id: '175.1'
+    text: 'An event the hook writes records where its task came from: from HOWL_TASK (for example `env`) or from the branch by task_from_branch (for example `branch`). The name and the values are open (175.q1).'
+    source: 'Issue body: "The event needs to record where its task came from (for example `task_from: env | branch`)".'
+  - id: '175.2'
+    text: 'The event schema holds the field and its values, and the TypeScript types are generated from it; an event with a value the schema does not list is refused and nothing is written.'
+    source: 'Issue body: "The event needs to record where its task came from"; CLAUDE.md: the event schema in schema/ is the source, an event the schema does not accept is refused.'
+  - id: '175.3'
+    text: 'A hook sent to /api/hook gives the same source of the task as howl hook gives for the same hook.'
+    source: 'Issue body: "the hook writes the task from the branch onto the event"; the hook line and howl hook build one event (#67).'
+    guard: 'each of the five hooks sent to /api/hook gives the event howl hook gives, but for id, time and the adapter'
+  - id: '175.4'
+    text: 'Readers rank the task by where it came from, in the owner''s order: HOWL_TASK, then the task the code host links to the change, then the branch''s. Which readers is open (175.q5); how an event without a source is ranked is open (175.q2).'
+    source: 'Issue body: "The owner''s order is `HOWL_TASK`, then the task the code host links to the change, then the branch''s." and "so readers can rank them".'
+  - id: '175.5'
+    text: 'A session whose task is named with HOWL_TASK is not shown the change on its branch when that change is linked to another task: the change from the branch is shown only when the task came from the branch. What holds for a session with no task, or one whose HOWL_TASK names the change''s own task, is open (175.q3).'
+    source: 'First comment (from #174, review round 2, note 8): "With the source of the task on the event, the change from the branch can be shown only when the task came from the branch."'
+interface: |
+  The event field (name open, 175.q1), in schema/event.v0.schema.json and the generated src/ledger/event.gen.ts:
+    LedgerEvent.task_from?: "env" | "branch"
+
+  src/hook/hook.ts:
+    eventOfHook(hook: Record<string, unknown>, env: Record<string, string | undefined>, dir: string, adapter: string)
+      : { project: Project; event: LedgerEvent } | null
+    runHook(stdin: string, env: Record<string, string | undefined>, cwd: string): Promise<void>
+
+  src/read/state.ts:
+    agentStates(events: LedgerEvent[], now: number, options?: StateOptions): AgentRow[]
+    renderStatus(rows: AgentRow[], now: number): string
+    interface StateOptions { agents?: ReadonlySet<string> }
+    interface AgentRow { agent: string; state: AgentState; task?: string; change?: string; branch?: string; session?: string; gaps: string[]; ... }
+
+  src/ledger/schema.ts:
+    eventFaults(value: unknown): string[]
+
+  src/ledger/ledger.ts:
+    openLedger(path, { project }) -> writer with append(event) and close(); type LedgerEvent
+
+  As a process: `howl hook` reads the hook's JSON on standard input, takes HOWL_ACTOR, HOWL_TASK, HOWL_CHANGE and HOWL_HOME
+  from the environment, prints nothing, ends with 0, and leaves one event in the inbox. `howl status` prints the rows.
+  The server's POST /api/hook takes the same JSON, with HOWL_TASK as the header X-Howl-Task.
+
+  Test helpers, as they are: test/helpers.ts (event, folder, git, howl, inboxEvents, PROJECT, workspace, type Workspace),
+  test/local-host.ts (LocalHost, at, SHA), test/up-helpers.ts (up, until, send, claim, type Up).
+changes: [schema/event.v0.schema.json, src/ledger/event.gen.ts, src/hook/hook.ts, src/read/state.ts, README.md, test/task-from.test.ts]
+reads:
+  tester: [test/helpers.ts, test/local-host.ts, test/up-helpers.ts, test/task-from-branch.test.ts, test/state.test.ts, test/hook-http.test.ts, src/ledger/schema.ts, package.json]
+  build: [src/howl/project.ts, src/inbox/receive.ts, src/hook/line.ts, src/ledger/schema.ts, src/read/agent.ts, src/read/assignee.ts, src/read/order.ts, src/observe/observe.ts, scripts/gen-types.ts, test/helpers.ts, test/local-host.ts, test/up-helpers.ts, test/task-from-branch.test.ts, test/state.test.ts, test/hook-http.test.ts, test/schema.test.ts, package.json, CLAUDE.md]
+  review: [src/howl/project.ts, src/inbox/receive.ts, src/hook/line.ts, src/ledger/schema.ts, src/read/agent.ts, src/read/assignee.ts, src/read/order.ts, src/observe/observe.ts, scripts/gen-types.ts, test/helpers.ts, test/local-host.ts, test/up-helpers.ts, test/task-from-branch.test.ts, test/state.test.ts, test/hook-http.test.ts, test/schema.test.ts, package.json, CLAUDE.md, .howl/howl.yml, .github/workflows/check.yml]
+  fix: [src/howl/project.ts, src/inbox/receive.ts, src/hook/line.ts, src/ledger/schema.ts, src/read/agent.ts, src/read/assignee.ts, src/read/order.ts, src/observe/observe.ts, scripts/gen-types.ts, test/helpers.ts, test/local-host.ts, test/up-helpers.ts, test/task-from-branch.test.ts, test/state.test.ts, test/hook-http.test.ts, test/schema.test.ts, package.json, CLAUDE.md]
+existing_tests_changed: []
+questions:
+  - '175.q1: The issue gives `task_from: env | branch` only "for example": which name and values does the event use?'
+  - '175.q2: How is an event ranked that holds a task but does not say where it came from (every event written before this change, including those since #41)?'
+  - '175.q3: When is the change on the branch shown: only when the task came from the branch, also when the session has no task, also when HOWL_TASK names the task the host links to that change?'
+  - '175.q4: May the change alter the existing test "R41.4: a task written on the agent''s events keeps the change opened on its branch (finding 1, round 1)" in test/state.test.ts, whose events hold a task with no source? The issue names no existing test it changes.'
+  - '175.q5: Which readers rank the task by its source: the state only (howl status, the dashboard''s agents), or also howl show and the overview?'
+  - '175.q6: Do the observer''s events also say where their task came from (the host''s link, or the branch)?'
+  - '175.q7: May an event say where its task came from without holding a task, or does the schema refuse that?'
