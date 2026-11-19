@@ -99,11 +99,13 @@ echo agent-1 > .howl/actor
 echo .howl/actor >> .gitignore
 ```
 
-Whoever starts a session may also name its work: `HOWL_CHANGE` and `HOWL_TASK` in its environment go onto every event of the session. Where a session names no task, `howl hook` takes it from the branch by `task_from_branch` (below), and the state reads the task from the events only. Events written before this have no task from the hook: the state then shows the branch. This matters for a reviewer that works in a folder of its own on the default branch, where the branch says nothing:
+Whoever starts a session may also name its work: `HOWL_CHANGE` and `HOWL_TASK` in its environment go onto every event of the session. This matters for a reviewer that works in a folder of its own on the default branch, where the branch says nothing:
 
 ```sh
 HOWL_ACTOR=agent-2 HOWL_CHANGE=30 HOWL_TASK=12 HOWL_ROLE=review HOWL_ROLE_PROMPT=roles/review.md claude …
 ```
+
+Where a session names no task, `howl hook` takes it from the branch by `task_from_branch` (below), and the state reads the task from the events only. Events written before the hook wrote the task have none: the state then shows the branch.
 
 `HOWL_ROLE` names the session's role, a name the team chooses; the dashboard, `howl status` and `howl show` show it. `HOWL_ROLE_PROMPT` is the role prompt's path in the repository: each event records its file and the SHA-256 of its content, so a change shows which prompt the agent ran with.
 
