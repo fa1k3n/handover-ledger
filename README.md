@@ -105,7 +105,7 @@ Whoever starts a session may also name its work: `HOWL_CHANGE` and `HOWL_TASK` i
 HOWL_ACTOR=agent-2 HOWL_CHANGE=30 HOWL_TASK=12 HOWL_ROLE=review HOWL_ROLE_PROMPT=roles/review.md claude …
 ```
 
-Where a session names no task, `howl hook` takes it from the branch by `task_from_branch` (below), and the state reads the task from the events only. Events written before the hook wrote the task have none: the state then shows the branch.
+Where a session names no task, `howl hook` takes it from the branch by `task_from_branch` (below), and the state reads the task from the events only. Events written before the hook wrote the task have none: the state then shows the branch. The hook says where the task came from in `task_from` (`env` or `branch`). The state ranks the task by it: `HOWL_TASK`, then the task the code host links to the change on the branch, then the branch's. An event with a task and no `task_from` is read as `env`. The change on the branch is shown when the task came from the branch, when the session has no task, or when `HOWL_TASK` names the task the host links to that change.
 
 `HOWL_ROLE` names the session's role, a name the team chooses; the dashboard, `howl status` and `howl show` show it. `HOWL_ROLE_PROMPT` is the role prompt's path in the repository: each event records its file and the SHA-256 of its content, so a change shows which prompt the agent ran with.
 

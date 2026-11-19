@@ -173,6 +173,13 @@
       "description": "The task, as the tracker names it.",
       "$ref": "#/$defs/name"
     },
+    "task_from": {
+      "description": "Where the task came from, on an event the hook writes: env when the session named it (HOWL_TASK), branch when the branch gave it. Only with a task. An event with a task and no task_from is read as env.",
+      "enum": [
+        "env",
+        "branch"
+      ]
+    },
     "change": {
       "description": "The merge or pull request, as the code host names it.",
       "$ref": "#/$defs/name"
@@ -259,6 +266,11 @@
         }
       }
     }
+  },
+  "dependentRequired": {
+    "task_from": [
+      "task"
+    ]
   },
   "$defs": {
     "name": {

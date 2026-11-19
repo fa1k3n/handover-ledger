@@ -91,9 +91,13 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     const onLatestBranch = [...current].reverse().find((e) => e.branch === lastOwn?.branch && e.task !== undefined);
     const named = { change: latest("change") as string | undefined, task: onLatestBranch?.task };
     const fromBranch = row.branch === undefined ? undefined : onBranch.get(row.branch);
-    // The hook writes the task of the branch on every event (#41), so a task on the event does not hide the host's change.
-    const change = named.change ?? fromBranch?.change;
-    const task = named.task ?? (named.change === undefined ? fromBranch?.task : undefined);
+    // #175: the task is ranked by where it came from: HOWL_TASK, then the task the host links to the change on the branch, then the branch's.
+    // An event with a task and no `task_from` is read as named by the session.
+    const fromEnv = named.task !== undefined && (onLatestBranch?.task_from ?? "env") === "env";
+    // The change on the branch is shown when the task came from the branch, when there is no task, or when HOWL_TASK names the host's task.
+    const hostChange = named.task === undefined || !fromEnv || named.task === fromBranch?.task ? fromBranch?.change : undefined;
+    const change = named.change ?? hostChange;
+    const task = fromEnv ? named.task : named.change === undefined ? (fromBranch?.task ?? named.task) : named.task;
     if (change !== undefined) row.change = change;
     if (task !== undefined) row.task = task;
     if (lastOwn) {
