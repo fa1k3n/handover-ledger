@@ -126,6 +126,10 @@ export interface LedgerEvent {
    */
   task?: string;
   /**
+   * Where the task came from, on an event the hook writes: env when the session named it (HOWL_TASK), branch when the branch gave it. Only with a task. An event with a task and no task_from is read as env.
+   */
+  task_from?: "env" | "branch";
+  /**
    * The merge or pull request, as the code host names it.
    */
   change?: string;

@@ -118,6 +118,9 @@ export function eventOfHook(
     return null;
   }
   const where = checkout(dir);
+  // The session names its task, else the branch gives it (#41); the event says which (#175).
+  const fromEnv = named(env.HOWL_TASK);
+  const task = fromEnv ?? taskOfBranch(where.branch, pattern);
 
   const event: LedgerEvent = {
     v: 0,
@@ -133,8 +136,9 @@ export function eventOfHook(
     ...where,
     // Whoever starts the session may name its work: a review in a folder of its own is on the default branch.
     change: named(env.HOWL_CHANGE),
-    // The session names its task, else the branch gives it (#41): readers take the task from the events.
-    task: named(env.HOWL_TASK) ?? taskOfBranch(where.branch, pattern),
+    // Readers take the task from the events, and rank it by where it came from.
+    task,
+    task_from: task === undefined ? undefined : fromEnv !== undefined ? "env" : "branch",
     role: named(env.HOWL_ROLE),
     prompt: rolePrompt(env.HOWL_ROLE_PROMPT, project.root),
     data: what.data,

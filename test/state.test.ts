@@ -213,7 +213,7 @@ const openedOn = (extra: Partial<LedgerEvent> = {}): LedgerEvent => ({
 test("R41.4: a task written on the agent's events keeps the change opened on its branch (finding 1, round 1)", () => {
   // The hook now writes the task of the branch on every event: the change of the host must still show.
   for (const opened of [openedOn({ task: "12" }), openedOn()]) {
-    const row = agentStates([opened, tool("agent-1", 30, "Bash", "make", { task: "12" })], NOW)[0]!;
+    const row = agentStates([opened, tool("agent-1", 30, "Bash", "make", { task: "12", task_from: "branch" })], NOW)[0]!;
     assert.equal(row.change, "30");
     assert.equal(row.task, "12");
   }
