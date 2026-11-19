@@ -197,3 +197,35 @@ test("#26: howl status shows a row's gaps", () => {
   const rows = agentStates([tool("agent-1", 30, "Bash", "gh", { branch: "main" })], NOW);
   assert.match(renderStatus(rows, NOW), /missing: no change or task named, no role/);
 });
+
+const openedOn = (extra: Partial<LedgerEvent> = {}): LedgerEvent => ({
+  v: 0,
+  id: `obs-${++n}`,
+  time: ago(900),
+  type: "change.opened",
+  source: { adapter: "github", kind: "observed" },
+  project: PROJECT,
+  change: "30",
+  branch: "task-12-x",
+  ...extra,
+});
+
+test("R41.4: a task written on the agent's events keeps the change opened on its branch (finding 1, round 1)", () => {
+  // The hook now writes the task of the branch on every event: the change of the host must still show.
+  for (const opened of [openedOn({ task: "12" }), openedOn()]) {
+    const row = agentStates([opened, tool("agent-1", 30, "Bash", "make", { task: "12" })], NOW)[0]!;
+    assert.equal(row.change, "30");
+    assert.equal(row.task, "12");
+  }
+});
+
+test("R41.4: a change named on the event still wins over the change on its branch", () => {
+  const row = agentStates([openedOn({ task: "12" }), tool("agent-1", 30, "Bash", "gh", { change: "31", task: "12" })], NOW)[0]!;
+  assert.equal(row.change, "31");
+});
+
+test("R41.4: the row's task follows the session's latest branch: a branch with no task leaves none (finding 3, round 1)", () => {
+  const rows = agentStates([tool("agent-1", 60, "Bash", "make", { task: "12" }), tool("agent-1", 30, "Bash", "make", { branch: "main" })], NOW);
+  assert.equal(rows[0]!.branch, "main");
+  assert.equal(rows[0]!.task, undefined);
+});

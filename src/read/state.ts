@@ -87,9 +87,12 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     if (typeof data.tool === "string") row.tool = data.tool;
     if (typeof data.target === "string") row.target = data.target;
 
-    const named = { change: latest("change") as string | undefined, task: latest("task") as string | undefined };
+    // The task follows the session's latest branch: a task written on an earlier branch is not carried to this one.
+    const onLatestBranch = [...current].reverse().find((e) => e.branch === lastOwn?.branch && e.task !== undefined);
+    const named = { change: latest("change") as string | undefined, task: onLatestBranch?.task };
     const fromBranch = row.branch === undefined ? undefined : onBranch.get(row.branch);
-    const change = named.change ?? (named.task === undefined ? fromBranch?.change : undefined);
+    // The hook writes the task of the branch on every event (#41), so a task on the event does not hide the host's change.
+    const change = named.change ?? fromBranch?.change;
     const task = named.task ?? (named.change === undefined ? fromBranch?.task : undefined);
     if (change !== undefined) row.change = change;
     if (task !== undefined) row.task = task;
