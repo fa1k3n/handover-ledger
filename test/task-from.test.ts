@@ -7,6 +7,7 @@ import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { eventFaults } from "../src/ledger/schema.ts";
 import { openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
+import { handovers, keyFigures } from "../src/read/overview.ts";
 import { agentStates, renderStatus } from "../src/read/state.ts";
 import { startServer } from "../src/serve/server.ts";
 import { event, folder, git, howl, inboxEvents, lines, PROJECT, rawLines, workspace, type Workspace } from "./helpers.ts";
@@ -375,4 +376,88 @@ test("R175.11: the observer's events carry no task_from, for a task from the hos
   assert.ok(withTask.some((e) => e.task === "1"), "a task from the host's link");
   assert.ok(withTask.some((e) => e.task === "2"), "a task from the branch");
   for (const e of events) assert.ok(!("task_from" in e), String(e.type));
+});
+
+// 175.5, the last clause: no other reader ranks the task by where it came from.
+
+type Source = "env" | "branch" | undefined;
+const fixedEvents = (task: string, source: Source): LedgerEvent[] => {
+  const base = { v: 0, project: PROJECT, branch: "task-12-x" } as const;
+  const hook = (id: string, secondsAgo: number): LedgerEvent =>
+    ({
+      ...base,
+      id,
+      time: ago(secondsAgo),
+      type: "tool.used",
+      source: { adapter: "claude-code-hook", kind: "claimed" },
+      actor: { kind: "agent", id: "agent-1" },
+      session: "s-fixed",
+      task,
+      ...(source ? { task_from: source } : {}),
+      data: { tool: "Bash", target: "make", outcome: "succeeded" },
+    }) as LedgerEvent;
+  return [
+    { ...base, id: "fx-opened", time: ago(900), type: "change.opened", source: { adapter: "github", kind: "observed" }, change: "30", task: "13" },
+    hook("fx-h1", 300),
+    hook("fx-h2", 200),
+  ];
+};
+/** `value` with every `task_from` removed, at any depth. */
+function withoutSource(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutSource);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).filter(([k]) => k !== "task_from").map(([k, v]) => [k, withoutSource(v)]));
+  }
+  return value;
+}
+
+test("R175.5: howl show gives the same, whatever the events say their task came from", () => {
+  for (const task of ["12", "7"]) {
+    const outputs = new Map<string, unknown>();
+    for (const source of ["env", "branch", undefined] as Source[]) {
+      const dir = folder();
+      const path = join(dir, "ledger.jsonl");
+      const w = openLedger(path, { project: PROJECT });
+      for (const e of fixedEvents(task, source)) w.append(e);
+      w.close();
+      for (const what of ["12", "13", "7", "change:30"]) {
+        const run = howl(["show", what, "--ledger", path, "--json"]);
+        const key = `${task}/${what}`;
+        const got = withoutSource(JSON.parse(run.stdout || "null"));
+        if (!outputs.has(`${key}`)) outputs.set(key, [run.status, got]);
+        assert.deepEqual([run.status, got], outputs.get(key), `${key}, task_from ${source}`);
+      }
+    }
+  }
+});
+
+test("R175.5: howl show for a task gathers the same events whatever the source of the session's task", () => {
+  // Control that the fixture is read: show finds the session's events for the task 12.
+  const dir = folder();
+  const path = join(dir, "ledger.jsonl");
+  const w = openLedger(path, { project: PROJECT });
+  for (const e of fixedEvents("12", "branch")) w.append(e);
+  w.close();
+  const run = howl(["show", "12", "--ledger", path, "--json"]);
+  assert.equal(run.status, 0, run.stderr);
+  const ids = (JSON.parse(run.stdout).events as { id: string }[]).map((e) => e.id);
+  assert.ok(ids.includes("fx-h1"), ids.join(","));
+});
+
+test("R175.5: the overview gives the same, whatever the events say their task came from", () => {
+  // Guard: holds before the change.
+  const stream = (source: Source): LedgerEvent[] => [
+    ...fixedEvents("12", source),
+    { v: 0, id: "fx-rev", time: ago(100), type: "review.approved", source: { adapter: "github", kind: "observed" }, project: PROJECT, actor: { kind: "agent", id: "agent-b" }, change: "30", task: "13" } as LedgerEvent,
+  ];
+  const render = (source: Source) => {
+    const events = stream(source);
+    return JSON.stringify({
+      handovers: handovers(events.map((e, i) => ({ event: e, hash: `h${i}` }))),
+      figures: keyFigures(events, NOW),
+    });
+  };
+  const plain = render(undefined);
+  assert.equal(render("env"), plain);
+  assert.equal(render("branch"), plain);
 });
