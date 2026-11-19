@@ -21,7 +21,7 @@ import { markDown, recentlyDown } from "../inbox/down.ts";
 import { projectDir } from "../ledger/place.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { git, originUrl, repoName } from "../howl/git.ts";
-import { findActor, findProject } from "../howl/project.ts";
+import { findActor, findProject, settingPattern, taskOfBranch } from "../howl/project.ts";
 import { parseKeydKey, request } from "../keys/keyd.ts";
 import { readKey, signEvent } from "../keys/keys.ts";
 
@@ -110,6 +110,15 @@ export function eventOfHook(
   const what = describe(hook, project.root);
   if (!what) return null;
 
+  // #41: a task_from_branch that is no regular expression records nothing, and says nothing.
+  let pattern: RegExp | undefined;
+  try {
+    pattern = settingPattern(project, "task_from_branch");
+  } catch {
+    return null;
+  }
+  const where = checkout(dir);
+
   const event: LedgerEvent = {
     v: 0,
     id: randomUUID(),
@@ -121,10 +130,11 @@ export function eventOfHook(
     session: text(hook.session_id),
     model: text(hook.model),
     effort: effort(hook.effort),
-    ...checkout(dir),
+    ...where,
     // Whoever starts the session may name its work: a review in a folder of its own is on the default branch.
     change: named(env.HOWL_CHANGE),
-    task: named(env.HOWL_TASK),
+    // The session names its task, else the branch gives it (#41): readers take the task from the events.
+    task: named(env.HOWL_TASK) ?? taskOfBranch(where.branch, pattern),
     role: named(env.HOWL_ROLE),
     prompt: rolePrompt(env.HOWL_ROLE_PROMPT, project.root),
     data: what.data,

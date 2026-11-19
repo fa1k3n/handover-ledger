@@ -22,7 +22,7 @@ import { dirname, join } from "node:path";
 import { ingestPass, type Pass, type Places } from "../inbox/ingest.ts";
 import { events as ledgerEvents, type LedgerWriter } from "../ledger/ledger.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
-import { agentAccounts } from "../howl/project.ts";
+import { agentAccounts, settingPattern, taskOfBranch } from "../howl/project.ts";
 import type { People } from "./people.ts";
 import { checksOf, lastFinish, latestFailed, pendingNames, resultsOf, sameState, stateOf, type Result, type State } from "./results.ts";
 import type { Account, Change, ChecksState, CodeHost, Push, Task } from "./port.ts";
@@ -177,7 +177,7 @@ export class Observer {
   private prefix: string | undefined;
   /** #48: the starts of every id this repository's events have had, the lasting form first. */
   private prefixes: string[] = [];
-  private readonly taskPattern: RegExp | null;
+  private readonly taskPattern: RegExp | undefined;
   /** #46: the name of an agent by its account at the host. */
   private readonly names: Map<string, string>;
   private readonly host: CodeHost;
@@ -210,7 +210,7 @@ export class Observer {
     } = parts);
     const { host, settings } = parts;
     this.names = agentAccounts(settings.agents);
-    this.taskPattern = settings.taskFromBranch === undefined ? null : new RegExp(settings.taskFromBranch);
+    this.taskPattern = settingPattern(settings, "task_from_branch");
     for (const e of ledgerEvents(parts.ledgerPath)) {
       if (e.source?.adapter !== host.name || e.source.kind !== "observed" || typeof e.id !== "string") continue;
       // An id made from a name starts with the name the event's `repo` held then.
@@ -835,8 +835,7 @@ export class Observer {
   /** The task of a change: the host's link, else the number in the branch name, else none. */
   private taskOf(change: Change): string | undefined {
     if (change.tasks.length > 0) return String(change.tasks[0]);
-    const match = this.taskPattern?.exec(change.branch);
-    return match ? (match[1] ?? match[0]) : undefined;
+    return taskOfBranch(change.branch, this.taskPattern);
   }
 
   private readCursor(): Cursor {

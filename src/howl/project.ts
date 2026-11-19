@@ -9,6 +9,7 @@
 // @code_class recording
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { LedgerError } from "../ledger/errors.ts";
 import { isProjectName } from "../ledger/place.ts";
 
 export interface Project {
@@ -34,6 +35,27 @@ export interface Project {
 }
 
 export const DEFAULT_ACTIVITY_DAYS = 30;
+
+/**
+ * #41: a pattern of the project, compiled here and nowhere else. Undefined when the project sets none; a LedgerError
+ * that names the setting when it is not a regular expression.
+ */
+export function settingPattern(project: Pick<Project, "taskFromBranch" | "reviewCommentPattern">, setting: "task_from_branch" | "review_comment_pattern"): RegExp | undefined {
+  const source = setting === "task_from_branch" ? project.taskFromBranch : project.reviewCommentPattern;
+  if (source === undefined) return undefined;
+  try {
+    return new RegExp(source);
+  } catch (e) {
+    throw new LedgerError(`${setting} in .howl/howl.yml is not a regular expression: ${source} (${(e as Error).message})`);
+  }
+}
+
+/** The task a branch name gives by a `task_from_branch` pattern: its first group, else the whole match. */
+export function taskOfBranch(branch: string | undefined, pattern: RegExp | undefined): string | undefined {
+  if (branch === undefined || pattern === undefined) return undefined;
+  const found = pattern.exec(branch);
+  return found ? (found[1] ?? found[0]) : undefined;
+}
 
 /** The nearest `.howl/howl.yml` at or above `dir`, or null when there is none or it names no project. */
 export function findProject(dir: string): Project | null {

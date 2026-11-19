@@ -105,6 +105,8 @@ Whoever starts a session may also name its work: `HOWL_CHANGE` and `HOWL_TASK` i
 HOWL_ACTOR=agent-2 HOWL_CHANGE=30 HOWL_TASK=12 HOWL_ROLE=review HOWL_ROLE_PROMPT=roles/review.md claude …
 ```
 
+Where a session names no task, `howl hook` takes it from the branch by `task_from_branch` (below), and the state reads the task from the events only. Events written before the hook wrote the task have none: the state then shows the branch.
+
 `HOWL_ROLE` names the session's role, a name the team chooses; the dashboard, `howl status` and `howl show` show it. `HOWL_ROLE_PROMPT` is the role prompt's path in the repository: each event records its file and the SHA-256 of its content, so a change shows which prompt the agent ran with.
 
 **Signing a session's claims.** Whoever starts an agent's session can issue a key for that one assignment and hand it over; the hook then signs every event of the session, and `howl verify` holds each signed event to its key: the agent, the task and change, the time window, and no use after a revocation.
@@ -219,7 +221,7 @@ node /path/to/handover-ledger/src/cli/howl.ts observe --once       # one round
 ```yaml
 host: github                      # else read from the remote origin
 repository: owner/name            # else read from the remote origin
-task_from_branch: '^task-(\d+)'   # takes a task's number from a branch name: the first group
+task_from_branch: '^task-(\d+)'   # takes a task's number from a branch name: the first group; `howl hook` writes it on its events
 agents: [agent-1, agent-2=agent-2-bot]   # the agents: a name, or name=account at the host
 review_comment_pattern: '^\[review\]'   # a comment whose first line matches counts as a review; quote it
 ```

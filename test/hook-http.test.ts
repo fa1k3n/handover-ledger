@@ -9,7 +9,8 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { curlHookLine, tokenOfLine } from "../src/hook/line.ts";
-import { folder, howl, inboxEvents, inboxFiles, lines, rawLines, type Workspace } from "./helpers.ts";
+import { folder, git, howl, inboxEvents, inboxFiles, lines, PROJECT, rawLines, workspace, type Workspace } from "./helpers.ts";
+import { LocalHost } from "./local-host.ts";
 import { claim, send, until, up, type Up } from "./up-helpers.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -325,4 +326,28 @@ test("the hook line against no server ends with 0 within two seconds and prints 
 test("the README shows the hook line as howl gives it", () => {
   const line = curlHookLine({ url: "http://127.0.0.1:4317", tokenFile: "$HOME/.local/state/howl/example/token" });
   assert.ok(readFileSync(join(ROOT, "README.md"), "utf8").includes(line), line);
+});
+
+test("R41.16: a hook sent to /api/hook gets the task from the branch, as howl hook gives it", async () => {
+  const dir = folder();
+  const ws = workspace({ yml: `project: ${PROJECT}\nhost: local\nlocal: ${dir}\nrepository: team/product\ntask_from_branch: '^task-([0-9]+)'\n` });
+  git(ws.root, "init");
+  git(ws.root, "checkout", "-b", "task-12-x");
+  git(ws.root, "commit", "--allow-empty", "-m", "first");
+  const mine = await up({ ws, host: new LocalHost(dir) });
+  try {
+    const json = JSON.stringify(hookJson(ws, "SessionStart", { source: "startup" }, "by-branch"));
+    const home = folder();
+    assert.equal(howl(["hook"], { cwd: ws.root, env: { HOWL_HOME: home, HOWL_ACTOR: "agent-1" }, input: json }).status, 0);
+    const [byHook] = inboxEvents(join(home, "example", "inbox")) as Record<string, any>[];
+    assert.equal(byHook?.task, "12", "howl hook gives the task");
+    assert.equal(byHook?.branch, "task-12-x");
+    assert.equal((await sendHook(mine, json)).status, 200);
+    const byServer = await until(() => events(mine).find((e) => e.session === "by-branch"), 3000, "the event at the server");
+    assert.deepEqual(byServer.source, { adapter: "claude-code-http", kind: "claimed" });
+    assert.equal(byServer.task, "12");
+    assert.equal(byServer.branch, "task-12-x");
+  } finally {
+    await mine.stop();
+  }
 });
