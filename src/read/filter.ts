@@ -74,6 +74,10 @@ function fieldOf(event: LedgerEvent, field: string): string | undefined {
       return event.source.kind;
     case "adapter":
       return event.source.adapter;
+    case "harness":
+      return event.harness?.name;
+    case "revision":
+      return event.harness?.revision;
     default: {
       const v = (event as unknown as Record<string, unknown>)[field];
       return typeof v === "string" || typeof v === "number" ? String(v) : undefined;

@@ -65,7 +65,8 @@ const USAGE = `usage:
             tool.used does too. A filter is a CEL expression over event:
             'event.type.startsWith("review.") && event.project == "a"';
             has(event.change) tests for a field. A field and a value still
-            filter: type=review.*, actor=agent-1, kind=claimed, change=12.
+            filter: type=review.*, actor=agent-1, kind=claimed, change=12,
+            harness=<name>, revision=<revision>.
             Colour unless NO_COLOR is set. Times
             in the local time zone (TZ), --utc as stored; --since without
             an offset is local time

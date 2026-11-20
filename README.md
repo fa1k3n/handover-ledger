@@ -109,6 +109,8 @@ Where a session names no task, `howl hook` takes it from the branch by `task_fro
 
 `HOWL_ROLE` names the session's role, a name the team chooses; the dashboard, `howl status` and `howl show` show it. `HOWL_ROLE_PROMPT` is the role prompt's path in the repository: each event records its file and the SHA-256 of its content, so a change shows which prompt the agent ran with.
 
+`HOWL_HARNESS` names the harness the session runs in, and `HOWL_HARNESS_REVISION` a text the harness chooses for its revision. Both are needed: with only one, neither is recorded. Each is trimmed, and an empty value counts as missing. Each is plain text of up to 256 characters with no control character. They go onto every event of the session in the field `harness`, as a claim, signed by the session's key where there is one. `howl show` names them beside the role, and says when the sessions of one change ran under different revisions. howl records what the harness says and checks it against nothing.
+
 **Signing a session's claims.** Whoever starts an agent's session can issue a key for that one assignment and hand it over; the hook then signs every event of the session, and `howl verify` holds each signed event to its key: the agent, the task and change, the time window, and no use after a revocation.
 
 ```sh
@@ -144,7 +146,7 @@ A hook takes about 0.2 seconds, most of it the start of Node. The tool calls run
 
 ```sh
 #!/bin/sh
-( curl -s -o /dev/null -m 1 -X POST -H 'Content-Type: application/json' -H @"$HOME/.local/state/howl/example/token" -H "X-Howl-Actor: $HOWL_ACTOR" -H "X-Howl-Task: $HOWL_TASK" -H "X-Howl-Change: $HOWL_CHANGE" -H "X-Howl-Role: $HOWL_ROLE" -H "X-Howl-Role-Prompt: $HOWL_ROLE_PROMPT" --data-binary @- http://127.0.0.1:4317/api/hook ) 2>/dev/null || true
+( curl -s -o /dev/null -m 1 -X POST -H 'Content-Type: application/json' -H @"$HOME/.local/state/howl/example/token" -H "X-Howl-Actor: $HOWL_ACTOR" -H "X-Howl-Task: $HOWL_TASK" -H "X-Howl-Change: $HOWL_CHANGE" -H "X-Howl-Role: $HOWL_ROLE" -H "X-Howl-Role-Prompt: $HOWL_ROLE_PROMPT" -H "X-Howl-Harness: $HOWL_HARNESS" -H "X-Howl-Harness-Revision: $HOWL_HARNESS_REVISION" --data-binary @- http://127.0.0.1:4317/api/hook ) 2>/dev/null || true
 ```
 
 It prints nothing, waits at most a second and always ends with 0, also on a machine with no `curl`. `howl up` makes the file `token` in the project's folder once, for its owner only. The file holds the header line itself and `curl` reads it (`-H @file`), so the token stands on no command line, where every user of the machine could read it. The agent, and the task, change and role a session names, travel as headers; with no `HOWL_ACTOR` and no `.howl/actor` nothing is recorded, as with `howl hook`.
@@ -313,6 +315,8 @@ times in Europe/Stockholm (UTC+01:00); --utc for UTC
 2026-01-01 09:20:00 observed person-0a0a0a0a  review.changes_requested task 12  change 30  aaaaaaa
 2026-01-01 09:55:00 observed person-0a0a0a0a  review.approved          task 12  change 30  ccccccc
 ```
+
+A pair is `field=value`, and a value ending in `*` matches what starts with the rest. Beside the fields of the event, the pairs `harness=<name>` and `revision=<revision>` filter on the harness a session claimed and its revision: `--filter harness=example-harness --filter 'revision=1.4*'`.
 
 Times are in the local time zone (`TZ`); `--utc` prints them as stored, `2026-01-01T08:20:00Z`. Tool calls are left out unless `--activity` is given or a filter names `tool.used`.
 
