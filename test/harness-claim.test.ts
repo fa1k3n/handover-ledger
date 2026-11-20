@@ -29,7 +29,7 @@ test("R129.1: with both HOWL_HARNESS and HOWL_HARNESS_REVISION set, the event ho
   assert.deepEqual((e.source as { kind: string }).kind, "claimed");
 });
 
-test("R129.1: with only one of the two set, no event holds either", () => {
+test("R129.2: with only one of the two set, no event holds either", () => {
   const baseline = stable(run(workspace(), {}));
   for (const env of [{ HOWL_HARNESS: HARNESS }, { HOWL_HARNESS_REVISION: REVISION }] as Record<string, string>[]) {
     const e = run(workspace(), env);
@@ -39,12 +39,12 @@ test("R129.1: with only one of the two set, no event holds either", () => {
   }
 });
 
-test("R129.7: a session with no harness named has an event with no new field, as before", () => {
+test("R129.9: a session with no harness named has an event with no new field, as before", () => {
   const e = stable(run(workspace(), { HOWL_ROLE: "review" }));
   assert.deepEqual(Object.keys(e).sort(), ["actor", "data", "project", "role", "session", "source", "type", "v"]);
 });
 
-test("R129.8: a ledger written before this step still verifies", () => {
+test("R129.13: a ledger written before this step still verifies", () => {
   const result = howl(["verify", "--ledger", ledgerWith(4)]);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /\b5 lines\b/);
