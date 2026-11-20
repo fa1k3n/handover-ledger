@@ -1,7 +1,7 @@
 # How Watchbill is set up in this repository. Written by `wb init`.
 # `watchbill` is the version of the package the repository is set up for.
-watchbill: 0.0.8
-revision: '5f1ec546bbd5591a6d7feb373a00496a0d6d24e90d23f480a69e8940fd682bb2'
+watchbill: 0.0.9
+revision: 'badac62e0937957e784d4181533578dd5df90de48baff7bc141b1ed5804ffa4a'
 project: handover-ledger
 git_server: github
 repository: fa1k3n/handover-ledger
@@ -18,3 +18,9 @@ change_of_branch: 'gh pr list --repo fa1k3n/handover-ledger --head {branch} --st
 issue_address: 'gh issue view {issue} --repo fa1k3n/handover-ledger; gh issue view {issue} --repo fa1k3n/handover-ledger --comments'
 change_address: 'gh pr view {change} --repo fa1k3n/handover-ledger; gh pr view {change} --repo fa1k3n/handover-ledger --comments'
 branch: 'issue-{issue}'
+build_files: ['.github/workflows', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.build.json', 'scripts']
+change_checks: 'gh pr checks {change} --repo fa1k3n/handover-ledger --json bucket --jq ''[.[].bucket] | if length == 0 then "pending" elif any(. == "fail" or . == "cancel") then "red" elif all(. == "pass" or . == "skipping") then "green" else "pending" end'''
+open_issues: 'gh issue list --repo fa1k3n/handover-ledger --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''
+issue_comment_bodies: 'gh api repos/fa1k3n/handover-ledger/issues/{issue}/comments --paginate --jq ''.[] | .body + "\u0000"'''
+change_comment_bodies: 'gh api repos/fa1k3n/handover-ledger/issues/{change}/comments --paginate --jq ''.[] | .body + "\u0000"'''
+draft_change: 'gh pr create --repo fa1k3n/handover-ledger --head {branch} --draft --fill-verbose'
