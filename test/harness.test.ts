@@ -336,3 +336,60 @@ test("R129.5: the headers give the event the environment gives, and a header tha
     assert.equal("harness" in byServer, what === "both" || what === "trimmed", what);
   }
 });
+
+// ---- Round 2, finding 1: the clauses of 129.6, 129.7 and 129.8 that no test held ------------
+
+/** As `harnessLedger`, and the session start of each session in `roles` names that role. */
+function roleLedger(harness: Record<string, { name: string; revision: string }>, roles: Record<string, string>): string {
+  const path = join(folder(), "ledger.jsonl");
+  const writer = openLedger(path, { project: PROJECT });
+  const all = ledgerEvents().map((e) => {
+    const named = e.session && harness[e.session] && e.source.kind === "claimed" ? { ...e, harness: harness[e.session]! } : e;
+    return e.session && roles[e.session] && e.source.kind === "claimed" ? { ...named, role: roles[e.session]! } : named;
+  });
+  for (const e of all.sort((a, b) => Date.parse(a.time) - Date.parse(b.time))) writer.append(e);
+  writer.close();
+  return path;
+}
+
+test("R129.7: the harness stands after `role <role>` on the session's line", () => {
+  const out = show(roleLedger({ s1: A1 }, { s1: "builder" }), "12");
+  const s1 = out.split("\n").find((l) => l.includes("session s1 "))!;
+  assert.match(s1, /role builder {2}harness harness-a 1\.0 {2}/, s1);
+});
+
+test("R129.7: the harness is named once on a session's line, on each session that has one", () => {
+  const out = show(roleLedger({ s1: A1, s2: A1 }, {}), "12");
+  for (const id of ["s1", "s2"]) {
+    const line = out.split("\n").find((l) => l.includes(`session ${id} `))!;
+    assert.equal(line.split("harness harness-a 1.0").length - 1, 1, line);
+  }
+});
+
+test("R129.8: the line that the revisions differ stands under Sessions, before the next heading", () => {
+  const out = show(harnessLedger({ s1: A1, s2: A2 }), "12").split("\n");
+  const at = out.findIndex((l) => l.includes("ran under different revisions"));
+  const sessions = out.indexOf("Sessions");
+  assert.ok(sessions >= 0 && at > sessions, "after the Sessions heading");
+  const next = out.findIndex((l, i) => i > sessions && /^\S/.test(l));
+  assert.ok(next === -1 || at < next, "before the next heading");
+  assert.ok(out.slice(sessions + 1, at).some((l) => l.includes("session s2 ")), "after the sessions' own lines");
+  assert.ok(out.slice(at + 1).some((l) => l.trim() !== ""), "the summary comes after it, not before");
+});
+
+test("R129.6: a changed harness name fails verify as a changed revision does", () => {
+  const ws = workspace();
+  ws.env.HOWL_CONFIG = folder();
+  const run = (args: string[]) => howl(args, { cwd: ws.root, env: ws.env });
+  const keyFile = /HOWL_KEY=(\S+)/.exec(run(["key", "issue", "--actor", "agent-1"]).stdout)![1]!;
+  hook(ws, SESSION(ws)[0]!, { ...NAMES, HOWL_KEY: keyFile });
+  const file = inboxFiles(ws.inbox).at(-1)!;
+  const changed = JSON.parse(readFileSync(join(ws.inbox, file), "utf8")) as Json;
+  assert.ok(changed.sig && changed.harness);
+  changed.harness.name = "other-harness";
+  writeFileSync(join(ws.inbox, file), JSON.stringify(changed));
+  assert.equal(run(["ingest"]).status, 0);
+  const bad = run(["verify", "--project", PROJECT]);
+  assert.equal(bad.status, 1, bad.stdout);
+  assert.match(bad.stdout, /line \d+: .*signature does not hold/);
+});
