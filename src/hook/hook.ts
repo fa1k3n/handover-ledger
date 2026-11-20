@@ -92,7 +92,7 @@ export async function runHook(stdin: string, env: Record<string, string | undefi
  * The event for a hook's JSON (#67: built here for `howl hook`, and by the
  * server for a hook sent to it as it stands). `env` holds what the session
  * names (`HOWL_ACTOR`, `HOWL_TASK`, `HOWL_CHANGE`, `HOWL_ROLE`,
- * `HOWL_ROLE_PROMPT`), `dir` the folder the hook ran in. Null when nothing is
+ * `HOWL_ROLE_PROMPT`, `HOWL_HARNESS`, `HOWL_HARNESS_REVISION`), `dir` the folder the hook ran in. Null when nothing is
  * recorded: no `.howl/howl.yml` above the folder, no agent, or a hook howl
  * does not record. Nothing of a tool's input or answer is in the event.
  */
@@ -141,9 +141,17 @@ export function eventOfHook(
     task_from: task === undefined ? undefined : fromEnv !== undefined ? "env" : "branch",
     role: named(env.HOWL_ROLE),
     prompt: rolePrompt(env.HOWL_ROLE_PROMPT, project.root),
+    harness: harnessOf(env),
     data: what.data,
   };
   return { project, event };
+}
+
+/** #129: the harness and its revision, as the session claims them: both, or neither. Recorded as they come; checked against nothing. */
+function harnessOf(env: Record<string, string | undefined>): LedgerEvent["harness"] {
+  const name = named(env.HOWL_HARNESS);
+  const revision = named(env.HOWL_HARNESS_REVISION);
+  return name === undefined || revision === undefined ? undefined : { name, revision };
 }
 
 /** The role prompt by its file within the repository and the SHA-256 of its content; none when it cannot be read there. */

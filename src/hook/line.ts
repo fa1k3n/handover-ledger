@@ -10,6 +10,8 @@ export const HOOK_HEADERS = {
   HOWL_CHANGE: "X-Howl-Change",
   HOWL_ROLE: "X-Howl-Role",
   HOWL_ROLE_PROMPT: "X-Howl-Role-Prompt",
+  HOWL_HARNESS: "X-Howl-Harness",
+  HOWL_HARNESS_REVISION: "X-Howl-Harness-Revision",
 } as const;
 
 /**

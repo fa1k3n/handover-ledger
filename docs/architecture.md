@@ -28,7 +28,7 @@ Three kinds of contributor, told apart by the account the work is done under:
 - **An agent is a team member in a role.** Independence, separation of duties and "agents never merge" apply to it. The levels of autonomy ([levels.md](levels.md)) say which roles agent accounts hold.
 - **Work under a person's account is the person's.** It is not suspect, and the ledger must not show it as an agent's.
 - **An observed account does not prove what drives it.** A person could sign in as an agent's account, or an agent use a person's token. Keys per assignment, short-lived app tokens and `howl keyd` make misuse traceable, not impossible.
-- **Model, role prompt and rule version stay claims,** also for an agent's account: the code host does not know which model ran. They are signed by the session's key where there is one.
+- **Model, role prompt, harness and its revision, and rule version stay claims,** also for an agent's account: the code host does not know which model ran. They are signed by the session's key where there is one. The harness is the field `harness`, with its `name` and `revision`; howl records it and checks it against nothing.
 - **The use of an assistant is never a figure per person.** It is counted for the team only.
 - **An agent that works through a person's account is not a fourth kind.** The account's holder answers for the work, and the ledger is to say that independence is not shown (#95).
 
@@ -116,7 +116,8 @@ An own schema; a CloudEvents envelope is an option. First draft of the fields. T
 | `to` | Only on a task given or taken back: who got the task, or who it was taken from (#45) | yes |
 | `model`, `effort` | For an agent: the model ID and effort of the session | yes |
 | `prompt` | For an agent: the role prompt, as `file` and `sha256` of its content | yes |
-| `rules` | Version of the rules in force (the commit they ran from) | waits for the rules |
+| `harness` | For an agent: the harness and its revision, as `name` and `revision`, a claim (#129) | yes |
+| `rules` | Version of the rules in force (the commit they ran from) | not in the schema: the revision of the agent's harness became the field `harness`, and no rule reads it; the rules' own version still waits for the rules |
 | `task`, `change`, `sha` | The task, the merge or pull request, and its head commit | yes |
 | `requirements`, `clauses`, `tests` | The trace links ([traceability.md](traceability.md)) | wait for the trace link (#38) |
 | `level`, `class` | The level in force and the code class | wait for the levels and the first rule that reads a class |

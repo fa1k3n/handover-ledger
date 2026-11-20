@@ -46,6 +46,8 @@ export interface Session {
   actor?: Actor;
   /** The role the session named (#17). */
   role?: string;
+  /** #129: the harness and the revision the session claimed, as recorded. */
+  harness?: { name: string; revision: string };
   start: string;
   end: string | null;
   tools: Record<string, number>;
@@ -164,6 +166,8 @@ export interface Shown {
   /** #45: dismissals where the host did not say which review (`data.review_unnamed`). Nothing is said of the ledger. */
   unnamedDismissals: { time: string; actor?: Actor; change?: string }[];
   sessions: Session[];
+  /** #129: a change whose sessions ran under different harness revisions: the distinct pairs, in the order the sessions began. Absent when none differ. */
+  differing?: { change: string; revisions: { name: string; revision: string }[] }[];
   reviews: Round[];
   /** Claimed, not seen at the code host: shown, and counted nowhere (#51). */
   claimed: Claim[];
@@ -241,12 +245,40 @@ export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | nu
     unseenDismissals: dismissals(events, "review_unseen"),
     unnamedDismissals: dismissals(events, "review_unnamed"),
     sessions: sessionParts(events, activityFrom, found.whole),
+    ...differing(events, asksChange ? asked.id : undefined, parts, asksChange ? undefined : placer(all)),
     reviews,
     claimed: events.filter(claimOfHost).map((e) => defined({ time: e.time, type: e.type, task: e.task, change: e.change, actor: e.actor })),
     end,
     // The first change of a task is measured from the hand-over; a later one from its own first event.
     summary: summarise(events, end, fromHandover, reviews.length),
   };
+}
+
+/**
+ * #129: for each change whose sessions ran under different harness revisions, the distinct claims. Two
+ * sessions differ when the name or the revision differs; a session with no harness is left out. Only
+ * what the sessions claimed is compared: nothing is checked against anything.
+ */
+function differing(events: LedgerEvent[], change: string | undefined, parts: ChangePart[], place?: (e: LedgerEvent) => string[] | null): Pick<Shown, "differing"> {
+  // Per change, per session: the last harness the session claimed there.
+  const byChange = new Map<string, Map<string, { name: string; revision: string }>>();
+  for (const e of inOrder(events)) {
+    if (!e.session || !e.harness || claimOfHost(e)) continue;
+    const where = change !== undefined ? [change] : e.change !== undefined ? [e.change] : (place?.(e) ?? []);
+    for (const c of where) {
+      const sessions = byChange.get(c) ?? new Map();
+      sessions.delete(e.session);
+      sessions.set(e.session, e.harness);
+      byChange.set(c, sessions);
+    }
+  }
+  const found: NonNullable<Shown["differing"]> = [];
+  for (const c of change !== undefined ? [change] : parts.map((p) => p.change)) {
+    const revisions: { name: string; revision: string }[] = [];
+    for (const h of byChange.get(c)?.values() ?? []) if (!revisions.some((r) => r.name === h.name && r.revision === h.revision)) revisions.push(h);
+    if (revisions.length > 1) found.push({ change: c, revisions });
+  }
+  return found.length > 0 ? { differing: found } : {};
 }
 
 /** #45: the observed dismissals that say `flag` in their data, as rows. */
@@ -484,6 +516,7 @@ function sessionParts(events: LedgerEvent[], activityFrom: string | null, whole?
         session,
         actor: own.find((e) => e.actor)?.actor,
         role: own.findLast((e) => e.role !== undefined)?.role,
+        harness: own.findLast((e) => e.harness !== undefined)?.harness,
         start,
         end: ended?.time ?? (goesOn ? last : null),
         tools,
@@ -780,7 +813,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   for (const s of shown.sessions) {
     const span = s.end ? `${t(s.start)} to ${t(s.end)}, ${duration(seconds(s.start, s.end))}` : `${t(s.start)}, not ended`;
     const also = s.also !== undefined && s.also.length > 0 ? `  also under change${s.also.length === 1 ? "" : "s"} ${s.also.join(", ")}` : "";
-    out.push(`  session ${s.session}  claimed  ${who(s.actor)}${s.role ? `  role ${s.role}` : ""}  ${span}${also}`);
+    out.push(`  session ${s.session}  claimed  ${who(s.actor)}${s.role ? `  role ${s.role}` : ""}${s.harness ? `  harness ${s.harness.name} ${s.harness.revision}` : ""}  ${span}${also}`);
     if (s.activity === "kept") {
       const tools = Object.entries(s.tools)
         .sort(([a], [b]) => a.localeCompare(b))
@@ -797,6 +830,9 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
       const what = w.kind === "person" ? "waited for a person" : "waited for instructions";
       out.push(`    ${t(w.time)}  ${what}${w.notification_type ? ` (${w.notification_type})` : ""}: ${w.seconds === null ? "still waiting" : duration(w.seconds)}`);
     }
+  }
+  for (const d of shown.differing ?? []) {
+    out.push(`  the sessions of change ${d.change} ran under different revisions: ${d.revisions.map((r) => `${r.name} ${r.revision}`).join(", ")}`);
   }
 
   for (const c of shown.changes) {

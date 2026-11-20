@@ -118,6 +118,19 @@ export interface LedgerEvent {
     sha256: string;
   };
   /**
+   * For an agent: the harness the session runs in and the revision of it, as the session claims. Both or neither. howl records the claim and checks it against nothing.
+   */
+  harness?: {
+    /**
+     * The name of the harness.
+     */
+    name: string;
+    /**
+     * A text the harness chooses for its revision.
+     */
+    revision: string;
+  };
+  /**
    * The repository the event concerns.
    */
   repo?: string;

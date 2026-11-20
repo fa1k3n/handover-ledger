@@ -165,6 +165,25 @@
         }
       }
     },
+    "harness": {
+      "description": "For an agent: the harness the session runs in and the revision of it, as the session claims. Both or neither. howl records the claim and checks it against nothing.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "revision"
+      ],
+      "properties": {
+        "name": {
+          "description": "The name of the harness.",
+          "$ref": "#/$defs/plain"
+        },
+        "revision": {
+          "description": "A text the harness chooses for its revision.",
+          "$ref": "#/$defs/plain"
+        }
+      }
+    },
     "repo": {
       "description": "The repository the event concerns.",
       "$ref": "#/$defs/name"
@@ -276,6 +295,13 @@
     "name": {
       "type": "string",
       "minLength": 1
+    },
+    "plain": {
+      "description": "Plain text of 1 to 256 characters with no control character (U+0000 to U+001F and U+007F).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
     },
     "sha256": {
       "type": "string",
