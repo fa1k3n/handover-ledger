@@ -2,44 +2,44 @@ issue: '129'
 from: 396c41766393c074ef3203a7d411d819bc8a958b75bf47b059348e93d428a350
 requirements:
   - id: '129.1'
-    text: 'A session with both HOWL_HARNESS (the name of the harness) and HOWL_HARNESS_REVISION (a text the harness chooses for its revision) set in its environment: the hook puts both on every event of the session, marked as claimed.'
-    source: 'What to build, 1: "The hook puts both on every event of the session as a claim."; Tests first, 1: "every event of it holds the harness and the revision, marked as claimed".'
+    text: 'A session with both HOWL_HARNESS (the name of the harness) and HOWL_HARNESS_REVISION (a text the harness chooses for its revision) set in its environment: the hook puts both on every event of the session, marked as claimed, in one field `harness` with two parts, `name` and `revision`.'
+    source: 'What to build, 1: "The hook puts both on every event of the session as a claim."; Tests first, 1; the answer to 129.q1 (choice 1).'
   - id: '129.2'
     text: 'With only one of HOWL_HARNESS and HOWL_HARNESS_REVISION set, no event of the session holds either.'
     source: 'What to build, 1: "With one of the two missing, neither is recorded."; Tests first, 2.'
   - id: '129.3'
-    text: 'The event schema gets the field, with both parts as plain text of a bounded length. A value over the bounded length, or one with a line break, is refused as the schema refuses any other, and nothing is written.'
-    source: 'What to build, 3: "The schema gets the field, with both parts as plain text of a bounded length."; Tests first, 3. The name, the bound and what plain text excludes wait for 129.q1, 129.q2 and 129.q3.'
+    text: 'The event schema gets the field `harness`, with its two parts `name` and `revision` as plain text of at most 256 characters each, holding no control character (U+0000 to U+001F and U+007F, the line breaks and the tab among them). A value over 256 characters, or one with a line break or another control character, is refused as the schema refuses any other, and nothing is written.'
+    source: 'What to build, 3: "The schema gets the field, with both parts as plain text of a bounded length."; Tests first, 3; the answers to 129.q1, 129.q2 and 129.q3 (choice 1 each).'
   - id: '129.4'
     text: 'The TypeScript types are generated from the schema with the new field (src/ledger/event.gen.ts), never edited by hand.'
     source: 'What to build, 3; CLAUDE.md: "The TypeScript types are generated from it (npm run gen) and never edited by hand."'
     guard: 'the generated types are current for both schemas'
   - id: '129.5'
-    text: 'The hook line that is only `curl` carries HOWL_HARNESS and HOWL_HARNESS_REVISION as headers, as it carries the role and the role prompt, and a hook sent to /api/hook with them gives the same event as `howl hook` gives from the environment.'
-    source: 'What to build, 2: "The hook line that is only curl carries them as headers, as it carries the role and the role prompt."; Tests first, 4: "The header form gives the same event as the environment form."'
+    text: 'The hook line that is only `curl` carries HOWL_HARNESS and HOWL_HARNESS_REVISION as the headers X-Howl-Harness and X-Howl-Harness-Revision, as it carries the role and the role prompt, and a hook sent to /api/hook with them gives the same event as `howl hook` gives from the environment.'
+    source: 'What to build, 2: "The hook line that is only curl carries them as headers, as it carries the role and the role prompt."; Tests first, 4: "The header form gives the same event as the environment form."; the answer to 129.tester q2 (choice 1).'
   - id: '129.6'
     text: 'Where the session has a key, the claim is signed with the rest of the event: with a key, an event whose harness or revision is changed after signing fails `howl verify`.'
     source: 'What to build, 3: "Where the session has a key, the claim is signed with the rest of the event."; Tests first, 5.'
     guard: '#23: a signed claim changed before it reached the ledger fails, naming the line'
   - id: '129.7'
-    text: '`howl show` of a change or a task names the harness and its revision beside each session''s role; of a change with a build and a review under one revision it names it once per session.'
-    source: 'What to build, 4: "howl show of a change or a task names the harness and its revision beside each session''s role."; Tests first, 6. The words wait for 129.q7.'
+    text: '`howl show` of a change or a task names the harness and its revision beside each session''s role, as `harness <name> <revision>` after `role <role>` on the session''s line; of a change with a build and a review under one revision it names it once per session.'
+    source: 'What to build, 4: "howl show of a change or a task names the harness and its revision beside each session''s role."; Tests first, 6; the answer to 129.q7 (choice 1).'
   - id: '129.8'
-    text: 'Where the sessions of one change ran under different revisions, `howl show` names both and says that they differ, in a line of its own.'
-    source: 'What to build, 4: "Where the sessions of one change ran under different revisions, it says so in a line of its own."; Tests first, 6. What counts as different, and the view of a task, wait for 129.q5 and 129.q6.'
+    text: 'Where the sessions of one change ran under different revisions, `howl show` names both and says that they differ, in a line of its own under Sessions: `the sessions of change <change> ran under different revisions: <name> <revision>, <name> <revision>`. Two sessions differ when their harness name or revision differ; a session with no harness is left out of the comparison.'
+    source: 'What to build, 4: "Where the sessions of one change ran under different revisions, it says so in a line of its own."; Tests first, 6; the answers to 129.q5 and 129.q7 (choice 1 each).'
   - id: '129.9'
     text: 'A session with no harness named is shown by `howl show` as before, and its events are unchanged byte for byte.'
     source: 'Tests first, 7.'
   - id: '129.10'
-    text: '`howl watch` can filter on the name of the harness and on the revision.'
-    source: 'What to build, 5. How, by pairs or by the expression alone, waits for 129.q8.'
+    text: '`howl watch` can filter on the name of the harness and on the revision, also by the pairs `harness=<name>` and `revision=<revision>`, a value ending in `*` matching what starts with the rest, as for the other pairs.'
+    source: 'What to build, 5: "howl watch can filter on the name and on the revision."; the answer to 129.q8 (choice 1).'
   - id: '129.11'
-    text: 'The README, where it describes recording a coding agent, describes HOWL_HARNESS and HOWL_HARNESS_REVISION, and shows the hook line with their headers as howl gives it.'
-    source: 'What to build, 6: "The README where it describes recording a coding agent"; What to build, 2.'
+    text: 'The README, where it describes recording a coding agent, describes HOWL_HARNESS and HOWL_HARNESS_REVISION, names both, and shows the hook line with their headers as howl gives it.'
+    source: 'What to build, 6: "The README where it describes recording a coding agent"; What to build, 2; the answer to 129.tester q3 (choice 1).'
     guard: 'the README shows the hook line as howl gives it'
   - id: '129.12'
-    text: 'docs/architecture.md, where it lists what stays a claim, names the harness and its revision. No test shows this: the review reads for it.'
-    source: 'What to build, 6: "docs/architecture.md where it lists what stays a claim". Whether the table of fields changes too waits for 129.q9.'
+    text: 'docs/architecture.md, where it lists what stays a claim, names the harness and its revision, by the field''s name `harness`.'
+    source: 'What to build, 6: "docs/architecture.md where it lists what stays a claim"; the answer to 129.tester q3 (choice 1).'
   - id: '129.13'
     text: 'A ledger written before this step still verifies.'
     source: 'Tests first, 8.'
@@ -47,13 +47,28 @@ requirements:
   - id: '129.14'
     text: 'howl only records the claim: it checks the revision against nothing, names no one harness, and no rule reads the revision. No test shows all of this: the review reads for it.'
     source: 'Why: "howl only records the claim. Whether the revision holds is for the harness to check"; Not in this step, 1 to 3.'
+  - id: '129.15'
+    text: 'HOWL_HARNESS and HOWL_HARNESS_REVISION are read as the other names of the session (HOWL_ROLE, HOWL_TASK): each value is trimmed, and a value that is empty or only blanks counts as missing, so that neither is recorded.'
+    source: 'What to build, 1: "With one of the two missing, neither is recorded."; the answer to 129.q4 (choice 1).'
+  - id: '129.16'
+    text: '`howl show` of a task with several changes gives the line that the revisions differ for each change of the task whose sessions differ, naming that change.'
+    source: 'What to build, 4: "Where the sessions of one change ran under different revisions"; the answer to 129.q6 (choice 1).'
+  - id: '129.17'
+    text: 'The help of `howl watch` and the README name the pairs `harness=<name>` and `revision=<revision>`.'
+    source: 'What to build, 5 and 6; the answer to 129.q8 (choice 1): "The help and the README name them."'
+  - id: '129.18'
+    text: 'The table of fields in docs/architecture.md gets a row for `harness`, and its row for `rules`, which "waits for the rules", says what became of it. No test shows this: the review reads for it.'
+    source: 'What to build, 6; Why: "The field rules left the schema on 2026-11-14 ... to come back with the step that does"; the answer to 129.q9 (choice 1).'
 interface: |
   The names in the session's environment, as the issue gives them:
     HOWL_HARNESS            the name of the harness
     HOWL_HARNESS_REVISION   a text the harness chooses for its revision
+  Each is trimmed; empty or only blanks is missing. With one missing, neither is recorded.
 
-  The event field: its name and shape wait for 129.q1, its bound for 129.q2, what it excludes for 129.q3.
-  It goes in schema/event.v0.schema.json, and the generated src/ledger/event.gen.ts gives it on LedgerEvent.
+  The event field, in schema/event.v0.schema.json, and on LedgerEvent in the generated src/ledger/event.gen.ts:
+    harness?: { name: string; revision: string }
+    each part 1 to 256 characters, no character U+0000 to U+001F or U+007F.
+  The field `rules` stays out of the schema.
 
   src/hook/hook.ts, as it is:
     runHook(stdin: string, env: Record<string, string | undefined>, cwd: string): Promise<void>
@@ -62,9 +77,9 @@ interface: |
 
   src/hook/line.ts, as it is, with two entries added to HOOK_HEADERS:
     HOOK_HEADERS: { HOWL_ACTOR: "X-Howl-Actor", HOWL_TASK: "X-Howl-Task", HOWL_CHANGE: "X-Howl-Change",
-                    HOWL_ROLE: "X-Howl-Role", HOWL_ROLE_PROMPT: "X-Howl-Role-Prompt", ... }
+                    HOWL_ROLE: "X-Howl-Role", HOWL_ROLE_PROMPT: "X-Howl-Role-Prompt", ...,
+                    HOWL_HARNESS: "X-Howl-Harness", HOWL_HARNESS_REVISION: "X-Howl-Harness-Revision" }
     curlHookLine(options: { url: string; tokenFile: string }): string
-    The header names of the two new entries follow the others (X-Howl-Harness, X-Howl-Harness-Revision).
 
   src/ledger/schema.ts, as it is:
     eventFaults(value: unknown): string[]
@@ -77,34 +92,30 @@ interface: |
     render(shown: Shown, options?: { utc?: boolean }): string
     parseAsked(text: string): Asked
     interface Session { session: string; actor?: Actor; role?: string; ... }  gets the session's harness and revision
+  The session's line, after `role <role>`:  harness <name> <revision>
+  A line under Sessions, one for each change whose sessions differ:
+    the sessions of change <change> ran under different revisions: <name> <revision>, <name> <revision>
 
   src/read/filter.ts, as it is:
     readFilters(texts: string[]): Filters   (Filters.test(event): boolean; Filters.failed(): Failed | null)
+    two pairs added: harness=<name> and revision=<revision>, a value ending in `*` matching a start.
 
   As a process: `howl hook` reads the hook's JSON on standard input, takes HOWL_ACTOR, HOWL_TASK, HOWL_CHANGE,
   HOWL_ROLE, HOWL_ROLE_PROMPT, HOWL_KEY, HOWL_HOME and now HOWL_HARNESS and HOWL_HARNESS_REVISION from the environment,
   prints nothing, ends with 0, and leaves one event in the inbox. `howl ingest` takes the inbox in and moves a
   refused event to rejected/. `howl verify` checks the ledger and the signatures. `howl show <task or change>`
   prints the timeline, `--json` gives Shown. `howl watch --filter <text> --no-follow` prints the matching events.
-  `howl up`'s POST /api/hook takes the hook's JSON with the names as headers.
+  `howl --help` prints the help of `howl watch`. `howl up`'s POST /api/hook takes the hook's JSON with the names
+  as headers.
 
   Test helpers, as they are: test/helpers.ts (event, folder, git, howl, inboxEvents, inboxFiles, lines, rawLines,
   ledgerWith, PROJECT, workspace, type Workspace), test/up-helpers.ts (up, until, send, claim, type Up),
   test/local-host.ts (LocalHost), test/story.ts (writeStory, m, SHA).
-changes: [schema/event.v0.schema.json, src/ledger/event.gen.ts, src/hook/hook.ts, src/hook/line.ts, src/read/show.ts, src/read/filter.ts, src/cli/howl.ts, README.md, docs/architecture.md, test/harness.test.ts, test/fixtures/ledger-before-harness.jsonl]
+changes: [schema/event.v0.schema.json, src/ledger/event.gen.ts, src/hook/hook.ts, src/hook/line.ts, src/read/show.ts, src/read/filter.ts, src/cli/howl.ts, README.md, docs/architecture.md, test/harness.test.ts, test/harness-claim.test.ts, test/fixtures/ledger-before-harness.jsonl]
 reads:
   tester: [package.json, package-lock.json, test/helpers.ts, test/up-helpers.ts, test/local-host.ts, test/story.ts, src/ledger/schema.ts, src/ledger/ledger.ts, src/ledger/fixed.ts, src/observe/port.ts, test/hook-names.test.ts, test/hook-http.test.ts, test/keys.test.ts, test/verify.test.ts, test/watch.test.ts, test/schema-used.test.ts]
   build: [package.json, package-lock.json, tsconfig.json, CLAUDE.md, scripts/gen-types.ts, schema/line.v0.schema.json, src/ledger/line.gen.ts, src/ledger/schema.ts, src/ledger/ledger.ts, src/ledger/fixed.ts, src/ledger/errors.ts, src/inbox/receive.ts, src/inbox/ingest.ts, src/inbox/deliver.ts, src/keys/keys.ts, src/keys/keyd.ts, src/read/filter-text.ts, src/read/watch.ts, src/read/acting.ts, src/read/assignee.ts, src/read/observed.ts, src/read/order.ts, src/read/wait.ts, src/read/agent.ts, src/read/rounds.ts, src/read/trace-text.ts, src/observe/port.ts, test/helpers.ts, test/up-helpers.ts, test/local-host.ts, test/story.ts, test/hook-names.test.ts, test/hook-http.test.ts, test/keys.test.ts, test/verify.test.ts, test/watch.test.ts, test/schema.test.ts, test/schema-used.test.ts]
   review: [package.json, package-lock.json, tsconfig.json, CLAUDE.md, .howl/howl.yml, .github/workflows/check.yml, scripts/gen-types.ts, schema/line.v0.schema.json, src/ledger/line.gen.ts, src/ledger/schema.ts, src/ledger/ledger.ts, src/ledger/fixed.ts, src/ledger/errors.ts, src/inbox/receive.ts, src/inbox/ingest.ts, src/inbox/deliver.ts, src/keys/keys.ts, src/keys/keyd.ts, src/read/filter-text.ts, src/read/watch.ts, src/read/acting.ts, src/read/assignee.ts, src/read/observed.ts, src/read/order.ts, src/read/wait.ts, src/read/agent.ts, src/read/rounds.ts, src/read/trace-text.ts, src/observe/port.ts, test/helpers.ts, test/up-helpers.ts, test/local-host.ts, test/story.ts, test/hook-names.test.ts, test/hook-http.test.ts, test/keys.test.ts, test/verify.test.ts, test/watch.test.ts, test/schema.test.ts, test/schema-used.test.ts]
   fix: [package.json, package-lock.json, tsconfig.json, CLAUDE.md, scripts/gen-types.ts, schema/line.v0.schema.json, src/ledger/line.gen.ts, src/ledger/schema.ts, src/ledger/ledger.ts, src/ledger/fixed.ts, src/ledger/errors.ts, src/inbox/receive.ts, src/inbox/ingest.ts, src/inbox/deliver.ts, src/keys/keys.ts, src/keys/keyd.ts, src/read/filter-text.ts, src/read/watch.ts, src/read/acting.ts, src/read/assignee.ts, src/read/observed.ts, src/read/order.ts, src/read/wait.ts, src/read/agent.ts, src/read/rounds.ts, src/read/trace-text.ts, src/observe/port.ts, test/helpers.ts, test/up-helpers.ts, test/local-host.ts, test/story.ts, test/hook-names.test.ts, test/hook-http.test.ts, test/keys.test.ts, test/verify.test.ts, test/watch.test.ts, test/schema.test.ts, test/schema-used.test.ts]
 existing_tests_changed: []
-questions:
-  - '129.q1: The field''s name and shape: "The schema gets the field, with both parts", while Why says the field `rules` left the schema "to come back with the step that does. This is that step." 1. one field `harness` with `name` and `revision`; 2. the field `rules` comes back with `harness` and `revision`, which changes the two tests of removed fields in test/schema-used.test.ts; 3. two fields at the top, `harness` and `harness_revision`. Suggested: 1.'
-  - '129.q2: The bound of "plain text of a bounded length": 1. at most 256 characters for each part; 2. at most 128 for the name and 512 for the revision. Suggested: 1.'
-  - '129.q3: What "plain text" excludes: 1. every control character (U+0000 to U+001F and U+007F), line breaks and tabs among them; 2. only the line breaks (LF and CR). Suggested: 1.'
-  - '129.q4: Whether a value that is empty or only blanks counts as "missing", and whether a value is trimmed: 1. as the other names of the session: trimmed, and a blank value is missing; 2. taken as it stands, and only an unset or empty value is missing. Suggested: 1.'
-  - '129.q5: What counts as "different revisions" for `howl show`: 1. two sessions whose name and revision differ, sessions with no harness left out; 2. the same, and a session with no harness among sessions with one counts as a difference too; 3. only the revision, whatever the name. Suggested: 1.'
-  - '129.q6: In `howl show` of a task with several changes, where the line that the revisions differ stands: 1. a line for each change of the task whose sessions differ, naming that change; 2. one line for the task when its sessions differ across all its changes. Suggested: 1.'
-  - '129.q7: The words of `howl show`: 1. `harness <name> <revision>` after `role <role>` on the session''s line, and a line under Sessions `the sessions of change <change> ran under different revisions: <name> <revision>, <name> <revision>`; 2. other words, which the answer gives. Suggested: 1.'
-  - '129.q8: What "howl watch can filter on the name and on the revision" asks, since the expression form filters on any field already: 1. pairs too, `harness=<name>` and `revision=<revision>`, with `*` at the end as for the other pairs, and the help and the README name them; 2. nothing new in the code: a test shows the expression form, and the README gives an example. Suggested: 1.'
-  - '129.q9: Whether docs/architecture.md changes only "where it lists what stays a claim", or also its table of fields, where `rules` "waits for the rules": 1. the table too: a row for the new field, and the `rules` row says what became of it; 2. only the list of what stays a claim. Suggested: 1.'
+questions: []
