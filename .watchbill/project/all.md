@@ -4,8 +4,8 @@
 
 - The repository is `fa1k3n/handover-ledger` on GitHub. Work in the checkout you were started in. Do not clone it again.
 - Read the issue with `gh issue view {issue}` and its comments with `gh issue view {issue} --comments`. The issue is the spec. When its file `.watchbill/issues/{issue}.yml` is accepted, the requirements are the points of that file (`{issue}.1`, `{issue}.2`, …) and your prompt holds them. Otherwise they are the numbered items in the issue. This project has no table of requirements.
-- A change is a pull request, from the branch `{branch}`, made from `main` before the breakdown starts. The breakdown commits the issue's file on it first, alone. The tester, the build and the fix work on that branch and push to it.
-- The build opens the pull request as a draft, with "Closes #{issue}" in its description. Nobody else opens one.
+- A change is a pull request, from the branch `{branch}`, made from `main` before the breakdown starts. The breakdown commits the issue's file on it first, alone. The tester, the build and the fix commit on that branch. They do not push: a person pushes.
+- A person opens the pull request as a draft, with "Closes #{issue}" in its description. The build writes that description in the message of its last commit, and `wb` says the command that opens it. No session opens one.
 - Read a pull request with `gh pr view <number>`, its comments with `gh pr view <number> --comments`, and its diff with `gh pr diff <number>`. Post on it with `gh pr comment <number> --body-file <file>`.
 - The review posts its findings as one comment whose first line starts with `[review] round <n>`. The fix posts its answers as one comment whose first line starts with `[fix] round <n>`.
 - Never mark a pull request ready, never merge, and never run `scripts/ruleset.sh`.
@@ -18,10 +18,12 @@
 
 ## Checks
 
-- `npm run check` is what the project runs before a change: the type-check, the generated types and every test. `npm test` runs only the tests.
-- One test file runs with `node --test <file>`.
-- The tester runs `npm run check` once its tests are committed. Under `checks` it reports anything that fails for a reason other than the code that is not there yet, such as a type error in an existing test.
-- The build and the fix run `npm run check` before they push. The check on the pull request (`.github/workflows/check.yml`) must be green.
+- You work in a view: only the files your list gives you are there. `npm run check` needs the whole tree, so you do not run it. The check on the pull request (`.github/workflows/check.yml`) runs it, and the review starts only when it is green.
+- First run `npm ci`. `package.json` and `package-lock.json` are in your list for this.
+- Run each test file you may read with `node --test <file>`.
+- The tester runs its own test files once they are committed. Under `checks` it reports anything that fails for a reason other than the code that is not there yet.
+- The build and the fix run the test files of the issue before they end, and say under `checks` which ran.
+- The breakdown lists `package.json` and `package-lock.json` in the reads of the tester, the build, the review and the fix, and every file a listed test imports.
 - Never run `npm run gen` to make a check pass. The types are generated from `schema/`, and a change to them belongs to the task.
 
 ## Tests
