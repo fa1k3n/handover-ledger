@@ -60,7 +60,8 @@ test("R129.1: with both names set, every event of the session holds `harness` wi
 
 test("R129.2: with only one of the two set, no event has the field `harness`", () => {
   const ws = workspace();
-  for (const env of [{ HOWL_HARNESS: HARNESS }, { HOWL_HARNESS_REVISION: REVISION }]) {
+  const envs: Record<string, string>[] = [{ HOWL_HARNESS: HARNESS }, { HOWL_HARNESS_REVISION: REVISION }];
+  for (const env of envs) {
     for (const json of SESSION(ws)) {
       const e = hook(ws, json, env);
       assert.ok(!("harness" in e), JSON.stringify(e));
@@ -232,7 +233,8 @@ test("R129.8: howl show says when the sessions of one change ran under different
   const differ = show(harnessLedger({ s1: A1, s2: A2 }), "12");
   assert.ok(differ.includes("the sessions of change 30 ran under different revisions: harness-a 1.0, harness-a 2.0"), differ);
   assert.ok(show(harnessLedger({ s1: A1, s2: B1 }), "12").includes("harness-a 1.0, harness-b 1.0"), "a different name differs too");
-  for (const same of [{ s1: A1, s2: A1 }, { s1: A1 }, {}]) assert.ok(!show(harnessLedger(same), "12").includes("different revisions"), JSON.stringify(same));
+  const sames: Record<string, { name: string; revision: string }>[] = [{ s1: A1, s2: A1 }, { s1: A1 }, {}];
+  for (const same of sames) assert.ok(!show(harnessLedger(same), "12").includes("different revisions"), JSON.stringify(same));
   // The line is under Sessions, and in the view of the change as well.
   const change = show(harnessLedger({ s1: A1, s2: A2 }), "change:30");
   assert.ok(change.includes("different revisions"), change);
