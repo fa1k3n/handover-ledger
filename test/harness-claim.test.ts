@@ -31,7 +31,7 @@ test("R129.1: with both HOWL_HARNESS and HOWL_HARNESS_REVISION set, the event ho
 
 test("R129.1: with only one of the two set, no event holds either", () => {
   const baseline = stable(run(workspace(), {}));
-  for (const env of [{ HOWL_HARNESS: HARNESS }, { HOWL_HARNESS_REVISION: REVISION }]) {
+  for (const env of [{ HOWL_HARNESS: HARNESS }, { HOWL_HARNESS_REVISION: REVISION }] as Record<string, string>[]) {
     const e = run(workspace(), env);
     const text = JSON.stringify(e);
     assert.ok(!text.includes(HARNESS) && !text.includes(REVISION), text);
