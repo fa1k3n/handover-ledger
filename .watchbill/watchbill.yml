@@ -10,6 +10,7 @@ requirements: none
 ci: github-actions
 confidentiality: public
 classed: []
+needs: 'case {file} in *.ts) npx --no-install esbuild {file} --bundle --platform=node --packages=external --metafile=/dev/stdout --outfile=/dev/null --log-level=error --format=esm | jq -r ''.inputs | keys[]'' ;; esac'
 issue_comment: 'gh issue comment {issue} --repo fa1k3n/handover-ledger --body-file -'
 issue_comments: 'gh api repos/fa1k3n/handover-ledger/issues/{issue}/comments --paginate --jq ''.[].body | split("\n")[0]'''
 change_comment: 'gh pr comment {change} --repo fa1k3n/handover-ledger --body-file -'
