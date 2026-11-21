@@ -1,0 +1,99 @@
+issue: '43'
+from: 0985acf064795c8a29ccfff38443fdaa9f2484c816a9b6c9ba4f0e223b190c9f
+requirements:
+  - id: '43.1'
+    text: 'A new `src/read/words.ts`, with no Node, holds `duration(ms)`, `concerns(event)` and `detail(event)`.'
+    source: 'What to build, point 1'
+  - id: '43.2'
+    text: '`duration(ms)` writes one form of a duration: `50 min`, `5 h 40 min`, `2.5 d`, and seconds below a minute. Where hours end and days begin, and how a span is rounded, are open (43.q1, 43.q2).'
+    source: 'What to build, point 3; Tests first, point 1'
+  - id: '43.3'
+    text: '`concerns(event)` says what an event concerns: `task 12 · change 30`, and who a task was given to or taken from (`to agent-1`, `taken from agent-1`), as both copies say it today. Whether it names the session, and how its parts are joined, are open (43.q4, 43.q5).'
+    source: 'Why, point 2; What to build, point 1; Tests first, point 1'
+  - id: '43.4'
+    text: '`detail(event)` gives the short detail of an event, one way for the terminal and the dashboard. What it gives where the two copies differ today is open (43.q6, 43.q7).'
+    source: 'Why, point 3; What to build, point 1; Tests first, point 1'
+  - id: '43.5'
+    text: '`state.ts` writes how long ago an agent''s last event was with `duration`; its own copy (`since`) goes, in `howl status` and in the dashboard''s team. Whether `since` goes or stays as a call of `duration` is open (43.q3).'
+    source: 'What to build, point 2; Files'
+  - id: '43.6'
+    text: '`state.ts` says what a row works on with `concerns`; its own copy (`worksOn`) goes, in `howl status` and in the dashboard''s team.'
+    source: 'What to build, point 2; Files'
+    guard: 'test/status.test.ts: #11: howl status prints one line per agent with its state and what it works on'
+  - id: '43.7'
+    text: '`overview.ts` loses its own `duration`; the overview''s lead time is written with `duration` of `words.ts`.'
+    source: 'What to build, point 2; Files'
+  - id: '43.8'
+    text: '`show.ts` loses its own `duration`; `howl show` writes every span in the one form (`1 min`, `1 h 05 min`), not as `1m` or `1h 5m`.'
+    source: 'What to build, points 2 and 3; Existing tests this changes, point 1'
+  - id: '43.9'
+    text: '`watch.ts` loses `short` and the concerns built inside `formatLine`; `howl watch` writes what an event concerns with `concerns` and its short detail with `detail`. A line still has the time, claimed or observed, the actor, the type, what it concerns, and the short of its data.'
+    source: 'Why, points 2 and 3; What to build, point 2; Files'
+    guard: 'test/watch.test.ts: howl watch prints one line per event with time, actor, type and what it concerns'
+  - id: '43.10'
+    text: 'The dashboard''s stream uses `concerns` and `detail` of `words.ts`; the copies in `src/dashboard/format.ts` go, and `App.tsx` imports from `words.ts`.'
+    source: 'What to build, point 2; Files'
+  - id: '43.11'
+    text: 'The dashboard writes every duration with `duration` of `words.ts`: `sessionText`, the lead time in `App.tsx`, and the summary and waits in `ChangeView.tsx`. `App.tsx` and `ChangeView.tsx` import it from `words.ts`.'
+    source: 'What to build, point 2; Files'
+  - id: '43.12'
+    text: 'A started session has the same detail in `howl watch` and in the dashboard''s stream.'
+    source: 'Why, point 3; Tests first, point 2'
+  - id: '43.13'
+    text: 'No other function under `src/` formats a duration from milliseconds or seconds; a test reads the sources and shows it. Which places outside the files the issue names this covers is open (43.q9).'
+    source: 'Tests first, point 3'
+  - id: '43.14'
+    text: 'README.md: the example output of `howl show` takes the one form of a duration. The README holds no example output of `howl status` today.'
+    source: 'Files'
+  - id: '43.15'
+    text: 'Times of day and time zones are not changed: they already have one place each. The review reads for this; the guard shows the times as they are.'
+    source: 'Not in this step'
+    guard: 'test/dashboard-format.test.ts: #12: times are shown in the time zone given, and in UTC on the decoded event'
+  - id: '43.16'
+    text: 'The pull request lists each changed line of a test. No test can show this; the review reads the pull request for it.'
+    source: 'Existing tests this changes, last line'
+interface: |
+  // src/read/words.ts: new; no Node. It may use `checksNames` of src/read/checks-text.ts, which has no Node.
+  export function duration(ms: number): string
+  export function concerns(event: LedgerEvent): string
+  export function detail(event: LedgerEvent): string
+
+  // src/read/watch.ts: keeps its signature; `short` goes.
+  export function formatLine(event: LedgerEvent, colour: boolean, utc?: boolean): string
+
+  // src/read/state.ts: `worksOn` goes; `since` is open (43.q3). These stay.
+  export function agentStates(events: LedgerEvent[], now: number, options?: StateOptions): AgentRow[]
+  export function renderStatus(rows: AgentRow[], now: number): string
+    // AgentRow.task?: string; AgentRow.change?: string; AgentRow.last: string (the time of the last event)
+
+  // src/read/overview.ts: `duration` goes. These stay.
+  export function keyFigures(events: LedgerEvent[], now: number): KeyFigures
+    // KeyFigures.leadTimeMedianMs: number | null
+
+  // src/read/show.ts: its private `duration` goes. These stay.
+  export function show(all: LedgerEvent[], asked: Asked, activityFrom: string | null, options?: { matched?: boolean }): Shown | null
+  export function parseAsked(text: string): Asked
+  export function render(shown: Shown, options?: { utc?: boolean }): string
+
+  // src/dashboard/format.ts: `concerns(item: Item)` and `detail(item: Item)` go (43.q8); this stays and uses `duration`.
+  export function sessionText(s: Session): string   // `agent-1 · fix · 33 min · Bash 54, Read 1`
+
+  // Types the tests use: LedgerEvent from src/ledger/schema.ts; Session from src/read/show.ts.
+changes: [src/read/words.ts, src/read/state.ts, src/read/overview.ts, src/read/show.ts, src/read/watch.ts, src/dashboard/format.ts, src/dashboard/App.tsx, src/dashboard/ChangeView.tsx, README.md, test/words.test.ts, test/who-acted-read.test.ts, test/show.test.ts]
+reads:
+  tester: [schema/event.v0.schema.json, schema/line.v0.schema.json, src/dashboard/texts.ts, src/ledger/errors.ts, src/ledger/fixed.ts, src/ledger/ledger.ts, src/ledger/lines.ts, src/ledger/names.ts, src/ledger/schema.ts, src/observe/order.ts, src/read/acting.ts, src/read/agent.ts, src/read/assignee.ts, src/read/checks-text.ts, src/read/filter-text.ts, src/read/filter.ts, src/read/observed.ts, src/read/order.ts, src/read/reader.ts, src/read/rounds.ts, src/read/trace-text.ts, src/read/wait.ts, src/read/writing-text.ts, test/helpers.ts, test/story.ts, package.json, package-lock.json]
+  build: [schema/event.v0.schema.json, schema/line.v0.schema.json, src/dashboard/texts.ts, src/dashboard/tsconfig.json, src/ledger/errors.ts, src/ledger/fixed.ts, src/ledger/ledger.ts, src/ledger/lines.ts, src/ledger/names.ts, src/ledger/schema.ts, src/observe/order.ts, src/read/acting.ts, src/read/agent.ts, src/read/assignee.ts, src/read/checks-text.ts, src/read/filter-text.ts, src/read/filter.ts, src/read/observed.ts, src/read/order.ts, src/read/reader.ts, src/read/rounds.ts, src/read/trace-text.ts, src/read/wait.ts, src/read/writing-text.ts, test/helpers.ts, test/story.ts, test/watch.test.ts, test/status.test.ts, test/dashboard-format.test.ts, package.json, package-lock.json, tsconfig.json, .github/workflows/check.yml]
+  review: [schema/event.v0.schema.json, schema/line.v0.schema.json, src/dashboard/texts.ts, src/dashboard/tsconfig.json, src/ledger/errors.ts, src/ledger/fixed.ts, src/ledger/ledger.ts, src/ledger/lines.ts, src/ledger/names.ts, src/ledger/schema.ts, src/observe/order.ts, src/read/acting.ts, src/read/agent.ts, src/read/assignee.ts, src/read/checks-text.ts, src/read/filter-text.ts, src/read/filter.ts, src/read/observed.ts, src/read/order.ts, src/read/reader.ts, src/read/rounds.ts, src/read/trace-text.ts, src/read/wait.ts, src/read/writing-text.ts, test/helpers.ts, test/story.ts, test/watch.test.ts, test/status.test.ts, test/dashboard-format.test.ts, package.json, package-lock.json, .howl/howl.yml, .github/workflows/check.yml]
+  fix: [schema/event.v0.schema.json, schema/line.v0.schema.json, src/dashboard/texts.ts, src/dashboard/tsconfig.json, src/ledger/errors.ts, src/ledger/fixed.ts, src/ledger/ledger.ts, src/ledger/lines.ts, src/ledger/names.ts, src/ledger/schema.ts, src/observe/order.ts, src/read/acting.ts, src/read/agent.ts, src/read/assignee.ts, src/read/checks-text.ts, src/read/filter-text.ts, src/read/filter.ts, src/read/observed.ts, src/read/order.ts, src/read/reader.ts, src/read/rounds.ts, src/read/trace-text.ts, src/read/wait.ts, src/read/writing-text.ts, test/helpers.ts, test/story.ts, test/watch.test.ts, test/status.test.ts, test/dashboard-format.test.ts, package.json, package-lock.json, tsconfig.json, .github/workflows/check.yml]
+existing_tests_changed: ['test/who-acted-read.test.ts: the summary starts at the first giving: a task given to one agent, its change merged, then taken back and given to another: it compares a duration of `howl show` as text (`3m`), which takes the one form (`3 min`)', 'test/who-acted-read.test.ts: a task given only after its change had ended is measured from the first sign of work, with the label of that, not as 0s from a hand-over: it compares a duration of `howl show` as text (`30m`), which takes the one form (`30 min`)']
+questions:
+  - '43.q1: Where hours end and days begin: `howl status` writes whole days from 24 h (`3 d`), the overview writes days with one decimal from 48 h (`2.5 d`).'
+  - '43.q2: How a duration below an hour is rounded, and whether seconds are shown above a minute: `howl show` writes `1m 30s`, the others whole minutes, rounded down in `howl status` and to the nearest in the overview.'
+  - '43.q3: Whether `since(time, now)` in `state.ts` goes, its callers calling `duration` with the span, or stays as a call of `duration`; and what a span below 0 gives.'
+  - '43.q4: Whether `concerns(event)` names the session: `howl watch` adds `session 6affad97`, the dashboard''s stream does not.'
+  - '43.q5: How the parts of `concerns` are joined in `howl watch`: by two spaces today (`task 12  change 30`), by ` · ` in the dashboard.'
+  - '43.q6: What the detail of a started session holds: the model and its source in `howl watch`, the model and the effort in the dashboard.'
+  - '43.q7: What `detail` gives where the two copies differ beyond a started session: the reason of an ended session, a forced push, the branch of a review, and the data of other types.'
+  - '43.q8: Whether the dashboard''s `concerns(item)` goes, so that the test "the line of the stream and the decoded view name the receiver of a giving" in `test/who-acted-read.test.ts` changes, or stays as a call of `concerns(event)`.'
+  - '43.q9: Whether the test that reads the sources covers three places outside the files the issue names that write a span themselves: `src/read/writing-text.ts`, `src/howl/trace-read.ts` and `src/observe/github.ts`.'
+  - '43.q10: The issue says "the text names the parts" in `test/show.test.ts` changes, but it compares no duration; the two tests that do are in `test/who-acted-read.test.ts`.'
