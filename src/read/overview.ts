@@ -233,15 +233,6 @@ function median(values: number[]): number | null {
   return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
-/** A duration, short: 50 min, 5 h 40 min, 2.5 d. */
-export function duration(ms: number): string {
-  const min = Math.round(ms / 60_000);
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  if (h < 48) return `${h} h ${String(min % 60).padStart(2, "0")} min`;
-  return `${(ms / DAY).toFixed(1)} d`;
-}
-
 function requirementsNamed(mergedAt: Map<string, string>, traced: Map<string, boolean>): KeyFigures["requirementsNamed"] {
   const without: string[] = [];
   let named = 0;

@@ -29,6 +29,7 @@ import { waitsFor } from "./wait.ts";
 import { agentTimeline, movesAgent, type AgentState } from "./agent.ts";
 import { reviewIdOf, roundText, rounds, type Round } from "./rounds.ts";
 import { shortTime, zoneLine } from "./watch.ts";
+import { duration } from "./words.ts";
 
 type Actor = NonNullable<LedgerEvent["actor"]>;
 
@@ -502,7 +503,7 @@ function sessionParts(events: LedgerEvent[], activityFrom: string | null, whole?
             time: e.time,
             kind: waitsFor(e),
             notification_type: type,
-            seconds: next ? seconds(e.time, next.time) : null,
+            seconds: next ? (Date.parse(next.time) - Date.parse(e.time)) / 1000 : null,
           });
         });
       const start = (started ?? own[0]!).time;
@@ -811,7 +812,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   out.push("", "Sessions");
   if (shown.sessions.length === 0) out.push("  none in the ledger");
   for (const s of shown.sessions) {
-    const span = s.end ? `${t(s.start)} to ${t(s.end)}, ${duration(seconds(s.start, s.end))}` : `${t(s.start)}, not ended`;
+    const span = s.end ? `${t(s.start)} to ${t(s.end)}, ${duration(Date.parse(s.end) - Date.parse(s.start))}` : `${t(s.start)}, not ended`;
     const also = s.also !== undefined && s.also.length > 0 ? `  also under change${s.also.length === 1 ? "" : "s"} ${s.also.join(", ")}` : "";
     out.push(`  session ${s.session}  claimed  ${who(s.actor)}${s.role ? `  role ${s.role}` : ""}${s.harness ? `  harness ${s.harness.name} ${s.harness.revision}` : ""}  ${span}${also}`);
     if (s.activity === "kept") {
@@ -828,7 +829,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
     }
     for (const w of s.waits) {
       const what = w.kind === "person" ? "waited for a person" : "waited for instructions";
-      out.push(`    ${t(w.time)}  ${what}${w.notification_type ? ` (${w.notification_type})` : ""}: ${w.seconds === null ? "still waiting" : duration(w.seconds)}`);
+      out.push(`    ${t(w.time)}  ${what}${w.notification_type ? ` (${w.notification_type})` : ""}: ${w.seconds === null ? "still waiting" : duration(w.seconds * 1000)}`);
     }
   }
   for (const d of shown.differing ?? []) {
@@ -913,11 +914,11 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   // #117: a later change is measured from its own first event, not from the hand-over.
   // The first giving is the start, also when it was taken back.
   const from = shown.events.some((e) => e.type === "task.assigned" && observed(e) && e.time === s.from) ? "hand-over" : "first event";
-  out.push(`  ${s.open ? `${from} to the last event, still open` : `${from} to the end`}: ${duration(s.seconds)}`);
+  out.push(`  ${s.open ? `${from} to the last event, still open` : `${from} to the end`}: ${duration(s.seconds * 1000)}`);
   out.push(
-    `  work ${duration(s.parts.work)}, waiting for a person ${duration(s.parts.person)}, waiting for instructions ${duration(
+    `  work ${duration(s.parts.work * 1000)}, waiting for a person ${duration(s.parts.person * 1000)}, waiting for instructions ${duration(
       s.parts.instructions,
-    )}, waiting for checks ${duration(s.parts.checks)}, waiting for review ${duration(s.parts.review)}, unknown ${duration(s.parts.unknown)}`,
+    )}, waiting for checks ${duration(s.parts.checks * 1000)}, waiting for review ${duration(s.parts.review * 1000)}, unknown ${duration(s.parts.unknown * 1000)}`,
   );
   out.push(`  review rounds: ${s.reviewRounds}`);
   out.push(`  taking part: ${s.actors.map((a) => a.id).join(", ")}`);
@@ -936,20 +937,6 @@ const FOLLOWED: Record<string, string> = {
   "change.closed": "closing the change",
   "change.reopened": "opening it again",
 };
-
-function seconds(from: string, to: string): number {
-  return (Date.parse(to) - Date.parse(from)) / 1000;
-}
-
-function duration(total: number): string {
-  const s = Math.round(total);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const rest = s % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return rest > 0 ? `${m}m ${rest}s` : `${m}m`;
-  return `${rest}s`;
-}
 
 /** #47: whether an event of the checks carries a mark in its data. */
 function markOf(e: LedgerEvent, key: "changes_untold" | "host_list_differs"): true | undefined {

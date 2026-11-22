@@ -3,9 +3,9 @@
 import { LedgerError } from "../ledger/errors.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { readFilters, wantsActivity } from "./filter.ts";
-import { checksNames } from "./checks-text.ts";
 import { activityBeside, byTime, Tail, type Read } from "./reader.ts";
 import { waitsForPerson } from "./wait.ts";
+import { concerns, detail } from "./words.ts";
 
 export interface WatchOptions {
   since?: string;
@@ -68,47 +68,22 @@ export function parseSince(text: string): number {
 
 /** One line: the time, claimed or observed, the actor, the type, what it concerns, and the short of its data. */
 export function formatLine(event: LedgerEvent, colour: boolean, utc = false): string {
-  const concerns = [
-    event.task !== undefined ? `task ${event.task}` : null,
-    event.change !== undefined ? `change ${event.change}` : null,
-    // #45: who a task was given to, or taken from: the actor column is the one who acted.
-    event.to !== undefined ? `${event.type === "task.unassigned" ? "taken from" : "to"} ${event.to.id}` : null,
-    // The first 8 characters are enough to tell sessions apart on a screen; --filter takes the whole id.
-    event.session !== undefined ? `session ${event.session.slice(0, 8)}` : null,
-  ].filter(Boolean);
   const line = [
     shortTime(event.time, utc),
     event.source.kind.padEnd(8),
     (event.actor?.id ?? "-").padEnd(16),
     event.type.padEnd(24),
-    [...concerns, short(event)].filter(Boolean).join("  "),
+    [
+      concerns(event),
+      // The first 8 characters are enough to tell sessions apart on a screen; --filter takes the whole id.
+      event.session !== undefined ? `session ${event.session.slice(0, 8)}` : "",
+      detail(event),
+    ]
+      .filter(Boolean)
+      .join("  "),
   ].join(" ");
   const c = colour ? standOut(event) : null;
   return c ? `${c}${line}${RESET}` : line;
-}
-
-function short(event: LedgerEvent): string {
-  const d = (event.data ?? {}) as Record<string, unknown>;
-  const sha = event.sha ? event.sha.slice(0, 7) : "";
-  switch (event.type) {
-    case "tool.used":
-      return [d.tool, d.target, d.outcome].filter((x) => typeof x === "string").join(" ");
-    case "agent.waiting":
-      return String(d.notification_type ?? "");
-    case "session.started":
-      return [event.model, d.source].filter(Boolean).join(" ");
-    case "session.ended":
-      return String(d.reason ?? "");
-    default:
-      // #44: a forced push says so.
-      if (event.type.startsWith("change.")) return [event.branch, sha, event.type === "change.updated" && d.forced === true ? "forced" : null].filter(Boolean).join(" ");
-      if (event.type.startsWith("checks.")) return [sha, checksNames(event)].filter(Boolean).join(" ");
-      if (event.type.startsWith("review.")) return sha;
-      return Object.entries(d)
-        .filter(([k]) => k !== "seen")
-        .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-        .join(" ");
-  }
 }
 
 /**

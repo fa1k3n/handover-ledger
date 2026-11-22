@@ -2,9 +2,9 @@
 // the fields of a decoded event. No DOM, so node:test can run them.
 // @code_class reading
 import { ACTIVITY_FILE } from "../ledger/names.ts";
-import { checksNames } from "../read/checks-text.ts";
 import { isPair } from "../read/filter-text.ts";
-import { duration, type KeyFigures } from "../read/overview.ts";
+import type { KeyFigures } from "../read/overview.ts";
+import { duration } from "../read/words.ts";
 import type { Claim, Head, Session } from "../read/show.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
@@ -158,27 +158,6 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
     e.type === "trace.read" && typeof d.list === "string" ? { k: "List hash", v: d.list } : null,
   ];
   return fields.filter((f): f is Field => f !== null);
-}
-
-/** What an event concerns, short: task 12 · change 30. */
-export function concerns(item: Item): string {
-  const e = item.event;
-  // #45: the actor column is the one who acted; who a task was given to or taken from is told here.
-  return [e.task !== undefined ? `task ${e.task}` : null, e.change !== undefined ? `change ${e.change}` : null, e.to !== undefined ? `${e.type === "task.unassigned" ? "taken from" : "to"} ${e.to.id}` : null].filter(Boolean).join(" · ");
-}
-
-/** The short of an event's data for the stream. */
-export function detail(item: Item): string {
-  const e = item.event;
-  const d = (e.data ?? {}) as Record<string, unknown>;
-  if (e.type === "tool.used") return [d.tool, d.target, d.outcome].filter((x) => typeof x === "string").join(" ");
-  if (e.type === "agent.waiting") return String(d.notification_type ?? "");
-  if (e.type === "session.started") return [e.model, e.effort].filter(Boolean).join(" · ");
-  if (e.type.startsWith("checks.")) return [e.sha?.slice(0, 7), checksNames(e)].filter(Boolean).join(" ");
-  if (e.type.startsWith("change.") || e.type.startsWith("review.")) {
-    return [e.branch, e.sha?.slice(0, 7)].filter(Boolean).join(" ");
-  }
-  return "";
 }
 
 /** A wait for a person, failed checks and a review asking for changes stand out. */

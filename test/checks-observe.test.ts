@@ -708,7 +708,7 @@ test("#47: howl watch shows the names that failed, and what a head let go was st
     ["checks.none", 31],
   ]);
   const out = howl(["watch", "--no-follow", "--utc", "--ledger", path]).stdout;
-  assert.match(out, /checks\.failed\s+task 20  change 40  aaaaaaa lint, unit/);
+  assert.match(out, /checks\.failed\s+task 20 · change 40  aaaaaaa lint, unit/);
   assert.match(out, /checks\.unfinished\s+.*aaaaaaa slow job/);
   assert.match(out, /checks\.none\s+.*aaaaaaa/);
 });

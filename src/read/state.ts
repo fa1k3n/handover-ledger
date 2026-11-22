@@ -6,6 +6,7 @@ import type { LedgerEvent } from "../ledger/schema.ts";
 import { agentTimeline, stateAt, type AgentState } from "./agent.ts";
 import { assignee } from "./assignee.ts";
 import { byTime } from "./order.ts";
+import { concerns, duration } from "./words.ts";
 
 // #39: the state is told by the one fold in `agent.ts`; its words and its working window are those.
 export { WORKING_WITHIN_MS, type AgentState } from "./agent.ts";
@@ -125,24 +126,6 @@ function stateOf(own: LedgerEvent[], now: number): AgentState {
   return stateAt(points, Math.max(now, last === undefined ? now : Date.parse(last.time))) ?? "idle";
 }
 
-/** How long ago, short: 12 s, 4 min, 1 h 05 min, 3 d. */
-export function since(time: string, now: number): string {
-  const s = Math.max(0, Math.round((now - Date.parse(time)) / 1000));
-  if (s < 60) return `${s} s`;
-  const min = Math.floor(s / 60);
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `${h} h ${String(min % 60).padStart(2, "0")} min`;
-  return `${Math.floor(h / 24)} d`;
-}
-
-/** What a row works on, in words: task 12 · change 30. */
-export function worksOn(row: AgentRow): string {
-  return [row.task !== undefined ? `task ${row.task}` : null, row.change !== undefined ? `change ${row.change}` : null]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 /** How many agents are in a state, for the team: never who they wait for. */
 export function countOf(rows: AgentRow[], state: AgentState): number {
   return rows.filter((r) => r.state === state).length;
@@ -155,10 +138,10 @@ export function renderStatus(rows: AgentRow[], now: number): string {
     r.agent,
     r.state === "needs-input" ? "NEEDS INPUT" : r.state,
     r.role ?? "-",
-    worksOn(r) || (r.branch ?? "-"),
+    concerns(r) || (r.branch ?? "-"),
     [r.model, r.effort].filter(Boolean).join(" ") || "-",
     [r.tool, r.target].filter(Boolean).join(" ") || "-",
-    since(r.last, now),
+    duration(now - Date.parse(r.last)),
   ]);
   const widths = table[0]!.map((_, c) => Math.max(...table.map((cells) => cells[c]!.length)));
   const lines = table.map((cells, i) => {
