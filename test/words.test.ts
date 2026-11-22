@@ -207,9 +207,12 @@ test("R43.6: guard: howl status says what a row works on as `task 12 · change 3
 
 test("R43.6: worksOn goes from state.ts and the dashboard, which use concerns of words.ts", () => {
   const state = source("src/read/state.ts");
-  srcDoesNotMatch(state, /\bworksOn\b/);
+  // The function only: a call or an import. The key texts.team.cols.worksOn of texts.ts stays.
+  const worksOnFunction = /\bworksOn\s*\(|function\s+worksOn\b|import\s*\{[^}]*\bworksOn\b[^}]*\}/;
+  srcDoesNotMatch(state, worksOnFunction);
   srcMatch(state, /import\s*\{[^}]*\bconcerns\b[^}]*\}\s*from\s*["'][^"']*words\.ts["']/);
-  srcDoesNotMatch(source("src/dashboard/App.tsx"), /\bworksOn\b/);
+  srcDoesNotMatch(source("src/dashboard/App.tsx"), worksOnFunction);
+  srcDoesNotMatch(source("src/dashboard/format.ts"), worksOnFunction);
 });
 
 // ---- R43.7: the overview ----
