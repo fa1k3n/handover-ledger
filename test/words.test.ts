@@ -428,3 +428,23 @@ test("R43.7: guard: the lead time of the figures is a number of milliseconds", (
   const figures = keyFigures([], T0);
   assert.ok(figures.leadTimeMedianMs === null || typeof figures.leadTimeMedianMs === "number");
 });
+
+// ---- Fix round 1 (findings 1 to 4): each part is written in its own unit ----
+
+
+function shownWithParts() {
+  const shown = show(
+    [ev("task.opened", { task: "40", actor: person }, "observed", 0), ev("task.assigned", { task: "40", actor: person, to: agent }, "observed", 1)],
+    parseAsked("task:40"),
+    null,
+  )!;
+  // Distinct seconds for every part, so a wrong unit or a swapped part shows.
+  shown.summary = { ...shown.summary, seconds: 7500, parts: { work: 7200, person: 120, instructions: 180, checks: 300, review: 600, unknown: 900 } };
+  return shown;
+}
+
+test("R43.8: howl show writes each part of the summary from seconds, in the one form", () => {
+  const text = render(shownWithParts(), { utc: true });
+  assert.match(text, /: 2 h 05 min\n/);
+  assert.match(text, /work 2 h 00 min, waiting for a person 2 min, waiting for instructions 3 min, waiting for checks 5 min, waiting for review 10 min, unknown 15 min/);
+});

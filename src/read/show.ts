@@ -917,7 +917,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
   out.push(`  ${s.open ? `${from} to the last event, still open` : `${from} to the end`}: ${duration(s.seconds * 1000)}`);
   out.push(
     `  work ${duration(s.parts.work * 1000)}, waiting for a person ${duration(s.parts.person * 1000)}, waiting for instructions ${duration(
-      s.parts.instructions,
+      s.parts.instructions * 1000,
     )}, waiting for checks ${duration(s.parts.checks * 1000)}, waiting for review ${duration(s.parts.review * 1000)}, unknown ${duration(s.parts.unknown * 1000)}`,
   );
   out.push(`  review rounds: ${s.reviewRounds}`);
