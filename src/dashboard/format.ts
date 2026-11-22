@@ -4,8 +4,9 @@
 import { ACTIVITY_FILE } from "../ledger/names.ts";
 import { isPair } from "../read/filter-text.ts";
 import type { KeyFigures } from "../read/overview.ts";
-import { duration } from "../read/words.ts";
-import type { Claim, Head, Session } from "../read/show.ts";
+import { concerns, duration } from "../read/words.ts";
+import type { Claim, Head, Session, Summary } from "../read/show.ts";
+import type { AgentRow } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
 import { writingLine, type Writing } from "../read/writing-text.ts";
@@ -427,4 +428,24 @@ export function indentStored(raw: string): string {
 /** #52: whether the tile "No agent matched" and its list are shown: only when the ledger holds an agent in the period. */
 export function showsUnattributed(figures: KeyFigures): boolean {
   return figures.unattributed !== undefined;
+}
+
+/** The team's "since" cell: the time from the last event of a row to now. */
+export function teamSince(row: AgentRow, now: number): string {
+  return duration(now - Date.parse(row.last));
+}
+
+/** The team's "works on" cell: what the row's task and change are, as `concerns` writes it. */
+export function teamWorksOn(row: AgentRow): string {
+  return concerns(row);
+}
+
+/** The change view's summary in milliseconds, from the seconds of `Summary`: the waits for a person and for instructions are one. */
+export function summarySpans(s: Summary): { all: number; work: number; checks: number; review: number; waits: number; unknown: number } {
+  return { all: s.seconds * 1000, work: s.parts.work * 1000, checks: s.parts.checks * 1000, review: s.parts.review * 1000, waits: (s.parts.person + s.parts.instructions) * 1000, unknown: s.parts.unknown * 1000 };
+}
+
+/** A wait of the change view in milliseconds, from its seconds; `null` for one that is still going. */
+export function waitSpan(seconds: number | null): number | null {
+  return seconds === null ? null : seconds * 1000;
 }

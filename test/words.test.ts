@@ -6,6 +6,8 @@ import { join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { sessionText } from "../src/dashboard/format.ts";
+import { summarySpans, teamSince, teamWorksOn, waitSpan } from "../src/dashboard/format.ts";
+import type { AgentRow } from "../src/read/state.ts";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
 import { keyFigures } from "../src/read/overview.ts";
 import { parseAsked, render, show, type Session } from "../src/read/show.ts";
@@ -447,4 +449,37 @@ test("R43.8: howl show writes each part of the summary from seconds, in the one 
   const text = render(shownWithParts(), { utc: true });
   assert.match(text, /: 2 h 05 min\n/);
   assert.match(text, /work 2 h 00 min, waiting for a person 2 min, waiting for instructions 3 min, waiting for checks 5 min, waiting for review 10 min, unknown 15 min/);
+});
+
+test("R43.11: the change view's summary is taken from seconds, in milliseconds, the two waits as one", () => {
+  assert.deepEqual(summarySpans(shownWithParts().summary), { all: 7_500_000, work: 7_200_000, checks: 300_000, review: 600_000, waits: 300_000, unknown: 900_000 });
+});
+
+test("R43.11: the change view's wait is taken from seconds, in milliseconds, and a wait still going has none", () => {
+  assert.equal(waitSpan(90), 90_000);
+  assert.equal(waitSpan(7200), 7_200_000);
+  assert.equal(waitSpan(null), null);
+});
+
+const teamRow = { agent: "agent-1", last: at(0), task: "12", change: "30" } as unknown as AgentRow;
+
+test("R43.5: the dashboard's team writes the time since the last event with duration, forwards", () => {
+  assert.equal(teamSince(teamRow, T0 + 65 * MIN), "1 h 05 min");
+  assert.equal(teamSince(teamRow, T0 + 30 * 1000), "30 s");
+});
+
+test("R43.6: the dashboard's team writes what a row works on with concerns", () => {
+  assert.equal(teamWorksOn(teamRow), "task 12 · change 30");
+  assert.equal(teamWorksOn({ ...teamRow, change: undefined } as AgentRow), "task 12");
+});
+
+test("R43.5: App.tsx and ChangeView.tsx write these spans through the helpers of format.ts, not by hand", () => {
+  const app = source("src/dashboard/App.tsx");
+  srcMatch(app, /\bteamSince\(/);
+  srcMatch(app, /\bteamWorksOn\(/);
+  srcDoesNotMatch(app, /Date\.parse\(\s*row\.last\s*\)/);
+  const view = source("src/dashboard/ChangeView.tsx");
+  srcMatch(view, /\bsummarySpans\(/);
+  srcMatch(view, /\bwaitSpan\(/);
+  srcDoesNotMatch(view, /\*\s*1000/);
 });

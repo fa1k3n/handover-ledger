@@ -7,7 +7,7 @@ import { concerns, detail, duration } from "../read/words.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, takenBackText, streamColumns, tabTitle, whenShort, writingLines, type Question, type View } from "./format.ts";
+import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, takenBackText, streamColumns, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -437,13 +437,13 @@ function AgentLine({ row, now }: { row: AgentRow; now: number }) {
       </td>
       <td className="p-3 font-mono text-[13px]">{row.role ?? "–"}</td>
       <td className="p-3">
-        <div className="font-medium">{concerns(row) || row.branch || "–"}</div>
-        {concerns(row) && row.branch && <div className="text-[13px] text-mute">{row.branch}</div>}
+        <div className="font-medium">{teamWorksOn(row) || row.branch || "–"}</div>
+        {teamWorksOn(row) && row.branch && <div className="text-[13px] text-mute">{row.branch}</div>}
         {row.gaps.length > 0 && <div className="text-[13px] font-medium text-warn-ink">{texts.team.missing(row.gaps)}</div>}
       </td>
       <td className="p-3 font-mono text-[13px]">{[row.model, row.effort].filter(Boolean).join(" · ") || "–"}</td>
       <td className="p-3 font-mono text-[13px]">{[row.tool, row.target].filter(Boolean).join(" ") || "–"}</td>
-      <td className="py-3 pl-3 text-right font-mono text-[13px] whitespace-nowrap">{duration(now - Date.parse(row.last))}</td>
+      <td className="py-3 pl-3 text-right font-mono text-[13px] whitespace-nowrap">{teamSince(row, now)}</td>
     </tr>
   );
 }

@@ -5,7 +5,7 @@ import { duration } from "../read/words.ts";
 import { roundText } from "../read/rounds.ts";
 import type { Shown } from "../read/show.ts";
 import * as api from "./api.ts";
-import { claimText, hashFor, headText, otherChangeLinks, traceText, sessionText, whenShort } from "./format.ts";
+import { claimText, hashFor, headText, otherChangeLinks, traceText, sessionText, summarySpans, waitSpan, whenShort } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const t = texts.change;
@@ -94,15 +94,16 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
               </p>
             )}
             <p className="m-0 text-[13px] text-mute">
-              {t.summary(
-                duration(shown.summary.seconds * 1000),
-                duration(shown.summary.parts.work * 1000),
-                duration(shown.summary.parts.checks * 1000),
-                duration(shown.summary.parts.review * 1000),
-                duration((shown.summary.parts.person + shown.summary.parts.instructions) * 1000),
-                duration(shown.summary.parts.unknown * 1000),
-                shown.summary.reviewRounds,
-              )}
+              {((spans) =>
+                t.summary(
+                  duration(spans.all),
+                  duration(spans.work),
+                  duration(spans.checks),
+                  duration(spans.review),
+                  duration(spans.waits),
+                  duration(spans.unknown),
+                  shown.summary.reviewRounds,
+                ))(summarySpans(shown.summary))}
             </p>
           </section>
 
@@ -119,7 +120,7 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
                 </div>
                 {s.waits.map((w) => (
                   <div key={w.time} className={`${row} pl-4 text-mute`}>
-                    {whenShort(w.time, now)} · {t.wait(w.kind, w.seconds === null ? t.stillWaiting : duration(w.seconds * 1000))}
+                    {whenShort(w.time, now)} · {t.wait(w.kind, ((ms) => (ms === null ? t.stillWaiting : duration(ms)))(waitSpan(w.seconds)))}
                   </div>
                 ))}
               </div>
