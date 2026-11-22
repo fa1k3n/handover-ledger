@@ -2,6 +2,7 @@
 // `writing.ts`, which reads the files: the page loads this and must not load
 // what reads a disk.
 // @code_class reading
+import { duration } from "./words.ts";
 
 export interface Writing {
   /** A process holds the ledger's lock. */
@@ -34,5 +35,5 @@ export function writingLine(project: string, w: Writing, now: number): string | 
     return w.left ? `${waits} Its lock was left by a process that no longer runs: run howl verify there, then remove the lock.` : `${waits} Start howl up in its repository.`;
   }
   if (w.oldest === null || now - w.oldest < SLOW_MS) return null;
-  return `${project}: ${events} ${w.waiting === 1 ? "has" : "have"} waited for the writer for ${Math.floor((now - w.oldest) / 60_000)} min.`;
+  return `${project}: ${events} ${w.waiting === 1 ? "has" : "have"} waited for the writer for ${duration(now - w.oldest)}.`;
 }

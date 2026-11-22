@@ -312,8 +312,8 @@ While it runs, a session's hook and `howl emit` send each event to it with a POS
 ```
 $ howl watch --filter type=review.* --filter change=30
 times in Europe/Stockholm (UTC+01:00); --utc for UTC
-2026-01-01 09:20:00 observed person-0a0a0a0a  review.changes_requested task 12  change 30  aaaaaaa
-2026-01-01 09:55:00 observed person-0a0a0a0a  review.approved          task 12  change 30  ccccccc
+2026-01-01 09:20:00 observed person-0a0a0a0a  review.changes_requested task 12 · change 30  task-12-x aaaaaaa
+2026-01-01 09:55:00 observed person-0a0a0a0a  review.approved          task 12 · change 30  task-12-x ccccccc
 ```
 
 A pair is `field=value`, and a value ending in `*` matches what starts with the rest. Beside the fields of the event, the pairs `harness=<name>` and `revision=<revision>` filter on the harness a session claimed and its revision: `--filter harness=example-harness --filter 'revision=1.4*'`.
@@ -347,12 +347,12 @@ Hand-over
   2026-01-01T08:00:00Z  observed  given to agent-1
 
 Sessions
-  session s1  claimed  agent-1  2026-01-01T08:02:00Z to 2026-01-01T08:10:00Z, 8m
+  session s1  claimed  agent-1  2026-01-01T08:02:00Z to 2026-01-01T08:10:00Z, 8 min
     tool calls: Bash 2, Edit 1, Read 1
     files: src/a.ts
-    2026-01-01T08:05:00Z  waited for a person (permission_prompt): 1m
-    2026-01-01T08:09:00Z  waited for instructions (idle_prompt): 1m
-  session s2  claimed  agent-1  2026-01-01T08:22:00Z to 2026-01-01T08:30:00Z, 8m
+    2026-01-01T08:05:00Z  waited for a person (permission_prompt): 1 min
+    2026-01-01T08:09:00Z  waited for instructions (idle_prompt): 1 min
+  session s2  claimed  agent-1  2026-01-01T08:22:00Z to 2026-01-01T08:30:00Z, 8 min
     tool calls: Edit 1
     files: src/b.ts
 
@@ -370,8 +370,8 @@ End
   2026-01-01T09:00:00Z  observed  merged by person-0b0b0b0b
 
 Summary
-  hand-over to the end: 1h 0m
-  work 13m, waiting for a person 6m, waiting for instructions 2m, waiting for checks 10m, waiting for review 18m, unknown 11m
+  hand-over to the end: 1 h 00 min
+  work 13 min, waiting for a person 6 min, waiting for instructions 2 min, waiting for checks 10 min, waiting for review 18 min, unknown 11 min
   review rounds: 2
   taking part: person-0a0a0a0a, agent-1, person-0b0b0b0b
 ```

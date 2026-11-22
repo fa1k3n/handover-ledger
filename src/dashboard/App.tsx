@@ -1,13 +1,13 @@
 // The dashboard page: the team right now and the event stream, read-only over howl serve.
 // @code_class reading
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { duration, type Handover, type KeyFigures } from "../read/overview.ts";
+import type { Handover, KeyFigures } from "../read/overview.ts";
 import type { AgentRow, AgentState } from "../read/state.ts";
-import { since, worksOn } from "../read/state.ts";
+import { concerns, detail, duration } from "../read/words.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { answerWanted, concerns, decodedFields, detail, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, takenBackText, streamColumns, tabTitle, whenShort, writingLines, type Question, type View } from "./format.ts";
+import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, takenBackText, streamColumns, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -437,13 +437,13 @@ function AgentLine({ row, now }: { row: AgentRow; now: number }) {
       </td>
       <td className="p-3 font-mono text-[13px]">{row.role ?? "–"}</td>
       <td className="p-3">
-        <div className="font-medium">{worksOn(row) || row.branch || "–"}</div>
-        {worksOn(row) && row.branch && <div className="text-[13px] text-mute">{row.branch}</div>}
+        <div className="font-medium">{teamWorksOn(row) || row.branch || "–"}</div>
+        {teamWorksOn(row) && row.branch && <div className="text-[13px] text-mute">{row.branch}</div>}
         {row.gaps.length > 0 && <div className="text-[13px] font-medium text-warn-ink">{texts.team.missing(row.gaps)}</div>}
       </td>
       <td className="p-3 font-mono text-[13px]">{[row.model, row.effort].filter(Boolean).join(" · ") || "–"}</td>
       <td className="p-3 font-mono text-[13px]">{[row.tool, row.target].filter(Boolean).join(" ") || "–"}</td>
-      <td className="py-3 pl-3 text-right font-mono text-[13px] whitespace-nowrap">{since(row.last, now)}</td>
+      <td className="py-3 pl-3 text-right font-mono text-[13px] whitespace-nowrap">{teamSince(row, now)}</td>
     </tr>
   );
 }
@@ -637,18 +637,18 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
                       <td className="px-3 py-2 whitespace-nowrap">
                         {item.event.change !== undefined ? (
                           <a href={hashFor("change", of, `change:${item.event.change}`)} className="text-ink">
-                            {concerns(item)}
+                            {concerns(item.event)}
                           </a>
                         ) : item.event.task !== undefined ? (
                           <a href={hashFor("change", of, `task:${item.event.task}`)} className="text-ink">
-                            {concerns(item)}
+                            {concerns(item.event)}
                           </a>
                         ) : (
-                          concerns(item)
+                          concerns(item.event)
                         )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-mute">{item.event.source.kind}</td>
-                      <td className="px-3 py-2 font-sans">{detail(item)}</td>
+                      <td className="px-3 py-2 font-sans">{detail(item.event)}</td>
                     </tr>
                   );
                 })}

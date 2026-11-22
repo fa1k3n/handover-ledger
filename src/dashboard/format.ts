@@ -2,10 +2,11 @@
 // the fields of a decoded event. No DOM, so node:test can run them.
 // @code_class reading
 import { ACTIVITY_FILE } from "../ledger/names.ts";
-import { checksNames } from "../read/checks-text.ts";
 import { isPair } from "../read/filter-text.ts";
-import { duration, type KeyFigures } from "../read/overview.ts";
-import type { Claim, Head, Session } from "../read/show.ts";
+import type { KeyFigures } from "../read/overview.ts";
+import { concerns, duration } from "../read/words.ts";
+import type { Claim, Head, Session, Summary } from "../read/show.ts";
+import type { AgentRow } from "../read/state.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
 import { writingLine, type Writing } from "../read/writing-text.ts";
@@ -158,27 +159,6 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
     e.type === "trace.read" && typeof d.list === "string" ? { k: "List hash", v: d.list } : null,
   ];
   return fields.filter((f): f is Field => f !== null);
-}
-
-/** What an event concerns, short: task 12 · change 30. */
-export function concerns(item: Item): string {
-  const e = item.event;
-  // #45: the actor column is the one who acted; who a task was given to or taken from is told here.
-  return [e.task !== undefined ? `task ${e.task}` : null, e.change !== undefined ? `change ${e.change}` : null, e.to !== undefined ? `${e.type === "task.unassigned" ? "taken from" : "to"} ${e.to.id}` : null].filter(Boolean).join(" · ");
-}
-
-/** The short of an event's data for the stream. */
-export function detail(item: Item): string {
-  const e = item.event;
-  const d = (e.data ?? {}) as Record<string, unknown>;
-  if (e.type === "tool.used") return [d.tool, d.target, d.outcome].filter((x) => typeof x === "string").join(" ");
-  if (e.type === "agent.waiting") return String(d.notification_type ?? "");
-  if (e.type === "session.started") return [e.model, e.effort].filter(Boolean).join(" · ");
-  if (e.type.startsWith("checks.")) return [e.sha?.slice(0, 7), checksNames(e)].filter(Boolean).join(" ");
-  if (e.type.startsWith("change.") || e.type.startsWith("review.")) {
-    return [e.branch, e.sha?.slice(0, 7)].filter(Boolean).join(" ");
-  }
-  return "";
 }
 
 /** A wait for a person, failed checks and a review asking for changes stand out. */
@@ -448,4 +428,24 @@ export function indentStored(raw: string): string {
 /** #52: whether the tile "No agent matched" and its list are shown: only when the ledger holds an agent in the period. */
 export function showsUnattributed(figures: KeyFigures): boolean {
   return figures.unattributed !== undefined;
+}
+
+/** The team's "since" cell: the time from the last event of a row to now. */
+export function teamSince(row: AgentRow, now: number): string {
+  return duration(now - Date.parse(row.last));
+}
+
+/** The team's "works on" cell: what the row's task and change are, as `concerns` writes it. */
+export function teamWorksOn(row: AgentRow): string {
+  return concerns(row);
+}
+
+/** The change view's summary in milliseconds, from the seconds of `Summary`: the waits for a person and for instructions are one. */
+export function summarySpans(s: Summary): { all: number; work: number; checks: number; review: number; waits: number; unknown: number } {
+  return { all: s.seconds * 1000, work: s.parts.work * 1000, checks: s.parts.checks * 1000, review: s.parts.review * 1000, waits: (s.parts.person + s.parts.instructions) * 1000, unknown: s.parts.unknown * 1000 };
+}
+
+/** A wait of the change view in milliseconds, from its seconds; `null` for one that is still going. */
+export function waitSpan(seconds: number | null): number | null {
+  return seconds === null ? null : seconds * 1000;
 }

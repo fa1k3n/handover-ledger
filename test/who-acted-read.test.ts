@@ -4,7 +4,8 @@
 // @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { concerns, decodedFields } from "../src/dashboard/format.ts";
+import { decodedFields } from "../src/dashboard/format.ts";
+import { concerns } from "../src/read/words.ts";
 import type { LedgerEvent } from "../src/ledger/schema.ts";
 import { happensBefore } from "../src/observe/order.ts";
 import { handovers, keyFigures } from "../src/read/overview.ts";
@@ -88,7 +89,7 @@ test("the summary starts at the first giving: a task given to one agent, its cha
   assert.equal(shown.summary.from, at(1));
   assert.equal(shown.summary.to, at(4));
   assert.equal(shown.summary.seconds, 180);
-  assert.match(render(shown, { utc: true }), /hand-over to the end: 3m/);
+  assert.match(render(shown, { utc: true }), /hand-over to the end: 3 min/);
 });
 
 test("the summary starts at the first giving: taken back after the merge, it does not start at the change's opening", () => {
@@ -133,7 +134,7 @@ test("a task given only after its change had ended is measured from the first si
   assert.equal(shown.summary.to, at(40));
   assert.equal(shown.summary.seconds, 30 * 60);
   const text = render(shown, { utc: true });
-  assert.match(text, /first event to the end: 30m/);
+  assert.match(text, /first event to the end: 30 min/);
   assert.doesNotMatch(text, /hand-over to the end/);
   // The giving is still in the hand-over.
   assert.equal(shown.handover.length, 1);
@@ -463,12 +464,12 @@ test("a filter never sees the pseudonym of a person in `to`, as it never does in
 test("the line of the stream and the decoded view name the receiver of a giving", () => {
   const e = observed("task.assigned", 1, { task: "40", actor: other, to: agent });
   const line = formatLine(e, false, true);
-  assert.match(line, /person-0b0b0b0b +task\.assigned +task 40 +to agent-1/);
+  assert.match(line, /person-0b0b0b0b +task\.assigned +task 40 · to agent-1/);
   const back = observed("task.unassigned", 2, { task: "40", actor: other, to: agent });
-  assert.match(formatLine(back, false, true), /task\.unassigned +task 40 +taken from agent-1/);
+  assert.match(formatLine(back, false, true), /task\.unassigned +task 40 · taken from agent-1/);
   assert.doesNotMatch(formatLine(back, false, true), / to agent-1/);
-  assert.equal(concerns({ event: back } as any), "task 40 · taken from agent-1");
-  assert.equal(concerns({ event: e } as any), "task 40 · to agent-1");
+  assert.equal(concerns(back), "task 40 · taken from agent-1");
+  assert.equal(concerns(e), "task 40 · to agent-1");
   const unassigned = decodedFields({ event: back, from: "ledger", n: 3, prev: null } as any);
   assert.deepEqual(unassigned.find((f) => f.k === "Taken from"), { k: "Taken from", v: "agent-1 (agent)" });
   assert.equal(unassigned.some((f) => f.k === "To"), false);
