@@ -186,7 +186,9 @@ pub fn read_input(text: &str) -> Option<Json> {
     loop {
         // A value starts.
         r.blank();
-        let built_parent = stack.last().is_none_or(|f| matches!(f, Frame::Object(Some(_))));
+        let built_parent = stack
+            .last()
+            .is_none_or(|f| matches!(f, Frame::Object(Some(_))));
         // Texts are built in a built object; objects only down to the second level.
         let keep_text = built_parent;
         let keep_object = built_parent && stack.len() < 2;
@@ -202,7 +204,9 @@ pub fn read_input(text: &str) -> Option<Json> {
                     }
                 } else {
                     let key = r.key(keep_object)?;
-                    stack.push(Frame::Object(keep_object.then(|| (Members::default(), key))));
+                    stack.push(Frame::Object(
+                        keep_object.then(|| (Members::default(), key)),
+                    ));
                     continue;
                 }
             }

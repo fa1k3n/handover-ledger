@@ -124,14 +124,19 @@ pub fn event_of_hook(
     let task = from_env
         .clone()
         .or_else(|| task_of_branch(place.branch.as_deref(), pattern.as_ref()));
-    let task_from = task.as_ref().map(|_| if from_env.is_some() { "env" } else { "branch" });
+    let task_from = task
+        .as_ref()
+        .map(|_| if from_env.is_some() { "env" } else { "branch" });
 
     let mut event = Map::new();
     event.insert("v".into(), json!(0));
     event.insert("id".into(), json!(id));
     event.insert("time".into(), json!(time));
     event.insert("type".into(), json!(kind));
-    event.insert("source".into(), json!({"adapter": adapter, "kind": "claimed"}));
+    event.insert(
+        "source".into(),
+        json!({"adapter": adapter, "kind": "claimed"}),
+    );
     event.insert("project".into(), json!(project.project));
     event.insert("actor".into(), json!({"kind": "agent", "id": actor}));
     let mut put = |key: &str, value: Option<Value>| {
@@ -149,7 +154,10 @@ pub fn event_of_hook(
     put("task", task.map(Value::String));
     put("task_from", task_from.map(|t| json!(t)));
     put("role", named(env.role.as_deref()).map(Value::String));
-    put("prompt", role_prompt(env.role_prompt.as_deref(), &project.root));
+    put(
+        "prompt",
+        role_prompt(env.role_prompt.as_deref(), &project.root),
+    );
     put("harness", harness(env));
     put("data", data);
     Ok(Some((project, Value::Object(event))))
@@ -279,7 +287,13 @@ fn checkout(dir: &str) -> Result<Place, Nothing> {
     }
     // One call for the root, the head commit and the branch; a repository with no commit yet has no head, and then
     // only the root is asked for.
-    let asked = ["rev-parse", "--show-toplevel", "HEAD", "--abbrev-ref", "HEAD"];
+    let asked = [
+        "rev-parse",
+        "--show-toplevel",
+        "HEAD",
+        "--abbrev-ref",
+        "HEAD",
+    ];
     let all: Option<Vec<String>> =
         git(dir, &asked).map(|out| out.split('\n').map(str::to_string).collect());
     let top = match &all {
@@ -418,7 +432,11 @@ fn sets(text: &[u8]) -> Option<usize> {
         .take_while(|b| b.is_ascii_alphanumeric() || **b == b'_')
         .count();
     let equals = |at: usize| {
-        let at = if text.get(at) == Some(&b'+') { at + 1 } else { at };
+        let at = if text.get(at) == Some(&b'+') {
+            at + 1
+        } else {
+            at
+        };
         (text.get(at) == Some(&b'=')).then_some(at + 1)
     };
     if text.get(name) == Some(&b'[') {
@@ -513,7 +531,11 @@ fn substitution(s: &[u8], i: usize, depth: usize) -> Option<usize> {
     }
     // A backquote or `$'…'` ends at its like that no `\` stands before.
     if c == Some(b'`') || s.get(i + 1) == Some(&b'\'') {
-        let (shut, mut k) = if c == Some(b'`') { (b'`', i + 1) } else { (b'\'', i + 2) };
+        let (shut, mut k) = if c == Some(b'`') {
+            (b'`', i + 1)
+        } else {
+            (b'\'', i + 2)
+        };
         while k < s.len() {
             if s[k] == b'\\' {
                 k += 1;

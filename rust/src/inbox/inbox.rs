@@ -45,7 +45,10 @@ pub fn inbox_name(ms: i64, uuid: &str) -> String {
 /// Leaves an event in the inbox, in its fixed form. Gives the path of the file.
 pub fn leave(inbox: &str, event: &Value) -> std::io::Result<String> {
     let bytes = fixed_form(event);
-    DirBuilder::new().recursive(true).mode(0o700).create(inbox)?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(inbox)?;
     let name = inbox_name(now_ms(), &random_uuid()?);
     let temporary = join(&[inbox, &format!(".{name}.tmp")]);
     let mut file = OpenOptions::new()

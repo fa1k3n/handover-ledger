@@ -3,7 +3,7 @@
 // @code_class tests
 use howl::hook::hook::{iso_time, program};
 use howl::hook::input::{read_input, Json};
-use howl::howl::git::{run_limited, repo_name};
+use howl::howl::git::{repo_name, run_limited};
 use howl::howl::path::{basename, dirname, join, relative, resolve};
 use howl::howl::project::{
     find_actor, find_project, js_trim, plain, setting_pattern, task_of_branch, top_level, Setting,
@@ -33,10 +33,16 @@ fn s(path: &std::path::Path) -> String {
 
 #[test]
 fn trim_is_javascript_s_with_its_white_space() {
-    assert_eq!(js_trim("\u{feff}\u{a0}\u{2028} a b\u{3000}\t\u{b}\u{c}\r\n"), "a b");
+    assert_eq!(
+        js_trim("\u{feff}\u{a0}\u{2028} a b\u{3000}\t\u{b}\u{c}\r\n"),
+        "a b"
+    );
     // U+0085 is white space to Rust, not to JavaScript.
     assert_eq!(js_trim("\u{85}a\u{85}"), "\u{85}a\u{85}");
-    assert_eq!(js_trim("\u{1680}\u{2000}\u{200a}\u{202f}\u{205f}x\u{2029}"), "x");
+    assert_eq!(
+        js_trim("\u{1680}\u{2000}\u{200a}\u{202f}\u{205f}x\u{2029}"),
+        "x"
+    );
 }
 
 #[test]
@@ -47,7 +53,10 @@ fn the_settings_reader_reads_top_level_keys_as_project_ts_does() {
         "nested:\n  key: value\nempty:\nhash: a#b\n",
     );
     let settings = top_level(text);
-    assert_eq!(settings.get("project"), Some(&Setting::Text("example".into())));
+    assert_eq!(
+        settings.get("project"),
+        Some(&Setting::Text("example".into()))
+    );
     let list = |items: &[&str]| Setting::List(items.iter().map(|i| i.to_string()).collect());
     assert_eq!(settings.get("list"), Some(&list(&["a", "b", "c"])));
     assert_eq!(settings.get("items"), Some(&list(&["one", "two", "three"])));
@@ -96,7 +105,11 @@ fn the_nearest_howl_yml_names_the_project_and_one_without_a_project_stops_the_se
         fs::write(root.join("a/.howl/howl.yml"), yml).unwrap();
         assert!(find_project(&s(&below)).is_none(), "{yml}");
     }
-    fs::write(root.join("a/.howl/howl.yml"), "project: x\nactivity_days: 12\n").unwrap();
+    fs::write(
+        root.join("a/.howl/howl.yml"),
+        "project: x\nactivity_days: 12\n",
+    )
+    .unwrap();
     assert_eq!(find_project(&s(&below)).unwrap().project, "x");
     // `..` in the folder is taken as Node's join and dirname take it: lexically, and the root is the folder as given.
     let odd = format!("{}/a/b/..", s(&root));
@@ -114,21 +127,33 @@ fn the_actor_is_howl_actor_else_the_first_line_of_howl_actor() {
     assert_eq!(find_actor(&s(&root), Some(" ")), None);
     fs::write(root.join(".howl/actor"), "\r\n  \n agent-2 \r\nagent-3\n").unwrap();
     assert_eq!(find_actor(&s(&root), None), Some("agent-2".into()));
-    assert_eq!(find_actor(&s(&root), Some("\u{feff}")), Some("agent-2".into()));
+    assert_eq!(
+        find_actor(&s(&root), Some("\u{feff}")),
+        Some("agent-2".into())
+    );
 }
 
 #[test]
 fn a_task_comes_from_the_branch_by_its_first_group_else_the_whole_match() {
     let pattern = setting_pattern("^task-([0-9]+)").unwrap();
-    assert_eq!(task_of_branch(Some("task-12-x"), Some(&pattern)), Some("12".into()));
+    assert_eq!(
+        task_of_branch(Some("task-12-x"), Some(&pattern)),
+        Some("12".into())
+    );
     assert_eq!(task_of_branch(Some("main"), Some(&pattern)), None);
     assert_eq!(task_of_branch(None, Some(&pattern)), None);
     let whole = setting_pattern("[0-9]+").unwrap();
-    assert_eq!(task_of_branch(Some("x-34-y"), Some(&whole)), Some("34".into()));
+    assert_eq!(
+        task_of_branch(Some("x-34-y"), Some(&whole)),
+        Some("34".into())
+    );
     let optional = setting_pattern("^x(-y)?").unwrap();
     assert_eq!(task_of_branch(Some("x"), Some(&optional)), Some("x".into()));
     let unicode = setting_pattern("^(\\p{L}+)-").unwrap();
-    assert_eq!(task_of_branch(Some("åsa-12"), Some(&unicode)), Some("åsa".into()));
+    assert_eq!(
+        task_of_branch(Some("åsa-12"), Some(&unicode)),
+        Some("åsa".into())
+    );
     // Compiled with the u flag: an escape of nothing is refused, as is what is no pattern at all.
     for bad in ["^task\\_([0-9]+)", "^task\\-([0-9]+)", "(", "[b-a]"] {
         assert!(setting_pattern(bad).is_err(), "{bad}");
@@ -151,7 +176,10 @@ fn the_program_of_a_shell_command_is_read_as_hook_ts_reads_it() {
         ("A=1 B=2", None),
         ("\"$H\"/run.sh", Some("run.sh")),
         ("$(which make) check", None),
-        ("AUTH=\"Bearer x\" curl https://example.invalid", Some("curl")),
+        (
+            "AUTH=\"Bearer x\" curl https://example.invalid",
+            Some("curl"),
+        ),
         ("X='single quoted' ./run.sh", Some("run.sh")),
         ("X=\"with \\\"inside\\\" it\" make", Some("make")),
         ("X=$(printf '%s' \"a\") make", Some("make")),
@@ -195,10 +223,22 @@ fn the_program_of_a_shell_command_is_read_as_hook_ts_reads_it() {
 #[test]
 fn the_name_of_a_repository_is_owner_and_name_never_a_path() {
     let cases: &[(Option<&str>, Option<&str>)] = &[
-        (Some("git@example.invalid:team/product.git"), Some("team/product")),
-        (Some("https://example.invalid/team/product.git"), Some("team/product")),
-        (Some("https://example.invalid/team/product/"), Some("team/product")),
-        (Some("https://example.invalid/team/product.git/"), Some("team/product")),
+        (
+            Some("git@example.invalid:team/product.git"),
+            Some("team/product"),
+        ),
+        (
+            Some("https://example.invalid/team/product.git"),
+            Some("team/product"),
+        ),
+        (
+            Some("https://example.invalid/team/product/"),
+            Some("team/product"),
+        ),
+        (
+            Some("https://example.invalid/team/product.git/"),
+            Some("team/product"),
+        ),
         (Some("https://example.invalid/team/.git"), Some("team/.git")),
         (Some("ssh://example.invalid/a/b/c"), Some("b/c")),
         (Some("https://example.invalid/team/product//"), None),
@@ -243,7 +283,9 @@ fn the_input_is_read_as_json_parse_reads_it_and_only_what_is_used_is_kept() {
         panic!("an object is read");
     };
     assert_eq!(top.get("a"), Some(&Json::Text("yå".into(), false)));
-    let Some(Json::Object(b)) = top.get("b") else { panic!("b is an object") };
+    let Some(Json::Object(b)) = top.get("b") else {
+        panic!("b is an object")
+    };
     assert_eq!(b.get("c"), Some(&Json::Text("d".into(), false)));
     assert_eq!(top.get("n"), Some(&Json::Other));
     // Any depth, as V8's JSON.parse reads it.
@@ -257,9 +299,30 @@ fn the_input_is_read_as_json_parse_reads_it_and_only_what_is_used_is_kept() {
     assert_eq!(lone.get("s"), Some(&Json::Text("a\u{fffd}".into(), true)));
     assert_eq!(lone.get("p"), Some(&Json::Text("\u{1f600}".into(), false)));
     for bad in [
-        "", " ", "{", "{\"a\":1,}", "[1,]", "{\"a\" 1}", "01", "1.", ".5", "1e", "-", "\"\t\"",
-        "\"\\x\"", "\"\\u12g4\"", "tru", "nul", "{} {}", "\u{feff}{}", "{'a':1}", "[1 2]",
-        "{\"a\":1 \"b\":2}", "\"a", "{\"a\":}", "[",
+        "",
+        " ",
+        "{",
+        "{\"a\":1,}",
+        "[1,]",
+        "{\"a\" 1}",
+        "01",
+        "1.",
+        ".5",
+        "1e",
+        "-",
+        "\"\t\"",
+        "\"\\x\"",
+        "\"\\u12g4\"",
+        "tru",
+        "nul",
+        "{} {}",
+        "\u{feff}{}",
+        "{'a':1}",
+        "[1 2]",
+        "{\"a\":1 \"b\":2}",
+        "\"a",
+        "{\"a\":}",
+        "[",
     ] {
         assert!(read_input(bad).is_none(), "{bad:?}");
     }
@@ -307,10 +370,16 @@ fn an_event_is_left_in_its_fixed_form_with_mode_0600_and_no_temporary_file() {
     assert_eq!(path, s(&inbox.join(&names[0])));
     assert!(names[0].ends_with(".json") && names[0].len() == 15 + 1 + 36 + 5);
     let bytes = fs::read(&path).unwrap();
-    assert_eq!(bytes, "{\"a\":\"å\",\"m\":{\"a\":[1.5],\"b\":null},\"z\":1}".as_bytes());
+    assert_eq!(
+        bytes,
+        "{\"a\":\"å\",\"m\":{\"a\":[1.5],\"b\":null},\"z\":1}".as_bytes()
+    );
     let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode & 0o077, 0, "{mode:o}");
-    assert_eq!(fs::metadata(&inbox).unwrap().permissions().mode() & 0o077, 0);
+    assert_eq!(
+        fs::metadata(&inbox).unwrap().permissions().mode() & 0o077,
+        0
+    );
 }
 
 #[test]
@@ -322,8 +391,14 @@ fn a_child_that_does_not_end_is_ended_after_its_time() {
     assert!(started.elapsed() < Duration::from_secs(2));
     let echo = run_limited("echo", &[" a b \n"], &s(&dir), Duration::from_secs(1));
     assert_eq!(echo.as_deref(), Some("a b"));
-    assert_eq!(run_limited("false", &[], &s(&dir), Duration::from_secs(1)), None);
-    assert_eq!(run_limited("echo", &["x"], "/no/such/folder", Duration::from_secs(1)), None);
+    assert_eq!(
+        run_limited("false", &[], &s(&dir), Duration::from_secs(1)),
+        None
+    );
+    assert_eq!(
+        run_limited("echo", &["x"], "/no/such/folder", Duration::from_secs(1)),
+        None
+    );
 }
 
 /// `howl hook` from the binary with no environment but PATH and `env`.
@@ -366,6 +441,9 @@ fn the_hook_is_silent_with_status_0_a_panic_included() {
     }
     assert!(!home.join("example").exists());
     let out = hook(&env, &root, &input);
-    assert_eq!((out.status.code(), out.stdout.len(), out.stderr.len()), (Some(0), 0, 0));
+    assert_eq!(
+        (out.status.code(), out.stdout.len(), out.stderr.len()),
+        (Some(0), 0, 0)
+    );
     assert_eq!(fs::read_dir(home.join("example/inbox")).unwrap().count(), 1);
 }
