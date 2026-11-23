@@ -11,10 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkLedger, REF, signatureHolds, type Checkpoint } from "../anchor/anchor.ts";
 import { LedgerError } from "../ledger/errors.ts";
+import { parseWhen, WHEN_FORMS } from "../ledger/time.ts";
 import { hashLine } from "../ledger/ledger.ts";
 import { LEDGER_FILE } from "../ledger/names.ts";
 import { verify } from "../ledger/verify.ts";
 import { matches } from "../read/acting.ts";
+import { byUnits } from "../read/order.ts";
 import { readWhole } from "../read/reader.ts";
 import { show, type Asked } from "../read/show.ts";
 import { readTar } from "./tar.ts";
@@ -74,9 +76,11 @@ export function buildBundle(ledger: string, selection: Selection, opts: { versio
       .map(([event, { agent, via, rule, sessions }]) => ({ event, agent, sessions, ...(via === undefined ? {} : { via }), rule }));
     files.set("timeline.json", Buffer.from(`${JSON.stringify(shown, null, 2)}\n`));
   } else {
-    const from = Date.parse(selection.since);
-    const to = Date.parse(selection.until);
-    if (Number.isNaN(from) || Number.isNaN(to) || to < from) throw new LedgerError("give --since and --until as times, the first before the second");
+    const from = parseWhen(selection.since, { date: "utc" });
+    const to = parseWhen(selection.until, { date: "utc" });
+    if (Number.isNaN(from)) throw new LedgerError(`--since ${selection.since}: ${WHEN_FORMS}`);
+    if (Number.isNaN(to)) throw new LedgerError(`--until ${selection.until}: ${WHEN_FORMS}`);
+    if (to < from) throw new LedgerError("give --since and --until as times, the first before the second");
     asked = `${selection.since}..${selection.until}`;
     selected = events.filter((e) => e.event.type !== "ledger.created" && Date.parse(e.event.time) >= from && Date.parse(e.event.time) <= to).map((e) => e.n);
   }
@@ -106,7 +110,7 @@ export function buildBundle(ledger: string, selection: Selection, opts: { versio
     ...(trial ? { trial: true } : {}),
     lines: lines.length,
     head,
-    files: Object.fromEntries([...files.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, b]) => [name, sha(b)])),
+    files: Object.fromEntries([...files.entries()].sort((a, b) => byUnits(a[0], b[0])).map(([name, b]) => [name, sha(b)])),
   };
   files.set("manifest.json", Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`));
   return files;

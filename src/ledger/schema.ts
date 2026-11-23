@@ -5,6 +5,7 @@ import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import eventSchema from "../../schema/event.v0.schema.json" with { type: "json" };
 import lineSchema from "../../schema/line.v0.schema.json" with { type: "json" };
 import type { LedgerEvent } from "./event.gen.ts";
+import { isRealTime } from "./time.ts";
 import type { LedgerLine as GeneratedLine } from "./line.gen.ts";
 
 export type { LedgerEvent };
@@ -23,7 +24,11 @@ const validateLine = ajv.compile<GeneratedLine>(lineSchema);
 
 /** What is wrong with a value as an event, one entry per fault. Empty when it is valid. */
 export function eventFaults(value: unknown): string[] {
-  return faults(validateEvent, value, "an event");
+  const found = faults(validateEvent, value, "an event");
+  // The pattern of `time` lets in a day that is not on the calendar and an hour that is not on the clock.
+  const time = typeof value === "object" && value !== null ? (value as { time?: unknown }).time : undefined;
+  if (typeof time === "string" && !isRealTime(time)) found.push("time: not a real time");
+  return found;
 }
 
 /** What is wrong with a value as a line of the ledger, leaving its event aside. Empty when it is valid. */

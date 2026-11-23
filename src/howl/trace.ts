@@ -186,7 +186,7 @@ function readSettings(text: string): TraceSettings | null {
   };
   const expression = (key: string, source: string, flags: string): RegExp => {
     try {
-      return new RegExp(source, flags);
+      return new RegExp(source, `${flags}u`);
     } catch {
       throw new LedgerError(`${key} is not a regular expression: ${source}`);
     }
@@ -267,7 +267,7 @@ interface Row {
  * of code is an example and is passed over.
  */
 export function rowsOf(text: string, settings: TraceSettings): Row[] {
-  const whole = new RegExp(`^(?:${settings.pattern.source})$`, "i");
+  const whole = new RegExp(`^(?:${settings.pattern.source})$`, "iu");
   const rows: Row[] = [];
   const lines = text.split(/\r?\n/);
   // The mark that opened the block of code being passed over: its end is the same sign, at least as long.
@@ -324,7 +324,7 @@ export function rowsOf(text: string, settings: TraceSettings): Row[] {
  */
 function idsIn(text: string, pattern: RegExp): string[] {
   // As a word of its own: `SHA-256` holds no ID `HA-256`.
-  const all = new RegExp(`(?<![A-Za-z0-9])(?:${pattern.source})(?![A-Za-z0-9])`, "gi");
+  const all = new RegExp(`(?<![A-Za-z0-9])(?:${pattern.source})(?![A-Za-z0-9])`, "giu");
   return [...new Set([...(text.match(all) ?? []), ...(fixedId(text).match(all) ?? [])].map(fixedId))];
 }
 
@@ -334,7 +334,7 @@ function idsIn(text: string, pattern: RegExp): string[] {
  * word in it that looks like an ID is none.
  */
 function leadingIds(text: string, pattern: RegExp): string[] {
-  const whole = new RegExp(`^(?:${pattern.source})$`, "i");
+  const whole = new RegExp(`^(?:${pattern.source})$`, "iu");
   const ids: string[] = [];
   // A list may be written with brackets or marks around it or its IDs: `[R-1, R-2]`, `(R-1)`, a backtick. They are no words.
   for (const written of text.trim().split(/[\s,]+/).filter((w) => w !== "")) {
@@ -356,7 +356,7 @@ function leadingIds(text: string, pattern: RegExp): string[] {
  */
 function said(settings: TraceSettings): RegExp {
   const words = [...settings.coversWords, ...settings.touchesWords].join("|");
-  return new RegExp(`^\\s*(?:\\/\\/+!?|#+!?|\\/\\*+!?|\\*+|--+|;+|%+|<!--)\\s*(${words}):\\s*(.*)$`, "i");
+  return new RegExp(`^\\s*(?:\\/\\/+!?|#+!?|\\/\\*+!?|\\*+|--+|;+|%+|<!--)\\s*(${words}):\\s*(.*)$`, "iu");
 }
 
 /**
@@ -381,7 +381,7 @@ export function testsOf(text: string, file: string, settings: TraceSettings): Te
   };
   // By where the name stands: two tests on one line are two, and one found by two patterns is one.
   const byPlace = new Map<number, Test>();
-  const starts = new RegExp(`^(?:${settings.pattern.source})(?![A-Za-z0-9])`, "i");
+  const starts = new RegExp(`^(?:${settings.pattern.source})(?![A-Za-z0-9])`, "iu");
   for (const pattern of settings.testPatterns) {
     for (const match of text.matchAll(pattern)) {
       const name = match[1] ?? match[0];

@@ -1,6 +1,11 @@
 // The one order of events: by time. No Node, so the page and the pure readers can use it.
 // @code_class reading
 
+/** The order of two texts by their UTF-16 code units, as `<` has it: never by the locale, which orders `a` before `B`. */
+export function byUnits(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** Sorts by the time of the event; events of the same time keep the order they came in. */
 export function byTime<T extends { event: { time: string } }>(items: T[]): T[] {
   return items

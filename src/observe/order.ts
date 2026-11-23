@@ -9,6 +9,7 @@
 // commit that had not finished, is written after what is already there: the
 // ledger is append-only.
 // @code_class recording
+import { byUnits } from "../read/order.ts";
 
 /**
  * What can happen in one moment, in the order it happens in; the types of one
@@ -50,7 +51,7 @@ function place(type: string): number {
 function instants(a: string, b: string): number {
   const x = Date.parse(a);
   const y = Date.parse(b);
-  return Number.isNaN(x) || Number.isNaN(y) ? a.localeCompare(b) : x - y;
+  return Number.isNaN(x) || Number.isNaN(y) ? byUnits(a, b) : x - y;
 }
 
 /** Ids as text, with a number in them read as a number: `review:9` before `review:10`. */
@@ -64,7 +65,7 @@ function byId(a: string, b: string): number {
     if (p === q) continue;
     const numbers = /^\d+$/.test(p) && /^\d+$/.test(q);
     // Numbers of the same value and another writing (`07`, `7`) fall to the text, so no two ids are equal.
-    const d = numbers ? Number(p) - Number(q) || p.localeCompare(q) : p < q ? -1 : 1;
+    const d = numbers ? Number(p) - Number(q) || byUnits(p, q) : p < q ? -1 : 1;
     if (d !== 0) return d;
   }
   return x.length - y.length;

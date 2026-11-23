@@ -1,6 +1,7 @@
 // `howl watch`: one line per event, then the events as they come.
 // @code_class reading
 import { LedgerError } from "../ledger/errors.ts";
+import { parseWhen, WHEN_FORMS } from "../ledger/time.ts";
 import { presentTime } from "./now.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { readFilters, wantsActivity } from "./filter.ts";
@@ -62,9 +63,9 @@ export function zoneLine(now = presentTime()): string {
   return `times in ${zone} (${offset === "GMT" ? "UTC" : offset.replace("GMT", "UTC")}); --utc for UTC`;
 }
 
-/** A --since time: with an offset as given, without one in local time; a date alone is local midnight. */
+/** A --since time, in the named forms only (`parseWhen`): without a Z in local time; a date alone is local midnight. NaN for anything else. */
 export function parseSince(text: string): number {
-  return Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00` : text);
+  return parseWhen(text, { date: "local" });
 }
 
 /** One line: the time, claimed or observed, the actor, the type, what it concerns, and the short of its data. */
@@ -94,7 +95,7 @@ export function formatLine(event: LedgerEvent, colour: boolean, utc = false): st
 export async function watch(ledger: string, options: WatchOptions, write: (line: string) => void, warn: (line: string) => void = () => {}): Promise<void> {
   const filters = readFilters(options.filters);
   const since = options.since === undefined ? null : parseSince(options.since);
-  if (since !== null && Number.isNaN(since)) throw new LedgerError(`--since ${options.since}: not a time`);
+  if (since !== null && Number.isNaN(since)) throw new LedgerError(`--since ${options.since}: ${WHEN_FORMS}`);
   const shown = (r: Read) =>
     r.event.type !== "ledger.created" &&
     (since === null || Date.parse(r.event.time) >= since) &&

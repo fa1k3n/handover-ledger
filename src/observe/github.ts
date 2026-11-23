@@ -6,6 +6,7 @@
 // the limit. The ETags are kept in memory, for as long as `howl observe` runs.
 // Details are asked only for what has changed.
 // @code_class recording
+import { byUnits } from "../read/order.ts";
 import { isReviewComment, type Account, type Change, type CheckRun, type ChecksState, type CodeHost, type Comment, type Push, type Ref, type Review, type Task } from "./port.ts";
 
 const API = "https://api.github.com";
@@ -272,7 +273,7 @@ export class GitHub implements CodeHost {
         going.delete(s.context);
       }
     }
-    return { runs: runs.sort(order), latest: [...last.values()].sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")) };
+    return { runs: runs.sort(order), latest: [...last.values()].sort((a, b) => byUnits(a.name ?? "", b.name ?? "")) };
   }
 
   private url(path: string, params: Record<string, string> = {}): string {
@@ -348,7 +349,7 @@ function isCommit(sha: unknown): sha is string {
 
 /** Two ids of the host, as numbers where they are. */
 function byNumber(a: string, b: string): number {
-  return /^\d+$/.test(a) && /^\d+$/.test(b) ? Number(a) - Number(b) : a.localeCompare(b);
+  return /^\d+$/.test(a) && /^\d+$/.test(b) ? Number(a) - Number(b) : byUnits(a, b);
 }
 
 /** The id GitHub gives `ghost`, the account it shows in place of one that was deleted. */

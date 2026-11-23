@@ -10,6 +10,7 @@ import { closeSync, openSync, readSync } from "node:fs";
 import { LedgerError } from "./errors.ts";
 import { eventHash } from "./fixed.ts";
 import { hashLine } from "./ledger.ts";
+import { NotJson, parseJson } from "./json.ts";
 import { eventFaults, lineFaults, type LedgerLine } from "./schema.ts";
 
 export type Verdict =
@@ -32,9 +33,9 @@ export function verify(path: string): Verdict {
     if (bytes.length === 0) return ["the line is empty"];
     let value: unknown;
     try {
-      value = JSON.parse(decoder.decode(bytes));
-    } catch {
-      return ["the line is not JSON"];
+      value = parseJson(decoder.decode(bytes));
+    } catch (e) {
+      return [`the line is ${e instanceof NotJson ? e.message : "not JSON"}`];
     }
 
     // 2. The line schema. Without it the other checks have nothing to stand on.
