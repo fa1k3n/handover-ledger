@@ -87,9 +87,23 @@ test("#138: a requirement_pattern and a test_pattern that do not compile with u 
   }
 });
 
-test("#138: the patterns of a team are Unicode patterns: a letter class reads a letter that is not ASCII", () => {
-  const root = repo("project: example\nrequirements_in: [reqs.md]\ntests_in: [checks.js]\nrequirement_pattern: '[\\p{L}]+_[0-9]+'\ntest_pattern: ['\\btest\\(\\s*\"([^\"]+)\"']\n");
-  assert.ok(findTrace(root));
+test("#138: the patterns of a team are Unicode patterns: howl trace reads an ID with a letter that is not ASCII", () => {
+  const root = folder();
+  git(root, "init", "-q");
+  mkdirSync(join(root, ".howl"));
+  writeFileSync(
+    join(root, ".howl", "howl.yml"),
+    "project: example\nrequirements_in: [reqs.md]\ntests_in: [checks.js]\nrequirement_pattern: '\\p{Lu}-[0-9]+'\ntest_pattern: ['\\btest\\(\\s*\"([^\"]+)\"']\n",
+  );
+  writeFileSync(join(root, "reqs.md"), "| ID |\n|---|\n| Ä-1 |\n");
+  writeFileSync(join(root, "checks.js"), 'test("Ä-1 one", () => {});\n');
+  git(root, "add", "-A");
+  const settings = findTrace(root)!;
+  assert.ok(settings.pattern.flags.includes("u"), settings.pattern.flags);
+  assert.ok(settings.testPatterns.every((p) => p.flags.includes("u")));
+  const run = howl(["trace", "--json"], { cwd: root });
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /"Ä-1"/);
   assert.equal(headerClass("// @code_class høg", /@code_class\s+(\p{L}+)/u), "høg");
 });
 

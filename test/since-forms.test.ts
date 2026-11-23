@@ -52,22 +52,48 @@ test("#138: the named forms are read, and anything else is not", () => {
   for (const text of UNNAMED) assert.ok(Number.isNaN(parseWhen(text, { date: "utc" })), JSON.stringify(text));
 });
 
+/** What `parseWhen` reads in the zone of Stockholm, whatever the zone of the machine. */
+function stockholm(text: string, date: "local" | "utc"): number {
+  const old = process.env.TZ;
+  process.env.TZ = "Europe/Stockholm";
+  try {
+    return parseWhen(text, { date });
+  } finally {
+    if (old === undefined) delete process.env.TZ;
+    else process.env.TZ = old;
+  }
+}
+
 test("#138: a time with a Z is UTC, one without is local, a date alone is as the command says", () => {
-  const stockholm = (text: string, date: "local" | "utc") => {
-    const old = process.env.TZ;
-    process.env.TZ = "Europe/Stockholm";
-    try {
-      return parseWhen(text, { date });
-    } finally {
-      if (old === undefined) delete process.env.TZ;
-      else process.env.TZ = old;
-    }
-  };
   assert.equal(stockholm("2026-01-01T09:55", "utc"), Date.UTC(2026, 0, 1, 8, 55));
   assert.equal(stockholm("2026-01-01 09:55:30", "utc"), Date.UTC(2026, 0, 1, 8, 55, 30));
   assert.equal(stockholm("2026-01-01T08:55Z", "utc"), Date.UTC(2026, 0, 1, 8, 55));
   assert.equal(stockholm("2026-01-01", "utc"), Date.UTC(2026, 0, 1));
   assert.equal(stockholm("2026-01-01", "local"), Date.UTC(2025, 11, 31, 23));
+});
+
+test("#138: a local time that does not exist, in the hour the clocks go forward, is refused", () => {
+  // 2026-03-29: 02:00 became 03:00 in Stockholm.
+  for (const text of ["2026-03-29 02:30", "2026-03-29T02:00", "2026-03-29T02:59:59", "2026-03-29 02:30:00.5"]) assert.ok(Number.isNaN(stockholm(text, "utc")), text);
+  assert.equal(stockholm("2026-03-29 01:59", "utc"), Date.UTC(2026, 2, 29, 0, 59));
+  assert.equal(stockholm("2026-03-29 03:00", "utc"), Date.UTC(2026, 2, 29, 1, 0));
+  // The same hour in UTC, and a date alone, exist.
+  assert.equal(stockholm("2026-03-29T02:30Z", "utc"), Date.UTC(2026, 2, 29, 2, 30));
+  assert.equal(stockholm("2026-03-29", "local"), Date.UTC(2026, 2, 28, 23));
+});
+
+test("#138: a local time that occurs twice, when the clocks go back, takes the earlier one", () => {
+  // 2026-10-25: 03:00 became 02:00 in Stockholm; 02:30 was at 00:30Z and again at 01:30Z.
+  assert.equal(stockholm("2026-10-25 02:30", "utc"), Date.UTC(2026, 9, 25, 0, 30));
+  assert.equal(stockholm("2026-10-25T02:00:00", "utc"), Date.UTC(2026, 9, 25, 0, 0));
+  assert.equal(stockholm("2026-10-25 03:00", "utc"), Date.UTC(2026, 9, 25, 2, 0));
+});
+
+test("#138: howl watch refuses a local time in the hour that does not exist, with status 2", () => {
+  const result = watch(writeStory(), "2026-03-29 02:30");
+  assert.equal(result.status, 2, result.stdout + result.stderr);
+  assert.match(result.stderr, /^howl: --since 2026-03-29 02:30/);
+  assert.equal(result.stdout, "");
 });
 
 test("#138: now is read only where the command takes it", () => {
