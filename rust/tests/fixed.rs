@@ -7,7 +7,8 @@ use serde_json::Value;
 
 /// A file of `test/fixtures/`, the vectors both versions of howl read.
 fn fixture(name: &str) -> String {
-    let path = format!("{}/../test/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+    let root = env!("CARGO_MANIFEST_DIR");
+    let path = format!("{root}/../test/fixtures/{name}");
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
@@ -27,7 +28,8 @@ fn refused(json: &str) -> String {
 
 #[test]
 fn numbers_strings_and_literals_the_example_of_rfc_8785() {
-    assert_eq!(text(&fixture("rfc8785-values.json")), fixture("rfc8785-values.fixed"));
+    let written = text(&fixture("rfc8785-values.json"));
+    assert_eq!(written, fixture("rfc8785-values.fixed"));
 }
 
 #[test]
@@ -36,7 +38,8 @@ fn keys_are_sorted_by_utf16_code_units_the_sorting_example_of_rfc_8785() {
     // The values in the order the keys were written. An emoji (D83D DE00) comes
     // before FB33, which it would not if keys were sorted by code point or by byte.
     let value: Value = serde_json::from_str(&written).unwrap();
-    let order: Vec<&str> = value.as_object().unwrap().values().map(|v| v.as_str().unwrap()).collect();
+    let members = value.as_object().unwrap();
+    let order: Vec<&str> = members.values().map(|v| v.as_str().unwrap()).collect();
     assert_eq!(
         order,
         [
@@ -53,7 +56,8 @@ fn keys_are_sorted_by_utf16_code_units_the_sorting_example_of_rfc_8785() {
 
 #[test]
 fn numbers_above_2_53_and_at_the_edges_of_the_notation_the_fixture_both_versions_read() {
-    assert_eq!(text(&fixture("fixed-numbers.json")), fixture("fixed-numbers.fixed"));
+    let written = text(&fixture("fixed-numbers.json"));
+    assert_eq!(written, fixture("fixed-numbers.fixed"));
 }
 
 #[test]
@@ -75,15 +79,14 @@ fn minus_zero_is_written_as_0() {
 
 #[test]
 fn keys_that_look_like_numbers_are_sorted_as_text() {
-    assert_eq!(text(r#"{"2":0,"10":0,"a":0,"1":0}"#), r#"{"1":0,"10":0,"2":0,"a":0}"#);
+    let written = text(r#"{"2":0,"10":0,"a":0,"1":0}"#);
+    assert_eq!(written, r#"{"1":0,"10":0,"2":0,"a":0}"#);
 }
 
 #[test]
 fn keys_are_sorted_at_every_depth_with_no_white_space() {
-    assert_eq!(
-        text(r#"{ "b": [ { "d": 1, "c": 2 } ], "a": { "f": null, "e": "x" } }"#),
-        r#"{"a":{"e":"x","f":null},"b":[{"c":2,"d":1}]}"#
-    );
+    let written = text(r#"{ "b": [ { "d": 1, "c": 2 } ], "a": { "f": null, "e": "x" } }"#);
+    assert_eq!(written, r#"{"a":{"e":"x","f":null},"b":[{"c":2,"d":1}]}"#);
 }
 
 #[test]
@@ -129,7 +132,8 @@ fn a_string_with_a_lone_surrogate_is_refused() {
         r#"["\uD800A"]"#,
         r#"["\ud800\ud800"]"#,
     ] {
-        assert!(refused(json).contains(WORDS), "{json}: {}", refused(json));
+        let said = refused(json);
+        assert!(said.contains(WORDS), "{json}: {said}");
     }
     // A pair is one character.
     assert_eq!(text(r#"["😀"]"#), "[\"😀\"]");
@@ -139,12 +143,13 @@ fn a_string_with_a_lone_surrogate_is_refused() {
 
 #[test]
 fn json_nested_128_deep_is_read_and_129_deep_refused() {
-    let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    const TOO_DEEP: &str = "not JSON: nested more than 128 deep";
+    let nested = |n: usize| "[".repeat(n) + &"]".repeat(n);
     assert!(parse_json(&nested(128)).is_ok());
-    assert_eq!(refused(&nested(129)), "not JSON: nested more than 128 deep");
-    let objects = |depth: usize| format!("{}1{}", r#"{"a":"#.repeat(depth), "}".repeat(depth));
+    assert_eq!(refused(&nested(129)), TOO_DEEP);
+    let objects = |n: usize| r#"{"a":"#.repeat(n) + "1" + &"}".repeat(n);
     assert!(parse_json(&objects(128)).is_ok());
-    assert_eq!(refused(&objects(129)), "not JSON: nested more than 128 deep");
+    assert_eq!(refused(&objects(129)), TOO_DEEP);
     // Brackets inside a string do not count, an escaped quote does not end it.
     let in_string = format!(r#"["\"{}"]"#, "[".repeat(200));
     assert!(parse_json(&in_string).is_ok());
@@ -171,10 +176,12 @@ fn the_hash_of_an_event_and_of_a_line_agree_with_a_ledger_the_typescript_wrote()
     let mut count = 0;
     for line in ledger.lines() {
         let read = parse_json(line).unwrap();
-        assert_eq!(read["prev"].as_str().map(str::to_string), prev, "the prev of line {}", count + 1);
-        assert_eq!(read["hash"].as_str().unwrap(), event_hash(&read["event"]), "the hash of line {}", count + 1);
-        prev = Some(hash_line(line.as_bytes()));
         count += 1;
+        let held = read["prev"].as_str().map(str::to_string);
+        assert_eq!(held, prev, "the prev of line {count}");
+        let hash = event_hash(&read["event"]);
+        assert_eq!(read["hash"].as_str().unwrap(), hash, "the hash of line {count}");
+        prev = Some(hash_line(line.as_bytes()));
     }
     assert!(count > 1);
 }
@@ -184,5 +191,6 @@ fn the_hash_of_an_event_is_the_sha256_of_its_fixed_form_in_lowercase_hex() {
     let value = parse_json(r#"{"b":1,"a":"x"}"#).unwrap();
     // sha256 of {"a":"x","b":1}
     assert_eq!(event_hash(&value), hash_line(br#"{"a":"x","b":1}"#));
-    assert_eq!(hash_line(b""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    const EMPTY: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    assert_eq!(hash_line(b""), EMPTY);
 }
