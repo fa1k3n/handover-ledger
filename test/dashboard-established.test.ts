@@ -35,8 +35,8 @@ test("#189: the mark of a status: a wait for a person, failed checks, merged, an
   assert.equal(statusMark(item("review.requested")), "");
 });
 
-test("#189: the built-in filters are four, in order, with the expressions of the issue", () => {
-  assert.deepEqual(builtInFilters().map((f) => f.expression), ["", 'event.type == "agent.waiting"', 'event.source.kind == "claimed"', 'event.type == "checks.failed"']);
+test("#189: the built-in filters are four, in order, with the expressions of the issue (Waits narrowed after the review)", () => {
+  assert.deepEqual(builtInFilters().map((f) => f.expression), ["", 'event.type == "agent.waiting" && !(has(event.data) && has(event.data.waits_for) && event.data.waits_for == "instructions")', 'event.source.kind == "claimed"', 'event.type == "checks.failed"']);
   assert.equal(builtInFilters().length, 4);
 });
 
@@ -72,5 +72,5 @@ test("#189: a saved filter may not take the name of a built-in one", () => {
 });
 
 test("#189: Waits for a person leaves out a wait for instructions", () => {
-  assert.match(builtInFilters()[1].expression, /waits_for/);
+  assert.match(builtInFilters()[1]?.expression ?? "", /waits_for/);
 });

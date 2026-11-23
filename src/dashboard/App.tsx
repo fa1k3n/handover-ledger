@@ -7,7 +7,7 @@ import { concerns, detail, duration } from "../read/words.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, statusMark, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
+import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, statusMark, markText, nameTaken, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -475,6 +475,9 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
   });
   const [storageRefused, setStorageRefused] = useState(false);
   const [saveName, setSaveName] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // The expression last applied: the pressed button follows it, not the box.
+  const [applied, setApplied] = useState<string>(STREAM_START.filter);
   const keep = (next: SavedFilter[]) => {
     setSaved(next);
     try {
@@ -484,9 +487,10 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
       setStorageRefused(true);
     }
   };
-  const useFilter = (expression: string) => {
+  const applyFilter = (expression: string) => {
     setDraft(expression);
     setFilters(filterTexts(expression));
+    setApplied(expression);
   };
 
   // #93: the question the page holds now. An answer to an older one is dropped.
@@ -549,13 +553,13 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
         <div role="group" aria-label={texts.stream.filtersLabel} className="flex flex-wrap items-center gap-2">
           {[...builtInFilters(), ...saved].map((f, i) => {
             const isSaved = i >= builtInFilters().length;
-            const on = draft === f.expression;
+            const on = applied === f.expression;
             return (
               <span key={`${i}:${f.name}`} className="flex items-center">
                 <button
                   type="button"
                   aria-pressed={on}
-                  onClick={() => useFilter(f.expression)}
+                  onClick={() => applyFilter(f.expression)}
                   className={`${button} border ${isSaved ? "rounded-r-none" : ""} ${on ? "border-ink bg-ink text-white" : "border-pale bg-white text-ink"}`}
                 >
                   {f.name}
@@ -580,6 +584,7 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
           onSubmit={(e) => {
             e.preventDefault();
             setFilters(filterTexts(draft));
+            setApplied(draft);
           }}
         >
           <label className="flex flex-[1_1_420px] flex-col gap-1 text-[13px] text-mute">
@@ -604,6 +609,7 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
               // The line only: the box stays as the reader set it.
               setDraft("");
               setFilters([]);
+              setApplied("");
             }}
             className={`${button} border border-pale bg-white text-ink`}
           >
@@ -621,13 +627,28 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
             type="button"
             disabled={saveName.trim() === "" || draft.trim() === ""}
             onClick={() => {
-              keep([...saved.filter((f) => f.name !== saveName.trim()), { name: saveName.trim(), expression: draft.trim() }]);
-              setSaveName("");
+              const name = saveName.trim();
+              const expression = draft.trim();
+              if (nameTaken(name, saved)) return setSaveError(texts.stream.nameTaken);
+              // The server's filter tries the expression first; its reason is shown.
+              api.events(filterTexts(expression), false, 1).then(
+                () => {
+                  keep([...saved.filter((f) => f.name !== name), { name, expression }]);
+                  setSaveName("");
+                  setSaveError(null);
+                },
+                (e: Error) => setSaveError(e.message),
+              );
             }}
             className={`${button} border border-pale bg-white text-ink disabled:cursor-default disabled:opacity-50`}
           >
             {texts.stream.save}
           </button>
+          {saveError !== null && (
+            <span className="basis-full text-[13px] text-error-ink" role="alert">
+              {saveError}
+            </span>
+          )}
           {storageRefused && (
             <span className="basis-full text-[13px] text-warn-ink" role="status">
               {texts.stream.storageRefused}
@@ -679,8 +700,9 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
                       }}
                       className={`cursor-pointer border-t border-line hover:bg-picked ${bg}`}
                     >
-                      <td className="px-3 py-2 text-center font-sans font-semibold" title={mark === "◷" ? texts.stream.marks.waits : mark === "!" ? texts.stream.marks.failed : mark === "✓" ? texts.stream.marks.merged : undefined}>
-                        {mark}
+                      <td className="px-3 py-2 text-center font-sans font-semibold" title={markText(mark) || undefined}>
+                        <span aria-hidden="true">{mark}</span>
+                        <span className="sr-only">{markText(mark)}</span>
                       </td>
                       {cols.project && (
                         <td className="px-3 py-2 whitespace-nowrap">
@@ -732,7 +754,7 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
                           title={texts.stream.origin[origin.code]}
                           className={`mr-2 inline-block rounded border-[1.5px] border-ink px-1.5 py-0.5 font-sans text-[11px] font-semibold tracking-wider ${origin.code === "SOURCE" ? "bg-ink text-white" : "bg-white text-ink"} ${origin.code === "UNKNOWN" ? "border-dashed" : ""}`}
                         >
-                          {origin.mark} {origin.code}
+                          <span aria-hidden="true">{origin.mark}</span> {origin.code}
                         </span>
                         <span className="text-mute">{item.event.source.adapter}</span>
                       </td>
@@ -743,14 +765,12 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
               </tbody>
             </table>
           </div>
-          <div className="border-t border-line px-4 py-2.5 text-[13px] text-mute">
-            {items.length === 0 ? texts.stream.empty : texts.stream.count(items.length)}
-          </div>
-          <div role="status" className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line bg-[#f7f8fa] px-4 py-2.5 font-sans text-[13px] text-mute">
+          {items.length === 0 && <div className="border-t border-line px-4 py-2.5 text-[13px] text-mute">{texts.stream.empty}</div>}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line bg-[#f7f8fa] px-4 py-2.5 font-sans text-[13px] text-mute">
             <span className={ledger !== null && !ledger.ok ? "font-medium text-error-ink" : ""}>
               {ledger === null ? texts.stream.bar.unknown : ledger.ok ? texts.stream.bar.verified(ledger.lines) : texts.stream.bar.broken(ledger.line)}
             </span>
-            <span>{texts.stream.bar.displayed(items.length, ledger?.lines ?? null)}</span>
+            <span>{texts.stream.bar.displayed(items.length)}</span>
             <span>{tools ? texts.stream.bar.withTools : texts.stream.bar.evidenceOnly}</span>
             <span>{texts.stream.bar.people}</span>
           </div>

@@ -500,3 +500,16 @@ export function writeSavedFilters(filters: SavedFilter[]): string {
 
 /** #189: the key of the saved filters in the browser's storage. */
 export const SAVED_FILTERS_KEY = "howl.savedFilters";
+
+/** #189: the text a screen reader reads for a status mark; none for none. */
+export function markText(mark: string): string {
+  if (mark === "◷") return texts.stream.marks.waits;
+  if (mark === "!") return texts.stream.marks.failed;
+  if (mark === "✓") return texts.stream.marks.merged;
+  return "";
+}
+
+/** #189: whether a name is a built-in filter's. A saved name that is there is replaced, so it is not taken. */
+export function nameTaken(name: string, _saved: SavedFilter[]): boolean {
+  return builtInFilters().some((f) => f.name === name.trim());
+}
