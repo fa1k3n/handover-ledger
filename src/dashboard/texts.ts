@@ -231,6 +231,7 @@ export const texts = {
     /** #39: `unknown` is time when no session says what the agent does and the change waits for nothing. */
     summary: (all: string, work: string, checks: string, review: string, waits: string, unknown: string, rounds: number) =>
       `${all} in all: work ${work}, waiting for checks ${checks}, for review ${review}, for a person or instructions ${waits}; not known ${unknown} (no sign of what the agent does); ${rounds} review round${rounds === 1 ? "" : "s"}`,
+    summaryLabel: "Summary of the change",
     sessions: "Sessions",
     noSessions: "No session of an agent in the ledger.",
     wait: (kind: "person" | "instructions", length: string) => (kind === "person" ? `waited for a person ${length}` : `waited for instructions ${length}`),
