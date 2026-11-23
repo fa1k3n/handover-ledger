@@ -7,7 +7,7 @@ import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSyn
 import { join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { folder, sha256 } from "./helpers.ts";
+import { folder, howl, sha256 } from "./helpers.ts";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/bench.sh", import.meta.url));
 
@@ -104,9 +104,8 @@ test("the ledgers of seed 1 are the bytes they were: a change in openLedger or t
 test("a ledger made for the cases verifies", () => {
   const dir = folder();
   assert.equal(bench(["--make", dir, "--sizes", "100,300"]).status, 0);
-  const cli = fileURLToPath(new URL("../src/cli/howl.ts", import.meta.url));
   for (const size of ["100", "300"]) {
-    const run = spawnSync(process.execPath, [cli, "verify", "--ledger", join(dir, `home-${size}`, "bench", "ledger.jsonl")], { encoding: "utf8" });
+    const run = howl(["verify", "--ledger", join(dir, `home-${size}`, "bench", "ledger.jsonl")]);
     assert.equal(run.status, 0, run.stdout + run.stderr);
   }
 });
