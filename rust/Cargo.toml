@@ -11,6 +11,10 @@ name = "howl"
 path = "src/main.rs"
 
 [dependencies]
+serde = "=1.0.229"
+serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip", "unbounded_depth"] }
+ryu-js = "=1.0.4"
+sha2 = "=0.11.1"
 
 [profile.release]
 lto = true

@@ -53,6 +53,10 @@ test("numbers, strings and literals: the example of RFC 8785, 3.2.3", () => {
   assert.equal(text(JSON.parse(fixture("rfc8785-values.json"))), fixture("rfc8785-values.fixed"));
 });
 
+test("numbers above 2^53 and at the edges of the notation: the fixture both versions read (#139)", () => {
+  assert.equal(text(JSON.parse(fixture("fixed-numbers.json"))), fixture("fixed-numbers.fixed"));
+});
+
 test("minus zero is written as 0", () => {
   assert.equal(text({ n: -0 }), '{"n":0}');
 });
