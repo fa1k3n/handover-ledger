@@ -18,7 +18,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **Observation mode first:** `howl` is tried beside a team whose agents already work, recording only, for what it shows of the agents' work ([observation.md](observation.md)). (2026-11-13)
 - **The core records what happens, the packs say what is demanded.** The core knows no standard. (2026-11-13)
 - **An event does not know its place in a ledger:** `prev` and the hash of the event belong to the line. (2026-11-13)
-- **Agents are measured one by one, people only as a team.** Only an agent's session is recorded; a person is named by a pseudonym kept beside the ledger. (2026-11-13)
+- **Agents are measured one by one, people only as a team.** Only an agent's session is recorded; a person is named by a pseudonym kept beside the ledger. (2026-11-13) Its pseudonym, and only that, is replaced 2026-11-23 by "The event model: origin, assurance, provenance and holes", at the end of this list: a person is named by a label per subject, and a team by a team label.
 - **Evidence and activity are kept apart:** the chain holds the handovers, tool calls go to a file of their own and expire. (2026-11-13)
 - **A first dashboard now,** to see a first trial: the team right now and the event stream, then the overview, and only what the ledger already holds (#10 to #13). The rest of the design waits for its data. (2026-11-13)
 - **The dashboard is React with Tailwind,** in TypeScript, built with Vite, in the same package. (2026-11-13) Replaced 2026-11-17 by "Rust serves the dashboard", at the end of this list.
@@ -50,6 +50,18 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
   - **#146 can be built beside #141 to #145:** it needs only the settings reader and git.
 - **A pause on the readers.** The readers (`src/read`) move in the second half. Open issues that change them (#42, #43, #52, #53, #93, #95) either go in before that starts or wait for the cut. The owner says which, in #135. (2026-11-17)
 - **howl records and checks, and never steers.** It gives out no task, starts or runs no agent, sets no role, model or effort, and merges nothing. What a team's own tools did is recorded and checked against the rules and the levels; a step that breaks a rule is a broken rule in the ledger. This replaces the dispatcher, the runner and the merging program of 2026-11-12 and of the order of the work. (2026-11-22)
+- **The event model: origin, assurance, provenance and holes** ([architecture.md](architecture.md#the-event)). Everything here is recorded or derived; nothing steers. Each value comes with the step that first writes it. (2026-11-23)
+  - **Derived,** a third origin beside observed and claimed: what `howl` worked out from other events, naming the lines and the rule it came from. A finding, never a fact someone saw.
+  - **Assurance,** a second axis: as given, corroborated or checked. An event carries its level and what gave it. The word is assurance, not verification.
+  - **A chain is as sure as its weakest required link,** named, with the count of links at each level.
+  - **Provenance is first-class:** the source and a reference into it, the source's time beside `howl`'s, how the sender was authenticated, the SHA-256 of the payload as received, and the related events. `howl`'s interpretation is kept apart and can be worked out again.
+  - **A broken rule is a hole in the chain, and it stays one.** The team mends it in its own tools; `howl` records `rule.mended` or `rule.waived`. A link below its class's minimum assurance is a hole too. Holes are counted per team, rule and code class, never per person.
+  - **A rule states its own edges,** and an event on an edge is the rule held.
+  - **The weight of a finding is the rule's and the class's.** Red means an open hole that needs someone, and nothing else.
+  - **A code class may set a minimum assurance per link** ([levels.md](levels.md)).
+  - **An assessor's sample is answered with the path** and how far each step of it is established.
+  - **Subject** is the word for what an event is about, as in CloudEvents; the fields `task` and `change` stay.
+  - **People and teams:** which person and where the work was done are kept apart. Each event carries the team that owns its code. A person is a label that holds within one subject only, a keyed hash whose key is kept at the organisation; a name is resolved there, and every look is recorded. Below a minimum size, a team takes the label of the larger unit. Agents keep their names. This replaces the pseudonym of 2026-11-13.
 
 ## Proposed, not yet answered
 

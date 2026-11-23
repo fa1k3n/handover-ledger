@@ -22,6 +22,8 @@ A platform, configured to the team's own environment, with three things that bel
 2. **One process, one trace chain.** The steps and the chain requirement → change → test → verification → review → release are the same at every level. The level only changes who performs each step. See [traceability.md](traceability.md).
 3. **A ledger.** Every handover between team members, human or agent, is recorded in a tamper-evident log that can be exported as evidence per control of a standard. See [architecture.md](architecture.md) and [standards.md](standards.md).
 
+An assessor who picks a sample (a change, a requirement, a CVE) is answered with the path, and how far each step of it is established: only the source's word, a second source that agrees, or what `howl` checked itself ([architecture.md](architecture.md#assurance)).
+
 It also shows the agents' work as it happens, across projects, repositories and machines, build hosts too. Each machine's hook sends its events live to the server of the organisation, which is witness, index and dashboard ([decisions.md](decisions.md), 2026-11-13). `howl` may send a notice out, such as a broken rule or a session waiting for a person, for a person or a team's own tool to act on. Acting on it is never `howl`'s.
 
 ## What it is not
