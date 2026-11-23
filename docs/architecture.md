@@ -115,7 +115,7 @@ An own schema; a CloudEvents envelope is an option. First draft of the fields. T
 | `v` | Version of the line format | yes |
 | `time` | When it happened | yes |
 | `type` | What happened (below) | yes |
-| `source` | The adapter that read it, and whether it was observed or claimed | yes |
+| `source` | The adapter that read it, and whether it was observed, claimed or derived (below) | yes; derived comes when the checker writes the first one |
 | `actor` | The team member who did it: person or agent, with its identity | yes |
 | `to` | Only on a task given or taken back: who got the task, or who it was taken from (#45) | yes |
 | `model`, `effort` | For an agent: the model ID and effort of the session | yes |
@@ -125,7 +125,7 @@ An own schema; a CloudEvents envelope is an option. First draft of the fields. T
 | `task`, `change`, `sha` | The task, the merge or pull request, and its head commit | yes |
 | `requirements`, `clauses`, `tests` | The trace links ([traceability.md](traceability.md)) | wait for the trace link (#38) |
 | `level`, `class` | The level in force and the code class | wait for the levels and the first rule that reads a class |
-| `team` | The team the event belongs to | waits until something says where a team comes from |
+| `team` | The team that owns the code the event concerns (below) | waits for the step that first writes a label |
 
 The schema also holds what the first steps added: `id`, `project`, `session`, `role`, `repo`, `branch`, `sig` and `data`.
 
@@ -144,6 +144,9 @@ An event says what happened, not who shall do the next step. `howl` checks the r
 - A wrong reviewer model, where a team's or a pack's rule asks for one, or a step taken by one who may not take it, is recorded as a broken rule.
 - A fix never changes an existing test without a person having asked for it.
 - Project rules come on top, for example "high risk needs a human approver". Some rules belong to the core and cannot be switched off ([levels.md](levels.md)).
+- **A broken rule is a hole in the chain, and it stays one.** A step the process missed is a `rule.broken` event, shown clearly as a hole. It is never removed: the team mends it in its own tools, and `howl` records the mend when it sees it, as `rule.mended` naming the break, or `rule.waived` with a reason where a person with the right accepts the deviation. The chain shows the hole and how it was closed. A link below its class's minimum assurance is a hole too, mended when stronger evidence comes (a signed attestation, a second source). A notice goes out when a hole opens; what the team does with it is the team's. Holes are counted per team, rule and code class, never per person.
+- **A rule states its own edges.** Where a rule cannot be met by its plain words, it says what holds instead: "a review a model level above the author, or by a person where the author is at the top level". An event on that edge is the rule held, through its exception, and no finding at all.
+- **The weight of a finding is the rule's and the class's.** The same rule of a team or a pack may be a warning in one code class and an error in another; the team or the pack sets it. A rule of the core is an error wherever it applies. Red means an open hole that needs someone, and nothing else: a mended or waived hole is never shown as an error, though it stays in the record.
 
 ## Named agents
 
@@ -160,7 +163,7 @@ In two places ([commissioning.md](commissioning.md)). A `.howl/` folder in the r
 - Append-only, one line per event.
 - Each line holds the hash of the line before and the hash of its event.
 - The chain holds evidence. Activity, such as an agent's tool calls, is kept in a file of its own without a chain and is removed after a time.
-- A person is named by a pseudonym. The link to the person is kept beside the ledger and can be removed. `howl verify` names the first line that does not match.
+- A person is named by a label per subject, and a team by a team label ([The actor](#the-actor-which-person-and-where)). The key that resolves a label is kept at the organisation, never in the repository. `howl verify` names the first line that does not match.
 - A chain shows a changed or removed line, not lines cut off the end, and a file that one party both writes and keeps proves little. Signing the lines, or keeping the last hash somewhere else, is needed before it counts as evidence.
 - Only one writer at a time.
 - Configurable retention and export ([traceability.md](traceability.md)).

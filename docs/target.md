@@ -69,6 +69,6 @@ This stays, with `howl` recording and checking only:
 
 - Data protection law applies in full to what the ledger holds about employees. The client is the controller.
 - Agents are measured one by one; people only as a team. Traceability needs an identity, figures do not.
-- People are named by pseudonyms in the ledger; the link to the person is kept apart, at the level of the organisation, so that it can be removed. This matters most where the log is copied to every clone.
+- People are named in the ledger by labels that hold within one subject only, and the work by the team that owns the code. The key that resolves a label is kept at the organisation, never in the repository, and every look is recorded. A stable pseudonym would let one person be followed across months and copies; this matters most where the log is copied to every clone ([architecture.md](architecture.md#the-actor-which-person-and-where)).
 - Who looks at the ledger is itself recorded.
 - A system that can watch how employees work may need an impact assessment and a negotiation with the employees' representatives before it is brought in. Templates for both are a delivery with the product. A lawyer reviews before the first client.

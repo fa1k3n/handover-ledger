@@ -19,6 +19,8 @@ Each level is a set of conditions on observed events:
 
 An agent's change in a class declared at level 1 is then a hole.
 
+A code class may also set a minimum assurance per link ([architecture.md](architecture.md#assurance)): for example the review at least corroborated and the merge checked in safety-classed code. A link below it is a hole, mended when stronger evidence comes.
+
 ## Level 0: no agents
 
 People do the work, as before. An AI tool used under a person's own account is that person's tool, and the author declares it on each change. A team with no agents is a full case, not a lesser one.

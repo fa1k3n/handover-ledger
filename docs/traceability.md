@@ -23,9 +23,13 @@ For each link the ledger says who or what performed the step (a person, or an ag
 - **Tests name what they cover.** A test's name or comment starts with the ID of the requirement it covers, so the link can be read from the code and not only from a tool.
 - **The level is itself a recorded change.** The ledger shows which level was in force for the code class when the change was made, and who approved that level.
 
-## What is observed and what is claimed
+## What is observed, claimed or derived
 
-An event that an agent sends about itself is the agent's claim. An event that an adapter reads from the code host, the tracker or the CI is evidence. The ledger prefers the second and marks every event with which of the two it is. See [architecture.md](architecture.md).
+An event that an agent sends about itself is the agent's claim. An event that an adapter reads from the code host, the tracker or the CI is evidence. The ledger prefers the second and marks every event with which of the two it is. What `howl` works out itself is a third kind, derived: a finding, never a fact someone saw. See [architecture.md](architecture.md#origin-observed-claimed-or-derived).
+
+## An assessor's sample
+
+An assessor picks any event, or any change, requirement or CVE, and is answered with the path and how far each step of it is established: as given, corroborated or checked ([architecture.md](architecture.md#assurance)). The path is as sure as its weakest required link, and that link is named. A step the process missed is shown as a hole, and how it was mended or waived.
 
 ## What is read today
 
