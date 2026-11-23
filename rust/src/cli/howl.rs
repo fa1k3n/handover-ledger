@@ -7,7 +7,7 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 
-use crate::cli::verify;
+use crate::cli::{hook, verify};
 
 /// The usage text, kept once in src/cli/usage.txt, which the TypeScript reads too.
 pub const USAGE: &str = include_str!("../../../src/cli/usage.txt");
@@ -19,7 +19,7 @@ const COMMANDS: [&str; 16] = [
 ];
 
 /// The commands this side does.
-const PORTED: [&str; 1] = ["verify"];
+const PORTED: [&str; 2] = ["verify", "hook"];
 
 /// What `howl` does with its arguments, chosen before anything else happens.
 #[derive(Debug, PartialEq, Eq)]
@@ -58,7 +58,7 @@ pub fn choose(args: &[OsString], entry: Option<OsString>, node: Option<OsString>
 }
 
 /// The fallback to the TypeScript for `command`, with HOWL_FALLBACK and HOWL_NODE.
-fn fallback(name: String, entry: Option<OsString>, node: Option<OsString>) -> Choice {
+pub(crate) fn fallback(name: String, entry: Option<OsString>, node: Option<OsString>) -> Choice {
     let entry = match entry {
         Some(entry) if !entry.is_empty() => entry,
         _ => return Choice::NotBuilt(name),
@@ -81,6 +81,8 @@ pub fn run() -> i32 {
     let entry = std::env::var_os("HOWL_FALLBACK");
     let node = std::env::var_os("HOWL_NODE");
     match choose(&args, entry, node) {
+        // The hook first: whatever happens, it prints nothing and ends with 0.
+        Choice::Ported(name) if name == "hook" => hook::run(&args),
         Choice::Ported(_) => verify::run(&args[1..], fallback_to_node(&args)),
         Choice::Help => {
             // A closed standard output is not an error of howl's.

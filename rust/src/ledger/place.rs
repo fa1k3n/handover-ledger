@@ -36,9 +36,9 @@ pub fn is_project_name(name: &str) -> bool {
     first && rest && !name.contains("..")
 }
 
-/// The ledger of a project: `$HOWL_HOME`, else `$XDG_STATE_HOME/howl`, else `~/.local/state/howl`; in it
-/// `<project>/ledger.jsonl`, joined and made normal as Node's path.join makes it.
-pub fn ledger_path(project: &str, env: &Env) -> Result<String, String> {
+/// The folder of a project: `$HOWL_HOME`, else `$XDG_STATE_HOME/howl`, else `~/.local/state/howl`; in it
+/// `<project>`, joined and made normal as Node's path.join makes it (`projectDir`).
+pub fn project_dir(project: &str, env: &Env) -> Result<String, String> {
     if !is_project_name(project) {
         return Err(format!(
             "{} is not a project name: use letters, digits, '.', '_' and '-', starting with a letter or digit",
@@ -64,7 +64,22 @@ pub fn ledger_path(project: &str, env: &Env) -> Result<String, String> {
         }
         join(&[&home, ".local", "state", "howl"])
     };
-    Ok(join(&[&home, project, "ledger.jsonl"]))
+    Ok(join(&[&home, project]))
+}
+
+/// The ledger of a project: `<project folder>/ledger.jsonl`.
+pub fn ledger_path(project: &str, env: &Env) -> Result<String, String> {
+    Ok(join(&[&project_dir(project, env)?, "ledger.jsonl"]))
+}
+
+/// Where hooks and scripts leave events: `<project folder>/inbox` (#141).
+pub fn inbox_path(project: &str, env: &Env) -> Result<String, String> {
+    Ok(join(&[&project_dir(project, env)?, "inbox"]))
+}
+
+/// Where the writer's server says how to reach it while it runs: `<project folder>/server.json` (#141).
+pub fn server_path(project: &str, env: &Env) -> Result<String, String> {
+    Ok(join(&[&project_dir(project, env)?, "server.json"]))
 }
 
 /// A string as JSON.stringify writes it.

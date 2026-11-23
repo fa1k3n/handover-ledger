@@ -16,7 +16,12 @@ serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundt
 ryu-js = "=1.0.4"
 sha2 = "=0.11.1"
 ed25519-dalek = "=3.0.0"
+# The patterns a team writes in .howl/howl.yml, matched as JavaScript's RegExp with the u flag matches them (#141).
+# prohibit-unsafe: its matcher checks every index, so a fault in it is a panic the hook catches (review of #196).
+regress = { version = "=0.12.0", default-features = false, features = ["std", "prohibit-unsafe"] }
 
 [profile.release]
 lto = true
 codegen-units = 1
+# A panic in `howl hook` is caught, so that the hook never disturbs a session (#141): never "abort".
+panic = "unwind"
