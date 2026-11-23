@@ -147,7 +147,7 @@ function standIn(): { node: string; out: string } {
   return { node, out };
 }
 
-test("#141: with HOWL_KEY set, or a server.json in the project folder, the hook becomes node before it reads standard input", { skip: binary }, () => {
+test("#142: with HOWL_KEY set, or a server.json in the project folder, the hook does not become node", { skip: binary }, () => {
   for (const which of ["key", "server"]) {
     const ws = workspace();
     const env: Record<string, string> = { ...ws.env };
@@ -158,18 +158,23 @@ test("#141: with HOWL_KEY set, or a server.json in the project folder, the hook 
     }
     const { node, out } = standIn();
     const input = json(ws, "Stop");
+    // The fall-back is there, and the hook leaves it alone: nothing of the hook is node's any more.
     const run = hook("rust", input, ws.root, { ...env, HOWL_FALLBACK: CLI, HOWL_NODE: node });
     assert.deepEqual(run, { status: 0, stdout: "", stderr: "" }, which);
-    assert.equal(readFileSync(out, "utf8"), `args ${CLI} hook\n${input}`, `${which}: node gets the arguments and the whole input`);
-    assert.ok(!existsSync(join(ws.home, PROJECT, "inbox")), `${which}: the binary leaves nothing itself`);
+    assert.ok(!existsSync(out), `${which}: node was not started`);
+    const inbox = join(ws.home, PROJECT, "inbox");
+    assert.equal(readdirSync(inbox).length, 1, `${which}: the binary leaves the event itself`);
   }
 });
 
-test("#141: without HOWL_FALLBACK, a hook with HOWL_KEY set or a server.json is left in the inbox, unsigned, silently", { skip: binary }, () => {
-  for (const which of ["key", "server"]) {
+test("#142: without HOWL_FALLBACK, a hook with HOWL_KEY signs, and with a server.json that holds nothing it leaves the event in the inbox, silently", { skip: binary }, () => {
+  const key = new URL("./fixtures/signing/key.pem", import.meta.url).pathname;
+  const expected = (JSON.parse(readFileSync(new URL("./fixtures/signing/expected.json", import.meta.url), "utf8")) as { key: string }).key;
+  for (const which of ["key", "key that cannot be read", "server"]) {
     const ws = workspace();
     const env: Record<string, string> = { ...ws.env };
-    if (which === "key") env.HOWL_KEY = "/nowhere/key.json";
+    if (which === "key") env.HOWL_KEY = key;
+    else if (which === "key that cannot be read") env.HOWL_KEY = "/nowhere/key.json";
     else {
       mkdirSync(join(ws.home, PROJECT), { recursive: true });
       writeFileSync(join(ws.home, PROJECT, "server.json"), "{}");
@@ -178,9 +183,10 @@ test("#141: without HOWL_FALLBACK, a hook with HOWL_KEY set or a server.json is 
     const inbox = join(ws.home, PROJECT, "inbox");
     const files = readdirSync(inbox);
     assert.equal(files.length, 1, which);
-    const event = JSON.parse(readFileSync(join(inbox, files[0]!), "utf8")) as Record<string, unknown>;
+    const event = JSON.parse(readFileSync(join(inbox, files[0]!), "utf8")) as { type: string; sig?: { key: string } };
     assert.equal(event.type, "session.stopped", which);
-    assert.equal(event.sig, undefined, which);
+    // Signed with the key of the file, or not signed: never signed with another.
+    assert.equal(event.sig?.key, which === "key" ? expected : undefined, which);
   }
 });
 
