@@ -29,7 +29,7 @@ The method is the offer. The tool makes the method binding and measurable.
 | `ledger` (core) | The event schema, the hash chain, the one writer | The schema (version 0), the chain, signed claims, checkpoints | Rules and levels |
 | Adapters | Read what happened in the team's tools and turn it into events | The hooks of Claude Code, GitHub (read only), and a code host kept in local files, which the tests use | GitLab, a tracker, a requirements tool |
 | `howl` (CLI) | Records, checks and reads | `hook`, `ingest`, `emit`, `observe`, `up`, `verify`, `watch`, `show`, `status`, `serve`, `key`, `keyd`, `anchor`, `export` | `howl init`, a `howl` that needs no Node |
-| Dashboard | Views over the ledger; it never writes | The overview, which starts with the team right now; the event log of every project; one change or task | The rest of the design, when the ledger holds its data |
+| Dashboard | Views over the ledger; it never writes | The overview, which starts with the team right now; the event log of every project; one change or task, drawn as a flow graph | The rest of the design, when the ledger holds its data |
 | VS Code extension | The team and the chain per change, in the editor | Nothing | All of it, when someone asks for it |
 
 One repository. The engine and the command line are moving from TypeScript to Rust, side by side until the cut; the dashboard's page stays TypeScript. The order of the work is in [docs/decisions.md](docs/decisions.md), and each step is an issue.

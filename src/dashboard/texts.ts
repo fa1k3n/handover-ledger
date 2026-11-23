@@ -231,6 +231,7 @@ export const texts = {
     /** #39: `unknown` is time when no session says what the agent does and the change waits for nothing. */
     summary: (all: string, work: string, checks: string, review: string, waits: string, unknown: string, rounds: number) =>
       `${all} in all: work ${work}, waiting for checks ${checks}, for review ${review}, for a person or instructions ${waits}; not known ${unknown} (no sign of what the agent does); ${rounds} review round${rounds === 1 ? "" : "s"}`,
+    summaryLabel: "Summary of the change",
     sessions: "Sessions",
     noSessions: "No session of an agent in the ledger.",
     wait: (kind: "person" | "instructions", length: string) => (kind === "person" ? `waited for a person ${length}` : `waited for instructions ${length}`),
@@ -244,6 +245,49 @@ export const texts = {
     roundOf: (n: number, change: string) => `Round ${n} of change ${change}:`,
     claimed: "Claimed, not seen at the code host",
     claimedNote: "Sent by a session or a script, not read from the code host. They count for nothing above.",
+  },
+  /** #192: the flow graph of the change view. */
+  flow: {
+    heading: "Path of the change",
+    note: "One column for each team member, the code host and the checks; time runs down. A solid line was read from the team's tools; a dashed line is a claim sent by a session or a script, and a dotted one is of a kind this page does not know. Each arrow and note opens its event.",
+    scroll: "The graph scrolls sideways",
+    timeColumn: "Time",
+    empty: "No handover and no wait for a person in this view yet.",
+    lanes: { host: "Code host", checks: "Checks", gone: (n: number) => `Account that no longer exists ${n}` },
+    laneKinds: { person: "person", agent: "agent", host: "code host", checks: "checks", gone: "account" },
+    origin: { observed: "observed", claimed: "claimed", unknown: "unknown kind" },
+    steps: {
+      "task-given": "task given",
+      "task-taken-back": "task taken back",
+      opened: "change opened",
+      "new-head": "new head",
+      "checks-passed": "checks passed",
+      "checks-failed": "checks failed",
+      "checks-none": "no checks",
+      "checks-unfinished": "checks unfinished",
+      merged: "merged",
+      closed: "closed",
+      reopened: "opened again",
+    },
+    /** A review says what the event says: who reviewed which change. */
+    reviews: {
+      approved: (change: string | undefined) => (change === undefined ? "approved" : `approved change ${change}`),
+      "changes-asked": (change: string | undefined) => (change === undefined ? "changes asked for" : `changes asked for on change ${change}`),
+      "review-comment": (change: string | undefined) => (change === undefined ? "review comment" : `commented on change ${change}`),
+    },
+    dismissed: (when: string) => ` (dismissed ${when})`,
+    head: (label: string, sha: string) => (label === "new head" ? `${label} ${sha}` : `${label} · head ${sha}`),
+    ofChange: (change: string, label: string) => `change ${change}: ${label}`,
+    /** The code host stands in for a sender the event does not name; the label says so. */
+    standIn: { giver: ", giver not recorded", sender: ", sender not named", reviewer: ", reviewer not named" },
+    waited: (length: string | null) => (length === null ? "waited for a person" : `waited for a person ${length}`),
+    stillWaiting: "still waiting for a person",
+    /** An agent that howl matched to an observed event from its sessions: howl's own reading, a claim. */
+    matched: (agent: string) => `matched to ${agent} (a session's claim)`,
+    opens: "Opens the event",
+    notFound: "The event is not in the ledger now.",
+    arrow: (when: string, label: string, from: string, to: string, origin: string, matched?: string) => `${when}, ${label}, from ${from} to ${to}, ${origin}${matched === undefined ? "" : `, ${matched}`}`,
+    inLane: (when: string, label: string, lane: string, origin: string, matched?: string) => `${when}, ${label}, in the lane of ${lane}, ${origin}${matched === undefined ? "" : `, ${matched}`}`,
   },
   error: (message: string) => `Cannot reach howl serve: ${message}`,
 };
