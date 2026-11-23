@@ -112,49 +112,19 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 mod tests {
     use super::*;
 
-    #[test]
-    fn an_iso_time_in_utc_or_with_an_offset() {
-        let t = 1_767_254_400_000;
-        let cases = [
-            ("1970-01-01T00:00:00Z", 0),
-            ("2026-01-01T08:00:00Z", t),
-            ("2026-01-01T08:00Z", t),
-            ("2026-01-01T08:00:00.123Z", t + 123),
-            ("2026-01-01T08:00:00.1239Z", t + 123),
-            ("2026-01-01T08:00:00.5Z", t + 500),
-            ("2026-01-01T09:30:00+01:30", t),
-            ("2026-01-01T06:00:00-02:00", t),
-            ("2024-02-29T00:00:00Z", 1_709_164_800_000),
-        ];
-        for (text, time) in cases {
-            assert_eq!(parse_now(text), Some(time), "{text}");
-        }
-    }
+    /// The values both versions are tested with, as src/read/now.ts is.
+    const CASES: &str = include_str!("../../../test/fixtures/howl-now.tsv");
 
     #[test]
-    fn anything_else_is_not_taken() {
-        let cases = [
-            "",
-            "yesterday",
-            "2026-01-01",
-            "2026-01-01T10:00:00",
-            "2026-02-30T00:00:00Z",
-            "2025-02-29T00:00:00Z",
-            "2026-13-01T00:00:00Z",
-            "2026-00-01T00:00:00Z",
-            "2026-01-01T24:00:00Z",
-            "2026-01-01T10:60:00Z",
-            "2026-01-01T10:00:60Z",
-            "2026-01-01T10:00:00.Z",
-            "2026-01-01T10:00:00+0100",
-            "2026-01-01T10:00:00+24:00",
-            "2026-01-01 10:00:00Z",
-            "+2026-01-01T10:00:00Z",
-            "2026-01-01T10:00:00Zx",
-        ];
-        for text in cases {
-            assert_eq!(parse_now(text), None, "{text}");
+    fn the_values_of_the_shared_fixture_are_taken_or_refused() {
+        let lines = CASES.lines().filter(|l| !l.is_empty());
+        let cases: Vec<&str> = lines.filter(|l| !l.starts_with('#')).collect();
+        assert!(cases.len() > 20);
+        for line in cases {
+            let (text, want) = line.split_once('\t').unwrap();
+            assert_eq!(parse_now(text), want.parse().ok(), "{text}");
         }
+        assert_eq!(parse_now(""), None);
     }
 
     #[test]
@@ -167,5 +137,16 @@ mod tests {
         let now = present_time_of(None).unwrap();
         assert!(now >= before && now - before < 60_000);
         assert!(present_time_of(Some("")).unwrap() >= before);
+    }
+
+    #[test]
+    fn a_howl_now_that_is_not_utf_8_is_refused() {
+        use std::os::unix::ffi::OsStringExt;
+        let value = OsString::from_vec(vec![b'2', 0xff]);
+        let refused = present_time_from(Some(value));
+        assert_eq!(refused, Err(format!("HOWL_NOW 2\u{fffd}: {GIVE}")));
+        let set = OsString::from("2026-01-01T08:00:00Z");
+        assert_eq!(present_time_from(Some(set)), Ok(1_767_254_400_000));
+        assert!(present_time_from(None).is_ok());
     }
 }

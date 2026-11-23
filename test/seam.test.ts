@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
+import { ACTIVITY_FILE, LEDGER_FILE } from "../src/ledger/names.ts";
 import { howl } from "./helpers.ts";
 
 const USAGE = readFileSync(new URL("../src/cli/usage.txt", import.meta.url), "utf8");
@@ -27,6 +28,10 @@ test("#137: a command that is not there ends with 2, names it and gives the usag
   const none = howl([]);
   assert.equal(none.status, 2);
   assert.equal(none.stderr, `howl: no command\n\n${USAGE}`);
+});
+
+test("#137: the file names in usage.txt are those of src/ledger/names.ts", () => {
+  assert.ok(USAGE.includes(`in a folder named after the project: ${LEDGER_FILE}, ${ACTIVITY_FILE}, inbox/,`));
 });
 
 const bin = process.env.HOWL_BIN;
