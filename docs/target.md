@@ -1,6 +1,6 @@
 # Target picture
 
-**Not planned.** This is where the platform may go, written down so that today's choices do not close the way. Nothing here is built or decided unless [decisions.md](decisions.md) says so. The first thing to build is the observation mode ([observation.md](observation.md)).
+**Not planned.** This is where the platform may go, written down so that today's choices do not close the way. Nothing here is built or decided unless [decisions.md](decisions.md) says so. What `howl` does is record and check, never steer; how it observes is in [observation.md](observation.md).
 
 ## The basic principle
 
@@ -11,6 +11,14 @@ Where something belongs:
 - Does it record what happened? The core.
 - Does it fetch data from another system? An adapter.
 - Does it say what a standard or a law demands? A rule pack.
+
+## Seeing the work as it happens
+
+This stays, with `howl` recording and checking only:
+
+- The agents' work is seen as it happens, across projects, repositories and machines, build hosts too.
+- Each machine's hook sends its events live to the server of the organisation, which is witness, index and dashboard, as decided 2026-11-13 ([decisions.md](decisions.md)).
+- `howl` may send a notice out, a broken rule or a session waiting for a person, for a person or a team's own tool to act on. Acting on it is never `howl`'s.
 
 ## Rule packs
 
@@ -61,6 +69,6 @@ Where something belongs:
 
 - Data protection law applies in full to what the ledger holds about employees. The client is the controller.
 - Agents are measured one by one; people only as a team. Traceability needs an identity, figures do not.
-- People are named by pseudonyms in the ledger; the link to the person is kept apart, at the level of the organisation, so that it can be removed. This matters most where the log is copied to every clone.
+- People are named in the ledger by labels that hold within one subject only, and the work by the team that owns the code. The key that resolves a label is kept at the organisation, never in the repository, and every look is recorded. A stable pseudonym would let one person be followed across months and copies; this matters most where the log is copied to every clone ([architecture.md](architecture.md#the-actor-which-person-and-where)).
 - Who looks at the ledger is itself recorded.
 - A system that can watch how employees work may need an impact assessment and a negotiation with the employees' representatives before it is brought in. Templates for both are a delivery with the product. A lawyer reviews before the first client.

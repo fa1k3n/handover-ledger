@@ -1,12 +1,12 @@
-# Observation mode
+# Observation
 
-The first thing to build and to try: `howl` beside a team whose agents already work, recording what they do and steering nothing.
+How `howl` observes: its sources, the hooks, the readers, and what each keeps and drops. Observation is not a mode. It is all `howl` does: it records what the team's people, agents and tools did, checks it, and steers nothing.
 
 ## What it is
 
-The levels ([levels.md](levels.md)) say how much the agents may do. Observation mode says what `howl` does: it only records. The two are independent. A team can let its agents do nearly everything and still run `howl` in observation mode, to see what the agents do during an assignment. That is what no code host shows.
+The levels ([levels.md](levels.md)) are the team's: how much its agents may do. `howl` records at every level, and checks the work against the level declared. A team can let its agents do nearly everything and still see what they do during an assignment. That is what no code host shows.
 
-It is also the cheapest way to try the platform: nothing in the team's flow changes.
+Trying `howl` changes nothing in the team's flow.
 
 ## Two sources of events
 
@@ -19,14 +19,14 @@ The hooks are needed for a second reason. The code host sees accounts, not sessi
 
 An event from a hook is a claim by the agent's own session; an event read from the code host is observed. Each event is marked with which it is ([traceability.md](traceability.md)).
 
-## The steps
+## The parts
 
 1. **The schema and the ledger.** The event schema as JSON Schema, a ledger file with a hash chain kept outside the repository, and `howl verify`. An event does not know its place: the hash of the line before belongs to the line, not to the event.
 2. **`howl hook`.** Reads the hook's JSON and puts an event in an inbox. Several sessions write at once, so only one process brings the events into the chain. `howl emit` lets a script do the same.
 3. **`howl observe`.** The reader of the code host. It also empties the inbox.
 4. **`howl watch` and `howl show <task>`.** The stream in the terminal, and the timeline of one assignment from the hand-over to the merge. `howl watch` shows the handovers of the ledger; `--activity` adds the tool calls. Both print local time; `--utc` prints the times as stored.
 
-Steps 1 and 2 already show the agents' work as it happens. The dashboard and the editor extension wait.
+The first two already show the agents' work as it happens.
 
 ## What the observed repository needs
 
@@ -42,12 +42,12 @@ A session with no actor named leaves nothing: people are not measured one by one
 project: example
 ```
 
-## Rules for this mode
+## Rules for observing
 
 - **Do not record all content.** A tool call can hold keys and code. Keep the tool, the target and the outcome, not the whole command and its answer. Keep no plain hash of the input either: a short input (`ls`, a file path) can be guessed by hashing candidates. A step that needs to prove what a call's input was adds a keyed hash, with its key beside the ledger. A large organisation will demand the same. With `howl hook` the rest is dropped in the hook's own process. With the hook line that is only `curl`, the hook's JSON reaches `howl up` on the same machine, which keeps the event it builds and never writes, logs or sends back the rest. Before a server runs on another machine, it is decided again where the content is dropped.
 - **This is a trial.** Where the agents run as the same user that keeps the ledger, it serves observation but is not evidence. The ledger says so in its first line.
 - **Evidence and activity are kept apart.** The chain holds the handovers: a session's start and end, a wait for a person, and what the code host shows. Tool calls are activity: many, kept in a file of their own without a chain, and removed after a time.
-- **People are not measured one by one.** A person is named by a pseudonym, kept beside the ledger and never in it. No figure is given per person.
+- **People are not measured one by one.** A person is named by a label that holds within one subject only, and the work by the team that owns the code ([architecture.md](architecture.md#the-actor-which-person-and-where)). The key that resolves a label is kept at the organisation, never in the repository. No figure is given per person. Today `howl` still names a person by a pseudonym kept beside the ledger, until the step that first writes a label.
 - **One writer.** Hooks and scripts never write to the chain. They leave one file per event in an inbox, and one process brings them in. When that process runs as `howl up`, the hook hands the event to it over HTTP on the same machine, and the writer leaves it in the inbox itself; the file is the way when the writer cannot be reached.
 - **A hook never disturbs the session.** It is quick, prints nothing and always ends without an error, also when the ledger cannot be reached.
 - **No repository, no event.** Without a `.howl/` folder above the working directory the hook does nothing.
