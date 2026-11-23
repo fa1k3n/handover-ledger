@@ -91,6 +91,8 @@ test("#141: an inbox file from each version for the same input differs only in i
     ["an actor beyond ASCII", json(ws, "Stop"), { HOWL_ACTOR: "  agent-å  " }],
     ["a prompt outside", json(ws, "Stop"), { HOWL_ROLE_PROMPT: "../x.md" }],
     ["a key given twice", '{"hook_event_name":"Stop","session_id":"a","session_id":"b\\u00e5\\ud83d\\ude00"}', {}],
+    // A lone surrogate in a part of the path that is not kept: the target is what follows it.
+    ["a lone surrogate before a `..` in a path", json(ws, "PostToolUse", { tool_name: "Read", tool_input: { file_path: `${ws.root}/\ud800/../x` } }), {}],
     ["deeply nested in what is dropped", `{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls","x":${"[".repeat(5000)}${"]".repeat(5000)}}}`, {}],
   ];
   for (const [label, input, env] of cases) {

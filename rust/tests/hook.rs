@@ -282,11 +282,11 @@ fn the_input_is_read_as_json_parse_reads_it_and_only_what_is_used_is_kept() {
     let Some(Json::Object(top)) = read_input(input) else {
         panic!("an object is read");
     };
-    assert_eq!(top.get("a"), Some(&Json::Text("yå".into(), false)));
+    assert_eq!(top.get("a"), Some(&Json::Text("yå".into(), None)));
     let Some(Json::Object(b)) = top.get("b") else {
         panic!("b is an object")
     };
-    assert_eq!(b.get("c"), Some(&Json::Text("d".into(), false)));
+    assert_eq!(b.get("c"), Some(&Json::Text("d".into(), None)));
     assert_eq!(top.get("n"), Some(&Json::Other));
     // Any depth, as V8's JSON.parse reads it.
     let deep = format!("{{\"x\":{}{}}}", "[".repeat(100_000), "]".repeat(100_000));
@@ -296,8 +296,10 @@ fn the_input_is_read_as_json_parse_reads_it_and_only_what_is_used_is_kept() {
     let Some(Json::Object(lone)) = read_input(input) else {
         panic!("read")
     };
-    assert_eq!(lone.get("s"), Some(&Json::Text("a\u{fffd}".into(), true)));
-    assert_eq!(lone.get("p"), Some(&Json::Text("\u{1f600}".into(), false)));
+    // Read twice over: with U+FFFD, and with U+FFFF, in place of each lone half, to tell where it stands.
+    let marked = Json::Text("a\u{fffd}".into(), Some("a\u{ffff}".into()));
+    assert_eq!(lone.get("s"), Some(&marked));
+    assert_eq!(lone.get("p"), Some(&Json::Text("\u{1f600}".into(), None)));
     for bad in [
         "",
         " ",
