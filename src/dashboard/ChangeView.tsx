@@ -26,11 +26,12 @@ const TIME_REM = 5;
 
 /**
  * #192: the change as a flow graph, in HTML and CSS: a lane for each team member, the code host and the checks, time
- * running down, one row for each arrow or note. An arrow or a note is a button that opens its event. It is not a live
- * region: the view is read once, not polled. A line is solid for an observed event and dashed for a claimed one, and
- * each row says which in words as well.
+ * running down, one row for each arrow or note. An arrow or a note is a button that opens its event. The graph is no
+ * live region: the view is read once, not polled. What follows a click is told once: a call that failed as an alert (as
+ * #191 sets a load error), an event that is not in the ledger now as a status. A line is solid for an observed event and
+ * dashed for a claimed one, and each row says which in words as well.
  */
-function FlowGraph({ flow, now, onOpen, note }: { flow: Flow; now: number; onOpen: (row: Row) => void; note: string | null }) {
+function FlowGraph({ flow, now, onOpen, note }: { flow: Flow; now: number; onOpen: (row: Row) => void; note: { text: string; failed: boolean } | null }) {
   const g = texts.flow;
   const index = (key: string) => flow.lanes.findIndex((l) => l.key === key);
   const template = { gridTemplateColumns: `${TIME_REM}rem repeat(${flow.lanes.length}, ${LANE_REM}rem)` };
@@ -86,7 +87,7 @@ function FlowGraph({ flow, now, onOpen, note }: { flow: Flow; now: number; onOpe
                         </span>
                         <span className="text-[11px] text-mute">
                           {g.origin[row.origin]}
-                          {row.via !== undefined && ` · ${g.via(row.via)}`}
+                          {row.matched !== undefined && ` · ${g.matched(row.matched)}`}
                         </span>
                       </span>
                       {row.kind === "arrow" && !within && (
@@ -104,7 +105,11 @@ function FlowGraph({ flow, now, onOpen, note }: { flow: Flow; now: number; onOpe
           </div>
         </div>
       )}
-      {note !== null && <p role="status" className="m-0 text-[13px] text-warn-ink">{note}</p>}
+      {note !== null && (
+        <p role={note.failed ? "alert" : "status"} className="m-0 text-[13px] text-warn-ink">
+          {note.text}
+        </p>
+      )}
     </>
   );
 }
@@ -115,8 +120,10 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
   const [missing, setMissing] = useState<string | null>(null);
   // #192: the event an arrow or a note opened, and what to say when it is not in the ledger now.
   const [picked, setPicked] = useState<Item | null>(null);
-  const [flowNote, setFlowNote] = useState<string | null>(null);
+  const [flowNote, setFlowNote] = useState<{ text: string; failed: boolean } | null>(null);
   const opener = useRef<string | null>(null);
+  // The call for an event that is the latest: an answer to an older one, or to another change, is dropped.
+  const asked = useRef(0);
 
   useEffect(() => {
     setDraft(what ?? "");
@@ -124,6 +131,7 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
     setMissing(null);
     setPicked(null);
     setFlowNote(null);
+    asked.current++;
     if (!what) return;
     api.show(what).then(
       (s) => (s === null ? setMissing(what) : setShown(s)),
@@ -134,15 +142,17 @@ export function ChangeView({ what, project, onError }: { what: string | null; pr
   const flow = shown === null ? null : flowOf(shown);
   // The graph's event has no line number in what `show` gives: the page asks for it by its id, as the band does for a wait.
   const open = (row: Row) => {
+    const mine = ++asked.current;
     api.events([eventFilter(row.event.id)], false, 5).then(
       (r) => {
+        if (asked.current !== mine) return;
         const found = r.events.find((i) => i.event.id === row.event.id && (i.project === undefined || i.project === project));
-        if (found === undefined) return setFlowNote(texts.flow.notFound);
+        if (found === undefined) return setFlowNote({ text: texts.flow.notFound, failed: false });
         opener.current = row.event.id;
         setFlowNote(null);
         setPicked(found);
       },
-      (e: Error) => setFlowNote(e.message),
+      (e: Error) => asked.current === mine && setFlowNote({ text: e.message, failed: true }),
     );
   };
 

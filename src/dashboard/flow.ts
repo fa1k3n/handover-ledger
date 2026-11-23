@@ -35,8 +35,8 @@ export interface Row {
   label: string;
   origin: Origin;
   line: Line;
-  /** The person's account an agent acted through, when the code host named one. */
-  via?: string;
+  /** The agent howl matched to this observed event from a session's time window: howl's reading and a claim, never the sender. */
+  matched?: string;
   event: LedgerEvent;
 }
 
@@ -49,12 +49,11 @@ type Member = NonNullable<LedgerEvent["actor"]>;
 
 const HOST: Lane = { key: "host", kind: "host", label: t.lanes.host };
 const CHECKS: Lane = { key: "checks", kind: "checks", label: t.lanes.checks };
-const GONE: Lane = { key: "gone", kind: "gone", label: t.lanes.gone };
 
 const memberLane = (m: Member): Lane => ({ key: `${m.kind}:${m.id}`, kind: m.kind, label: m.id });
 const agentLane = (name: string): Lane => memberLane({ kind: "agent", id: name });
 
-type Step = keyof typeof t.steps;
+type Step = keyof typeof t.steps | keyof typeof t.reviews;
 
 /** What each type of event is drawn as: its step; the types that are not here are not drawn. */
 const STEPS: Partial<Record<LedgerEvent["type"], Step>> = {
@@ -74,7 +73,7 @@ const STEPS: Partial<Record<LedgerEvent["type"], Step>> = {
   "change.reopened": "reopened",
 };
 
-const isReviewStep = (step: Step) => step === "approved" || step === "changes-asked" || step === "review-comment";
+const isReviewStep = (step: Step): step is keyof typeof t.reviews => step === "approved" || step === "changes-asked" || step === "review-comment";
 
 const WITH_HEAD = new Set<Step>(["opened", "new-head", "checks-passed", "checks-failed", "checks-none", "checks-unfinished"]);
 
@@ -86,9 +85,11 @@ function originOf(e: LedgerEvent): Origin {
 const LINES: Record<Origin, Line> = { observed: "solid", claimed: "dashed", unknown: "dotted" };
 
 /**
- * The change as a flow graph, from what `show` gives: its events and the agents it matched to the
- * person's account behind an opening, a head or a review. Lanes are in the order each first appears;
- * rows are in the order of time.
+ * The change as a flow graph, from what `show` gives: its events, and the agents it matched to an observed opening, head or
+ * review from a session's time window. An observed event is drawn from what the code host saw: the account it names, or the
+ * code host where none is named (and the label says so). A matched agent is never the sender: it is said in words, as a
+ * claim, and only for the very event the match was made for. Lanes are in the order each first appears; rows are in the
+ * order of time.
  */
 export function flowOf(shown: Shown): Flow {
   const lanes: Lane[] = [];
@@ -97,33 +98,32 @@ export function flowOf(shown: Shown): Flow {
     if (!lanes.some((x) => x.key === l.key)) lanes.push(l);
     return l.key;
   };
+  // An account that no longer exists: one lane for each, never one for all (#48).
+  const goneLanes = new Map<string, Lane>();
+  const goneLane = (key: string): Lane => {
+    let l = goneLanes.get(key);
+    if (l === undefined) {
+      l = { key: `gone:${key}`, kind: "gone", label: t.lanes.gone(goneLanes.size + 1) };
+      goneLanes.set(key, l);
+    }
+    return l;
+  };
   const events = byTime(shown.events.map((event) => ({ event }))).map((x) => x.event);
   const several = shown.changes.length > 1;
+  const removed = (e: LedgerEvent) => (e.data as { account_removed?: unknown } | undefined)?.account_removed === true;
 
-  // The agent behind a person's account, as `show` matched it.
-  const matchedOpening = (e: LedgerEvent) => shown.changes.find((c) => c.change === e.change)?.opened?.by;
-  const matchedHead = (e: LedgerEvent) => shown.changes.find((c) => c.change === e.change)?.heads.find((h) => h.sha === e.sha && h.time === e.time)?.by;
-  const matchedReview = (e: LedgerEvent) =>
+  // What `show` matched, taken only for an observed event at the very time and of the very type it was made for.
+  const matchedOpening = (e: LedgerEvent): string | undefined => {
+    const opened = shown.changes.find((c) => c.change === e.change)?.opened;
+    return e.type === "change.opened" && opened !== undefined && opened.time === e.time ? opened.by : undefined;
+  };
+  const matchedHead = (e: LedgerEvent): string | undefined =>
+    e.type === "change.updated" ? shown.changes.find((c) => c.change === e.change)?.heads.find((h) => h.sha === e.sha && h.time === e.time)?.by : undefined;
+  const reviewEntry = (e: LedgerEvent) =>
     shown.reviews
       .filter((r) => r.change === undefined || r.change === e.change)
       .flatMap((r) => r.reviews)
-      .find((x) => x.time === e.time && x.actor?.id === e.actor?.id && `review.${x.outcome}` === e.type)?.by;
-  const matched = (e: LedgerEvent, step: Step): string | undefined => (step === "opened" ? matchedOpening(e) : step === "new-head" ? matchedHead(e) : isReviewStep(step) ? matchedReview(e) : undefined);
-
-  // The one who acted: the matched agent, else the account the event names; none when it names no one.
-  const actorOf = (e: LedgerEvent, by: string | undefined): { lane: Lane; via?: string } | null => {
-    if (by !== undefined) return { lane: agentLane(by), ...(e.actor !== undefined ? { via: e.actor.id } : {}) };
-    if (e.actor !== undefined) return { lane: memberLane(e.actor) };
-    return e.type.startsWith("review.") && (e.data as { account_removed?: unknown } | undefined)?.account_removed === true ? { lane: GONE } : null;
-  };
-
-  // The author of each change: who opened it, as the code host showed it. A review goes to them.
-  const author = new Map<string, Lane>();
-  for (const e of events) {
-    if (e.type !== "change.opened" || e.change === undefined || e.source.kind !== "observed" || author.has(e.change)) continue;
-    const who = actorOf(e, matchedOpening(e));
-    if (who !== null) author.set(e.change, who.lane);
-  }
+      .find((x) => x.time === e.time && x.actor?.id === e.actor?.id && `review.${x.outcome}` === e.type);
 
   // The agent of a session, for a wait whose event names none.
   const sessionAgent = (e: LedgerEvent): Member | undefined => e.actor ?? shown.sessions.find((s) => s.session === e.session)?.actor;
@@ -144,41 +144,68 @@ export function flowOf(shown: Shown): Flow {
     }
     const step = STEPS[e.type];
     if (step === undefined) continue;
+    const isObserved = origin === "observed";
+    // The sender as the event names it: an account, an account that is gone, or none (the code host stands in).
+    const sender = (standIn: string): { lane: Lane; standIn: string } => {
+      if (e.actor !== undefined) return { lane: memberLane(e.actor), standIn: "" };
+      if (removed(e)) return { lane: goneLane(`${e.id}:by`), standIn: "" };
+      return { lane: HOST, standIn };
+    };
     let from: Lane;
     let to: Lane;
-    let via: string | undefined;
+    let label: string;
+    let suffix = "";
+    let matched: string | undefined;
+    let dismissed: string | undefined;
     if (step === "task-given" || step === "task-taken-back") {
       const gone = accountsGone(e);
       const by = giver(e);
       const receiver = assignee(e);
+      label = t.steps[step];
       if (step === "task-given") {
-        from = gone.by ? GONE : by !== undefined ? memberLane(by) : HOST;
-        to = gone.to || receiver === undefined ? GONE : memberLane(receiver);
+        if (gone.by) from = goneLane(`${e.id}:by`);
+        else if (by !== undefined) from = memberLane(by);
+        else {
+          from = HOST;
+          suffix = t.standIn.giver;
+        }
+        to = gone.to || receiver === undefined ? goneLane(`${e.id}:to`) : memberLane(receiver);
       } else {
         // The taker is the actor; the one it was taken from is `to`.
-        from = e.actor !== undefined ? memberLane(e.actor) : gone.by ? GONE : HOST;
-        to = receiver !== undefined ? memberLane(receiver) : GONE;
+        const taker = sender(t.standIn.sender);
+        from = gone.by ? goneLane(`${e.id}:by`) : taker.lane;
+        suffix = gone.by ? "" : taker.standIn;
+        to = receiver !== undefined ? memberLane(receiver) : goneLane(`${e.id}:to`);
       }
     } else if (step.startsWith("checks")) {
       from = CHECKS;
       to = HOST;
+      label = t.steps[step as keyof typeof t.steps];
     } else if (isReviewStep(step)) {
-      const who = actorOf(e, matched(e, step));
-      from = who?.lane ?? HOST;
-      via = who?.via;
-      to = (e.change !== undefined ? author.get(e.change) : undefined) ?? HOST;
-    } else {
-      const who = actorOf(e, matched(e, step));
-      from = who?.lane ?? HOST;
-      via = who?.via;
+      // A review is the reviewer's, of the change: the event holds no recipient.
+      const who = sender(t.standIn.reviewer);
+      from = who.lane;
+      suffix = who.standIn;
       to = HOST;
+      label = t.reviews[step](e.change);
+      const entry = isObserved ? reviewEntry(e) : undefined;
+      matched = entry?.by;
+      if (entry?.dismissed !== undefined) dismissed = entry.dismissed.time;
+    } else {
+      const who = sender(t.standIn.sender);
+      from = who.lane;
+      suffix = who.standIn;
+      to = HOST;
+      label = t.steps[step as keyof typeof t.steps];
+      if (isObserved) matched = step === "opened" ? matchedOpening(e) : step === "new-head" ? matchedHead(e) : undefined;
     }
-    let label: string = t.steps[step];
     if (WITH_HEAD.has(step) && e.sha !== undefined) label = t.head(label, e.sha.slice(0, 7));
-    if (several && e.change !== undefined) label = t.ofChange(e.change, label);
+    if (several && e.change !== undefined && !isReviewStep(step)) label = t.ofChange(e.change, label);
+    if (dismissed !== undefined) label += t.dismissed(`${new Date(dismissed).toISOString().slice(11, 16)} UTC`);
+    label += suffix;
     const f = lane(from);
     const g = lane(to);
-    rows.push({ kind: "arrow", ...base, from: f, to: g, label, ...(via !== undefined ? { via } : {}) });
+    rows.push({ kind: "arrow", ...base, from: f, to: g, label, ...(matched !== undefined ? { matched } : {}) });
   }
   return { lanes, rows };
 }
@@ -187,7 +214,8 @@ export function flowOf(shown: Shown): Flow {
 export function rowName(row: Row, lanes: Lane[], when: string): string {
   const name = (key: string) => lanes.find((l) => l.key === key)?.label ?? key;
   const origin = t.origin[row.origin];
-  return row.from === row.to ? t.inLane(when, row.label, name(row.from), origin, row.via) : t.arrow(when, row.label, name(row.from), name(row.to), origin, row.via);
+  const matched = row.matched === undefined ? undefined : t.matched(row.matched);
+  return row.from === row.to ? t.inLane(when, row.label, name(row.from), origin, matched) : t.arrow(when, row.label, name(row.from), name(row.to), origin, matched);
 }
 
 /** The filter that finds one event by its id: the string is written as a JSON string, which a CEL string takes. */
