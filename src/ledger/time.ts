@@ -40,7 +40,8 @@ export interface WhenOptions {
 /**
  * The time a person wrote, in milliseconds since 1970; NaN for anything but the named forms. The forms: `YYYY-MM-DD`;
  * a date with `T` or a space and `HH:MM` or `HH:MM:SS` (a fraction of a second may follow), in local time; the same
- * ending in `Z`, in UTC; and `now` where the command takes it. The day and the time must be real.
+ * ending in `Z`, in UTC; and `now` where the command takes it. The day and the time must be real. A local time that
+ * does not exist, in the hour the clocks go forward, is no time; one that occurs twice takes the earlier.
  */
 export function parseWhen(text: string, options: WhenOptions): number {
   if (text === "now") return options.now ?? Number.NaN;
@@ -59,6 +60,9 @@ export function parseWhen(text: string, options: WhenOptions): number {
   } else {
     at.setFullYear(year, month - 1, day);
     at.setHours(hour, minute, second, ms);
+    // A local time in the hour the clocks go forward does not exist: it is not moved to the hour after, it is no time.
+    // One that occurs twice, as the clocks go back, is the earlier of the two, which is what `setHours` gives.
+    if (at.getFullYear() !== year || at.getMonth() !== month - 1 || at.getDate() !== day || at.getHours() !== hour || at.getMinutes() !== minute) return Number.NaN;
   }
   return at.getTime();
 }

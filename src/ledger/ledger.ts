@@ -21,6 +21,7 @@ import {
 import { dirname } from "node:path";
 import { isCode, LedgerError } from "./errors.ts";
 import { fixedForm } from "./fixed.ts";
+import { checkEventDepth } from "./json.ts";
 import { eventFaults, type LedgerEvent } from "./schema.ts";
 
 export { LedgerError };
@@ -125,6 +126,8 @@ function write(fd: number, at: number, prev: string | null, event: LedgerEvent):
 function toLine(prev: string | null, event: LedgerEvent): Buffer {
   // The event is checked as it will stand in the file, in its fixed form.
   const fixed = fixedForm(event);
+  // The line holds the event one level down, and `howl verify` reads no line deeper than 128.
+  checkEventDepth(fixed);
   const faults = eventFaults(JSON.parse(fixed.toString("utf8")));
   if (faults.length > 0) throw new LedgerError(`not a valid event: ${faults.join("; ")}`);
   const hash = createHash("sha256").update(fixed).digest("hex");
