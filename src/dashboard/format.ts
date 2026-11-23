@@ -449,3 +449,116 @@ export function summarySpans(s: Summary): { all: number; work: number; checks: n
 export function waitSpan(seconds: number | null): number | null {
   return seconds === null ? null : seconds * 1000;
 }
+
+/** #189: who established an event, as a badge: its code and its mark; a claim is outlined and its row in italics. */
+export function establishedBy(kind: string): { code: "SOURCE" | "CLAIM" | "UNKNOWN"; mark: string; claimed: boolean } {
+  if (kind === "observed") return { code: "SOURCE", mark: "▣", claimed: false };
+  if (kind === "claimed") return { code: "CLAIM", mark: "▢", claimed: true };
+  // A kind the page does not know (derived comes with the checker) is never taken for observed.
+  return { code: "UNKNOWN", mark: "?", claimed: false };
+}
+
+/** #189: the mark of a status in the first column: a wait for a person, failed checks, merged; else none. */
+export function statusMark(item: Item): "◷" | "!" | "✓" | "" {
+  const e = item.event;
+  if (waitsForPerson(e)) return "◷";
+  if (e.type === "checks.failed") return "!";
+  if (e.type === "change.merged") return "✓";
+  return "";
+}
+
+export type SavedFilter = { name: string; expression: string };
+
+/** #189: the filters every reader has, in order. The first shows everything. */
+export function builtInFilters(): SavedFilter[] {
+  return texts.stream.builtIn.map((f) => ({ name: f.name, expression: f.expression }));
+}
+
+/** #189: the filters a reader saved, read from the stored text. A broken value gives none; a broken entry is left out. */
+export function readSavedFilters(raw: string | null): SavedFilter[] {
+  if (raw === null) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: SavedFilter[] = [];
+  for (const f of parsed) {
+    if (typeof f !== "object" || f === null) continue;
+    const { name, expression } = f as Record<string, unknown>;
+    if (typeof name === "string" && name !== "" && typeof expression === "string") out.push({ name, expression });
+  }
+  return out;
+}
+
+/** #189: the text to store for the saved filters. */
+export function writeSavedFilters(filters: SavedFilter[]): string {
+  return JSON.stringify(filters);
+}
+
+/** #189: the key of the saved filters in the browser's storage. */
+export const SAVED_FILTERS_KEY = "howl.savedFilters";
+
+/** #189: the text a screen reader reads for a status mark; none for none. */
+export function markText(mark: string): string {
+  if (mark === "◷") return texts.stream.marks.waits;
+  if (mark === "!") return texts.stream.marks.failed;
+  if (mark === "✓") return texts.stream.marks.merged;
+  return "";
+}
+
+/** #189: whether a name is a built-in filter's. A saved name that is there is replaced, so it is not taken. */
+export function nameTaken(name: string, _saved: SavedFilter[]): boolean {
+  return builtInFilters().some((f) => f.name === name.trim());
+}
+
+/** #190: one item of the band of what needs a person. */
+export interface BandItem {
+  mark: "◷";
+  agent: string;
+  subject: string;
+  since: string;
+  waited: number;
+  session?: string;
+  /** A wait is always a session's claim: the state is folded from claimed events only, so this goes when the fold changes. */
+  established: ReturnType<typeof establishedBy>;
+}
+
+/** #190: the band's items from the agents' rows: each agent in "needs input", the longest wait first. */
+export function needsPersonItems(rows: AgentRow[], now: number): BandItem[] {
+  return rows
+    .filter((r) => r.state === "needs-input")
+    .map((r): BandItem => ({
+      mark: "◷",
+      agent: r.agent,
+      subject: teamWorksOn(r),
+      since: duration(now - Date.parse(r.since ?? r.last)),
+      waited: now - Date.parse(r.since ?? r.last),
+      ...(r.session !== undefined ? { session: r.session } : {}),
+      established: establishedBy("claimed"),
+    }))
+    .sort((a, b) => b.waited - a.waited);
+}
+
+/** #190: the filter that finds the wait an item rests on: the agent's waits, in the project when the server serves several. */
+export function waitFilter(agent: string, project: string | null): string {
+  const base = `event.type == "agent.waiting" && has(event.actor) && event.actor.id == ${JSON.stringify(agent)}`;
+  return project === null ? base : `${base} && event.project == ${JSON.stringify(project)}`;
+}
+
+/**
+ * #190: the rows of the list that need a person now: for each agent in "needs input", its latest wait for a person
+ * in the list (the list is newest first), in the project of the band when several are served. An answered wait
+ * and a wait for instructions are not among them.
+ */
+export function waitRowKeys(items: Item[], rows: AgentRow[], project: string | null): Set<string> {
+  const keys = new Set<string>();
+  for (const r of rows) {
+    if (r.state !== "needs-input") continue;
+    const found = items.find((i) => waitsForPerson(i.event) && i.event.actor?.id === r.agent && (project === null || i.project === project));
+    if (found) keys.add(itemKey(found));
+  }
+  return keys;
+}

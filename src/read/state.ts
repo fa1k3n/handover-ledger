@@ -27,6 +27,8 @@ export interface AgentRow {
   /** The last tool call: the tool and its target. */
   tool?: string;
   target?: string;
+  /** #190: when the wait for a person began, for a row that needs input: the start of its state, not of its last event. */
+  since?: string;
   /** The time of the agent's last event. */
   last: string;
   /** The type of the agent's last event of its own session. */
@@ -68,7 +70,9 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
     const own = list.filter((e) => e.source.kind === "claimed");
     const lastOwn = own.at(-1);
     const last = list.at(-1)!;
-    const row: AgentRow = { agent, state: stateOf(own, now), last: last.time, gaps: [] };
+    const own_state = stateOf(own, now);
+    const row: AgentRow = { agent, state: own_state.state, last: last.time, gaps: [] };
+    if (own_state.since !== undefined) row.since = own_state.since;
     if (lastOwn) {
       row.lastType = lastOwn.type;
       if (lastOwn.branch !== undefined) row.branch = lastOwn.branch;
@@ -119,11 +123,14 @@ export function agentStates(events: LedgerEvent[], now: number, options: StateOp
  * tool), not the idle wait after a turn. An agent that asks in the text of its answer and ends its turn cannot be
  * told from one that is done: that is waiting. An agent with no event of what it does is idle.
  */
-function stateOf(own: LedgerEvent[], now: number): AgentState {
+function stateOf(own: LedgerEvent[], now: number): { state: AgentState; since?: string } {
   const points = agentTimeline(own);
   // An event stamped a moment ahead of this clock is read as now, as before.
   const last = points.findLast((p) => p.state !== "idle");
-  return stateAt(points, Math.max(now, last === undefined ? now : Date.parse(last.time))) ?? "idle";
+  const state = stateAt(points, Math.max(now, last === undefined ? now : Date.parse(last.time))) ?? "idle";
+  // #190: a point is given where the state changes, so the last point of needs-input is where the wait began.
+  const began = state === "needs-input" ? points.findLast((p) => p.state === "needs-input")?.time : undefined;
+  return began === undefined ? { state } : { state, since: began };
 }
 
 /** How many agents are in a state, for the team: never who they wait for. */
