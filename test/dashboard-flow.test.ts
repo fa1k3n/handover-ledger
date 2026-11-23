@@ -22,6 +22,7 @@ const view = (events: LedgerEvent[], what: { kind: "change" | "task"; id: string
   return shown;
 };
 const key = (kind: string, id: string) => `${kind}:${id}`;
+const reviewId = "77";
 
 test("#192: the lanes are in the order each first appears; the story's change 30 has the code host, the agent, the checks and the two people", () => {
   const flow = flowOf(view(ledgerEvents()));
@@ -50,7 +51,7 @@ test("#192: a task given is an arrow from the giver to the receiver; one written
   const old = flowOf(view(ledgerEvents()));
   assert.equal(old.rows[0]!.from, "host");
   assert.equal(old.rows[0]!.to, key("agent", "agent-1"));
-  assert.equal(old.rows[0]!.label, "task given");
+  assert.equal(old.rows[0]!.label, "task given, giver not recorded");
 });
 
 test("#192: the arrows of the story: direction, label and time, in the order of time", () => {
@@ -58,15 +59,15 @@ test("#192: the arrows of the story: direction, label and time, in the order of 
   const arrows = flow.rows.filter((r) => r.kind === "arrow").map((r) => [r.time, r.from, r.to, r.label]);
   const a = key("agent", "agent-1");
   assert.deepEqual(arrows, [
-    [m(0), "host", a, "task given"],
+    [m(0), "host", a, "task given, giver not recorded"],
     [m(10), a, "host", `change opened · head ${SHA.a.slice(0, 7)}`],
     [m(12), "checks", "host", `checks passed · head ${SHA.a.slice(0, 7)}`],
-    [m(20), key("person", REVIEWER), a, "changes asked for"],
-    [m(30), a, "host", `new head ${SHA.b.slice(0, 7)}`],
+    [m(20), key("person", REVIEWER), "host", "changes asked for on change 30"],
+    [m(30), "host", "host", `new head ${SHA.b.slice(0, 7)}, sender not named`],
     [m(33), "checks", "host", `checks failed · head ${SHA.b.slice(0, 7)}`],
-    [m(40), a, "host", `new head ${SHA.c.slice(0, 7)}`],
+    [m(40), "host", "host", `new head ${SHA.c.slice(0, 7)}, sender not named`],
     [m(45), "checks", "host", `checks passed · head ${SHA.c.slice(0, 7)}`],
-    [m(55), key("person", REVIEWER), a, "approved"],
+    [m(55), key("person", REVIEWER), "host", "approved change 30"],
     [m(60), key("person", MERGER), "host", "merged"],
   ]);
   // The times never go backwards.
@@ -154,44 +155,120 @@ test("#192: a change with no event at all that the graph draws has no lane and n
   assert.deepEqual(flow.rows, []);
 });
 
-test("#192: the agent behind a person's account is the lane, and the account is `via`", () => {
+test("#192: an observed event is drawn from the account the host named; the agent a session matched is said in words, as a claim", () => {
   const events = [
     ev("session.started", 0, { task: "12", session: "s1", branch: "task-12-x", actor: agent("agent-1") }, "claimed"),
     ev("change.opened", 1, of(SHA.a, { actor: person("person-aaaa") })),
   ];
-  const [row] = flowOf(view(events)).rows;
-  assert.equal(row!.from, key("agent", "agent-1"));
-  assert.equal(row!.via, "person-aaaa");
-  assert.match(rowName(row!, flowOf(view(events)).lanes, "10:00"), /via person-aaaa/);
+  const flow = flowOf(view(events));
+  const [row] = flow.rows;
+  assert.equal(row!.from, key("person", "person-aaaa"));
+  assert.equal(row!.to, "host");
+  assert.equal(row!.origin, "observed");
+  assert.equal(row!.matched, "agent-1");
+  assert.equal(flow.lanes.some((l) => l.key === key("agent", "agent-1")), false);
+  assert.match(rowName(row!, flow.lanes, "10:00"), /observed, matched to agent-1 \(a session's claim\)$/);
 });
 
-test("#192: a head that names no one and matches no agent is a mark in the code host's lane", () => {
-  const [row] = flowOf(view([ev("change.updated", 1, of(SHA.b))])).rows;
-  assert.equal(row!.kind, "arrow");
+test("#192: a head the host names no one for is drawn from the code host, and the matched agent is in words, never the sender", () => {
+  const events = [
+    ev("session.started", 0, { task: "12", session: "s1", branch: "task-12-x", actor: agent("agent-1") }, "claimed"),
+    ev("change.opened", 1, of(SHA.a, { actor: person("person-aaaa") })),
+    ev("change.updated", 2, of(SHA.b)),
+  ];
+  const flow = flowOf(view(events));
+  const head = flow.rows[1]!;
+  assert.equal(head.from, "host");
+  assert.equal(head.label, `new head ${SHA.b.slice(0, 7)}, sender not named`);
+  assert.equal(head.matched, "agent-1");
+  assert.match(rowName(head, flow.lanes, "10:02"), /matched to agent-1 \(a session's claim\)/);
+});
+
+test("#192: a match belongs to the event it was made for: a claimed opening beside the observed one takes none", () => {
+  const events = [
+    ev("session.started", 0, { task: "12", session: "s1", branch: "task-12-x", actor: agent("agent-1") }, "claimed"),
+    ev("change.opened", 1, of(SHA.a, { actor: person("person-aaaa") })),
+    ev("change.opened", 20, of(SHA.a, { actor: person("person-zzzz") }), "claimed"),
+    // At the very time of the observed one, but claimed.
+    ev("change.opened", 1, of(SHA.a, { actor: person("person-yyyy") }), "claimed"),
+  ];
+  const rows = flowOf(view(events)).rows;
+  const observed = rows.find((r) => r.origin === "observed")!;
+  assert.equal(observed.matched, "agent-1");
+  const claimed = rows.filter((r) => r.origin === "claimed");
+  assert.equal(claimed.length, 2);
+  for (const r of claimed) {
+    assert.equal(r.matched, undefined);
+    assert.equal(r.from.startsWith("agent:"), false);
+  }
+  assert.deepEqual(claimed.map((r) => r.from).sort(), [key("person", "person-yyyy"), key("person", "person-zzzz")]);
+});
+
+test("#192: a review is drawn from the reviewer to the change, with the change in its label; no recipient is assumed", () => {
+  const flow = flowOf(
+    view([
+      ev("change.opened", 1, of(SHA.a, { actor: agent("agent-1") })),
+      ev("review.approved", 2, of(SHA.a, { actor: person("person-eeee") })),
+      ev("review.changes_requested", 3, of(SHA.a, { actor: person("person-eeee") })),
+      ev("review.commented", 4, of(SHA.a, { actor: agent("agent-1") })),
+    ]),
+  );
+  const [, approved, asked, commented] = flow.rows;
+  assert.deepEqual([approved!.from, approved!.to, approved!.label], [key("person", "person-eeee"), "host", "approved change 30"]);
+  assert.deepEqual([asked!.from, asked!.to, asked!.label], [key("person", "person-eeee"), "host", "changes asked for on change 30"]);
+  assert.deepEqual([commented!.from, commented!.to, commented!.label], [key("agent", "agent-1"), "host", "commented on change 30"]);
+  // The author's lane is not an end of a review.
+  assert.equal(flow.rows.filter((r) => r.label.includes("change 30")).every((r) => r.to === "host"), true);
+});
+
+test("#192: a review that names no reviewer comes from the code host and says so", () => {
+  const [row] = flowOf(view([ev("review.approved", 2, of(SHA.a))])).rows;
   assert.equal(row!.from, "host");
-  assert.equal(row!.to, "host");
-  assert.equal(row!.label, `new head ${SHA.b.slice(0, 7)}`);
+  assert.equal(row!.label, "approved change 30, reviewer not named");
 });
 
-test("#192: a review by the author of the change is a mark in that lane, not an arrow between two", () => {
-  const flow = flowOf(view([ev("change.opened", 1, of(SHA.a, { actor: agent("agent-1") })), ev("review.commented", 2, of(SHA.a, { actor: agent("agent-1") }))]));
-  const [, review] = flow.rows;
-  assert.equal(review!.kind, "arrow");
-  assert.equal(review!.from, review!.to);
-  assert.equal(review!.label, "review comment");
+test("#192: where the code host stands in for a sender who is not named, the label says so", () => {
+  const events = [
+    ev("change.opened", 1, of(SHA.a)),
+    ev("change.merged", 5, of(SHA.a)),
+    ev("task.assigned", 0, { task: "12", actor: agent("agent-1") }),
+  ];
+  const labels = flowOf(view(events, { kind: "task", id: "12" })).rows.map((r) => r.label);
+  assert.deepEqual(labels, ["task given, giver not recorded", `change opened · head ${SHA.a.slice(0, 7)}, sender not named`, "merged, sender not named"]);
 });
 
-test("#192: a review whose change has no known author goes to the code host", () => {
-  const [row] = flowOf(view([ev("review.approved", 2, of(SHA.a, { actor: person("person-eeee") }))])).rows;
-  assert.equal(row!.from, key("person", "person-eeee"));
-  assert.equal(row!.to, "host");
+test("#192: a review that was dismissed is drawn as dismissed, with when", () => {
+  const events = [
+    ev("change.opened", 1, of(SHA.a, { actor: agent("agent-1") })),
+    ev("review.approved", 2, of(SHA.a, { actor: person("person-eeee") })),
+    ev("review.dismissed", 5, of(SHA.a, { actor: person("person-ffff"), data: { review: reviewId } })),
+  ];
+  events[1]!.id = `github:1:review:${reviewId}`;
+  const rows = flowOf(view(events)).rows;
+  const approved = rows.find((r) => r.event.type === "review.approved")!;
+  assert.equal(approved.label, `approved change 30 (dismissed ${m(5).slice(11, 16)} UTC)`);
+  // The dismissal itself is no arrow.
+  assert.equal(rows.some((r) => r.event.type === "review.dismissed"), false);
 });
 
-test("#192: an account that no longer exists is one lane, named so, and has no pseudonym", () => {
-  const events = [ev("task.assigned", 0, { task: "12", actor: person("person-aaaa"), data: { to_account_removed: true } }), ev("change.opened", 1, of(SHA.a, { actor: agent("agent-1") }))];
+test("#192: each account that no longer exists keeps its own lane, named so, with no pseudonym", () => {
+  const events = [
+    ev("task.assigned", 0, { task: "12", actor: person("person-aaaa"), data: { to_account_removed: true } }),
+    ev("task.assigned", 1, { task: "12", actor: person("person-aaaa"), data: { to_account_removed: true } }),
+    ev("change.opened", 2, of(SHA.a, { actor: agent("agent-1") })),
+    ev("review.approved", 3, of(SHA.a, { data: { account_removed: true } })),
+  ];
   const flow = flowOf(view(events, { kind: "task", id: "12" }));
-  assert.equal(flow.rows[0]!.to, "gone");
-  assert.equal(flow.lanes.find((l) => l.key === "gone")!.label, "An account that no longer exists");
+  const gone = flow.lanes.filter((l) => l.kind === "gone");
+  assert.equal(gone.length, 3);
+  assert.deepEqual(gone.map((l) => l.label), ["Account that no longer exists 1", "Account that no longer exists 2", "Account that no longer exists 3"]);
+  assert.equal(new Set(gone.map((l) => l.key)).size, 3);
+  assert.equal(flow.rows[0]!.to, gone[0]!.key);
+  assert.equal(flow.rows[1]!.to, gone[1]!.key);
+  // A review by an account that is gone is not "reviewer not named".
+  const review = flow.rows.find((r) => r.event.type === "review.approved")!;
+  assert.equal(review.from, gone[2]!.key);
+  assert.equal(review.label, "approved change 30");
 });
 
 test("#192: a task taken back is drawn from the one who took it to the one it was taken from", () => {
@@ -228,8 +305,8 @@ test("#192: a row carries the event it opens, and the filter that finds it by it
 
 test("#192: the name of an arrow says the time, what, from, to, and observed or claimed", () => {
   const flow = flowOf(view(ledgerEvents()));
-  const approved = flow.rows.find((r) => r.label === "approved")!;
-  assert.equal(rowName(approved, flow.lanes, "10:55"), `10:55, approved, from ${REVIEWER} to agent-1, observed`);
+  const approved = flow.rows.find((r) => r.label === "approved change 30")!;
+  assert.equal(rowName(approved, flow.lanes, "10:55"), `10:55, approved change 30, from ${REVIEWER} to Code host, observed`);
   const note = flow.rows.find((r) => r.kind === "note")!;
   assert.equal(rowName(note, flow.lanes, "08:05"), "08:05, waited for a person 3 min, in the lane of agent-1, claimed");
 });
