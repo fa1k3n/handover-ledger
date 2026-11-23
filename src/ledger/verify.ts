@@ -10,7 +10,7 @@ import { closeSync, openSync, readSync } from "node:fs";
 import { LedgerError } from "./errors.ts";
 import { eventHash } from "./fixed.ts";
 import { hashLine } from "./ledger.ts";
-import { NotJson, parseJson } from "./json.ts";
+import { LoneSurrogate, NotJson, parseJson } from "./json.ts";
 import { eventFaults, lineFaults, type LedgerLine } from "./schema.ts";
 
 export type Verdict =
@@ -35,6 +35,7 @@ export function verify(path: string): Verdict {
     try {
       value = parseJson(decoder.decode(bytes));
     } catch (e) {
+      if (e instanceof LoneSurrogate) return [`the line: ${e.message}`];
       return [`the line is ${e instanceof NotJson ? e.message : "not JSON"}`];
     }
 
