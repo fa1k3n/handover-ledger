@@ -34,3 +34,23 @@ test("#11: howl status does not change the ledger", () => {
   assert.equal(howl(["status", "--ledger", ledger]).status, 0);
   assert.deepEqual(readFileSync(ledger), before);
 });
+
+test("#137: HOWL_NOW sets the present time of howl status", () => {
+  const ledger = writeStory();
+  const [row] = JSON.parse(howl(["status", "--ledger", ledger, "--json"]).stdout) as { agent: string; last: string }[];
+  const now = new Date(Date.parse(row!.last) + 5 * 60_000).toISOString();
+  const result = howl(["status", "--ledger", ledger], { env: { HOWL_NOW: now } });
+  assert.equal(result.status, 0, result.stderr);
+  const line = result.stdout.split("\n").find((l) => l.startsWith("agent-1"))!;
+  assert.match(line, /  5 min(  missing: .*)?$/);
+  assert.deepEqual(howl(["status", "--ledger", ledger], { env: { HOWL_NOW: now } }).stdout, result.stdout);
+});
+
+test("#137: a HOWL_NOW that is not an ISO time with Z or an offset is refused with 2", () => {
+  const ledger = writeStory();
+  for (const value of ["yesterday", "2026-01-01", "2026-01-01T10:00:00"]) {
+    const result = howl(["status", "--ledger", ledger], { env: { HOWL_NOW: value } });
+    assert.equal(result.status, 2, value);
+    assert.match(result.stderr, /^howl: HOWL_NOW /);
+  }
+});

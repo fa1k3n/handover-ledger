@@ -1,10 +1,11 @@
 // Helpers shared by the tests: folders, events, ledgers, processes and git.
 // @code_class tests
-import { spawn, spawnSync } from "node:child_process";
+import assert from "node:assert/strict";
+import { spawn, spawnSync, type ChildProcess, type ChildProcessWithoutNullStreams, type StdioOptions } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { after } from "node:test";
 import { fileURLToPath } from "node:url";
 import { openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
@@ -88,24 +89,56 @@ export interface RunOptions {
   input?: string;
 }
 
-/** Runs `howl` as a process of its own, with no environment but PATH and `env`. */
-export function howl(args: string[], options: RunOptions = {}): Run {
-  const result = spawnSync(process.execPath, [CLI, ...args], {
-    cwd: options.cwd,
-    env: { PATH: process.env.PATH ?? "", ...options.env },
-    input: options.input ?? "",
-    encoding: "utf8",
-  });
+/**
+ * #137: the executable to start. With HOWL_BIN set, that binary (the Rust `howl`), with HOWL_FALLBACK and HOWL_NODE
+ * added so that it hands what it does not do yet to the TypeScript; else the TypeScript, as before.
+ */
+const BIN = process.env.HOWL_BIN ? resolve(process.env.HOWL_BIN) : undefined;
+/** #137: with HOWL_COMPARE set as well, `howl()` runs these read-only commands through both versions. Each piece adds what it moves. */
+export const COMPARED = ["help"];
+
+/** The program, its arguments and its environment: no environment but PATH and `env`. */
+function command(args: string[], env: Record<string, string> = {}, typescript = BIN === undefined) {
+  const base = { PATH: process.env.PATH ?? "", ...env };
+  if (typescript) return { file: process.execPath, argv: [CLI, ...args], env: base };
+  return { file: BIN!, argv: args, env: { ...base, HOWL_FALLBACK: CLI, HOWL_NODE: process.execPath } };
+}
+
+export interface StartOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+  stdio?: StdioOptions;
+}
+
+/** The one spawn of `howl` for the tests: a process that runs while the test goes on. */
+export function startHowl(args: string[], options?: Omit<StartOptions, "stdio">): ChildProcessWithoutNullStreams;
+export function startHowl(args: string[], options: StartOptions): ChildProcess;
+export function startHowl(args: string[], options: StartOptions = {}): ChildProcess {
+  const { file, argv, env } = command(args, options.env);
+  return spawn(file, argv, { cwd: options.cwd, env, stdio: options.stdio ?? "pipe" });
+}
+
+function runSync(args: string[], options: RunOptions, typescript?: boolean): Run {
+  const { file, argv, env } = command(args, options.env, typescript);
+  const result = spawnSync(file, argv, { cwd: options.cwd, env, input: options.input ?? "", encoding: "utf8" });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+/** Runs `howl` as a process of its own, with no environment but PATH and `env`. In compare mode, a command of COMPARED runs through both versions, which must agree. */
+export function howl(args: string[], options: RunOptions = {}): Run {
+  if (BIN === undefined || !process.env.HOWL_COMPARE || !COMPARED.includes(args[0] ?? "")) return runSync(args, options);
+  // The same present time for both, unless the test gives one.
+  const same = { ...options, env: { HOWL_NOW: new Date().toISOString(), ...options.env } };
+  const rust = runSync(args, same, false);
+  const typescript = runSync(args, same, true);
+  assert.deepEqual(rust, typescript, `howl ${args.join(" ")}: the Rust and the TypeScript differ`);
+  return rust;
 }
 
 /** As `howl`, but without waiting: for processes that run at the same time. */
 export function howlAsync(args: string[], options: RunOptions = {}): Promise<Run> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [CLI, ...args], {
-      cwd: options.cwd,
-      env: { PATH: process.env.PATH ?? "", ...options.env },
-    });
+    const child = startHowl(args, { cwd: options.cwd, env: options.env });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));

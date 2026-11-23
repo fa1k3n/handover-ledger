@@ -1,16 +1,14 @@
 // The hook never holds up a session when keyd hangs or is gone. The tests of issue #30.
 // @code_class tests
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { runHook } from "../src/hook/hook.ts";
-import { folder, howl, inboxEvents, PROJECT, workspace, type Workspace } from "./helpers.ts";
+import { folder, howl, inboxEvents, PROJECT, startHowl, workspace, type Workspace } from "./helpers.ts";
 
-const CLI = fileURLToPath(new URL("../src/cli/howl.ts", import.meta.url));
 const KEY = "a".repeat(64);
 const TOKEN = "b".repeat(64);
 
@@ -94,7 +92,7 @@ test("#30: a keyd that answers signs as before, and a keyd.down older than 60 s 
   const dir = folder();
   const socket = join(dir, "keyd.sock");
   const state = join(dir, "state");
-  const child = spawn(process.execPath, [CLI, "keyd", "--project", PROJECT, "--socket", socket, "--state", state], { env: { PATH: process.env.PATH ?? "" } });
+  const child = startHowl(["keyd", "--project", PROJECT, "--socket", socket, "--state", state]);
   children.push(child);
   const end = Date.now() + 10_000;
   while (!existsSync(socket)) {

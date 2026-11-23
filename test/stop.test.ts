@@ -1,19 +1,15 @@
 // A process that follows or repeats ends as soon as it is stopped: the tests of issue #7.
 // @code_class tests
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { folder, PROJECT, workspace } from "./helpers.ts";
+import { folder, PROJECT, startHowl, workspace } from "./helpers.ts";
 import { LocalHost } from "./local-host.ts";
 import { writeStory } from "./story.ts";
 
-const CLI = fileURLToPath(new URL("../src/cli/howl.ts", import.meta.url));
-
 /** Starts howl, waits until `ready` is true, sends SIGTERM and returns how long it took to end. */
 async function stopTime(args: string[], opts: { cwd?: string; env?: Record<string, string> }, ready: (out: string) => boolean): Promise<number> {
-  const child = spawn(process.execPath, [CLI, ...args], { cwd: opts.cwd, env: { PATH: process.env.PATH ?? "", ...opts.env } });
+  const child = startHowl(args, { cwd: opts.cwd, env: opts.env });
   let out = "";
   child.stdout.on("data", (d) => (out += d));
   child.stderr.on("data", (d) => (out += d));

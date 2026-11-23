@@ -1,13 +1,10 @@
 // A running `howl up` for the tests of issue #64: a child process, its server file and its end.
 // @code_class tests
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { folder, PROJECT, workspace, type Workspace } from "./helpers.ts";
+import { folder, PROJECT, startHowl, workspace, type Workspace } from "./helpers.ts";
 import { LocalHost } from "./local-host.ts";
-
-const CLI = fileURLToPath(new URL("../src/cli/howl.ts", import.meta.url));
 
 export interface Up {
   ws: Workspace;
@@ -48,9 +45,9 @@ export async function until<T>(ready: () => T | undefined | null | false, ms = 1
 /** Starts `howl up` on a free port and waits for its server file. Rounds are an hour apart: only the first runs. */
 export async function up(setup = observed(), args: string[] = []): Promise<Up> {
   const { ws, host } = setup;
-  const child = spawn(process.execPath, [CLI, "up", "--port", "0", "--interval", "3600", ...args], {
+  const child = startHowl(["up", "--port", "0", "--interval", "3600", ...args], {
     cwd: ws.root,
-    env: { PATH: process.env.PATH ?? "", ...ws.env },
+    env: ws.env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   // A test run that ends early does not leave it running.

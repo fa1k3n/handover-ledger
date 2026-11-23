@@ -1,15 +1,13 @@
 // howl keyd: a signing service that holds the keys, so a session never sees one. The tests of issue #24.
 // @code_class tests
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { request } from "../src/keys/keyd.ts";
-import { folder, howl, inboxEvents, PROJECT, workspace, type Workspace } from "./helpers.ts";
+import { folder, howl, inboxEvents, PROJECT, startHowl, workspace, type Workspace } from "./helpers.ts";
 
-const CLI = fileURLToPath(new URL("../src/cli/howl.ts", import.meta.url));
 const children: ChildProcess[] = [];
 after(() => {
   for (const c of children) c.kill("SIGTERM");
@@ -19,7 +17,7 @@ async function keyd(): Promise<{ socket: string; admin: string }> {
   const dir = folder();
   const socket = join(dir, "keyd.sock");
   const state = join(dir, "state");
-  const child = spawn(process.execPath, [CLI, "keyd", "--project", PROJECT, "--socket", socket, "--state", state], { env: { PATH: process.env.PATH ?? "" } });
+  const child = startHowl(["keyd", "--project", PROJECT, "--socket", socket, "--state", state]);
   children.push(child);
   const end = Date.now() + 10_000;
   while (!existsSync(socket)) {
