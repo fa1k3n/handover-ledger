@@ -30,6 +30,14 @@ test("#137: the direct dependencies of the crate are the list in this test", () 
   assert.deepEqual(crates(toml), ["serde", "serde_json", "ryu-js", "sha2"]);
 });
 
+test("#139: serde_json's arbitrary_precision is never asked for", () => {
+  // Without it every number has an f64, as JSON.parse makes it, and fixed_form relies on that. Cargo.lock does not
+  // record features, so a crate that turns it on through feature unification is caught by the Rust tests instead
+  // (rust/tests/fixed.rs: 1e400 would be read, and numbers above 2^53 kept whole).
+  const toml = readFileSync(new URL("../rust/Cargo.toml", import.meta.url), "utf8");
+  assert.doesNotMatch(toml, /arbitrary_precision/);
+});
+
 test("#137: the crate is built with the toolchain the repository pins", () => {
   const pin = readFileSync(new URL("../rust-toolchain.toml", import.meta.url), "utf8");
   assert.match(pin, /^channel = "\d+\.\d+\.\d+"$/m, "an exact version");
