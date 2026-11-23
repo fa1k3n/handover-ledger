@@ -56,7 +56,8 @@ pub fn parse_json(text: &str) -> Result<Value, JsonError> {
 
 /// The nesting check, and where the hex digits of each lone surrogate escape start.
 fn scan(bytes: &[u8]) -> Result<Vec<usize>, JsonError> {
-    let mut depth = 0usize;
+    // Signed, as in the TypeScript: a closing bracket too many lets as many more opening ones in.
+    let mut depth: i64 = 0;
     let mut in_string = false;
     let mut lone = Vec::new();
     let mut i = 0;
@@ -84,11 +85,11 @@ fn scan(bytes: &[u8]) -> Result<Vec<usize>, JsonError> {
             in_string = true;
         } else if c == b'[' || c == b'{' {
             depth += 1;
-            if depth > MAX_DEPTH {
+            if depth > MAX_DEPTH as i64 {
                 return Err(JsonError::TooDeep);
             }
         } else if c == b']' || c == b'}' {
-            depth = depth.saturating_sub(1);
+            depth -= 1;
         }
         i += 1;
     }

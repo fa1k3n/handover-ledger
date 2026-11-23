@@ -150,6 +150,8 @@ fn json_nested_128_deep_is_read_and_129_deep_refused() {
     let objects = |n: usize| r#"{"a":"#.repeat(n) + "1" + &"}".repeat(n);
     assert!(parse_json(&objects(128)).is_ok());
     assert_eq!(refused(&objects(129)), TOO_DEEP);
+    // A closing bracket too many is counted as the TypeScript counts it: the text is not JSON, not too deep.
+    assert_eq!(refused(&("]".to_string() + &nested(129))), "not JSON");
     // Brackets inside a string do not count, an escaped quote does not end it.
     let in_string = format!(r#"["\"{}"]"#, "[".repeat(200));
     assert!(parse_json(&in_string).is_ok());
