@@ -18,7 +18,8 @@ export type Verdict =
   | { ok: false; lines: number; line: number; faults: string[] };
 
 export function verify(path: string): Verdict {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
+  // #140: a byte order mark is kept, so that JSON.parse refuses it, as every reader of the ledger does.
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   let lines = 0;
   let head: string | null = null;
   let trial = false;

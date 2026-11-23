@@ -81,13 +81,15 @@ impl Key {
     }
 }
 
-/// Base64 as Node's Buffer.from decodes it: both alphabets, any other character passed over, an end at the first `=`.
-/// Bits left over that make no whole byte are dropped.
+/// Base64 as Node's Buffer.from decodes it: the low byte of each UTF-16 code unit is read, in both alphabets; any
+/// other is passed over, and the first `=` ends it (so `\u{151}` is read as `Q`, and the high surrogate of an emoji
+/// as `=`). Bits left over that make no whole byte are dropped.
 pub fn base64_decode(text: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() * 3 / 4);
     let mut bits: u32 = 0;
     let mut count = 0;
-    for b in text.bytes() {
+    for unit in text.encode_utf16() {
+        let b = unit as u8;
         let six = match b {
             b'A'..=b'Z' => b - b'A',
             b'a'..=b'z' => b - b'a' + 26,

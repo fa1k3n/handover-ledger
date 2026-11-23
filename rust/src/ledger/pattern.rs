@@ -1,7 +1,8 @@
 // The patterns of the schema, matched as JavaScript's RegExp with the `u` flag matches them (#140).
 //
 // A small matcher of our own, not a crate: it knows only what the schema's patterns use (`^`, `$`, literals, `\.` and
-// `\uXXXX`, classes with ranges and `^`, groups with `|`, `?`, `*`, `+`, `{n}`, `{n,}`, `{n,m}`), over code points.
+// `\uXXXX`, classes with ranges and `^`, groups with `|`, `?`, `*`, `+`, `{n}`, `{n,}`, `{n,m}`, but no `*`, `+` or
+// `{n,}` after a group), over code points.
 // Anything else is refused when the pattern is read, so a schema that needs more fails its test instead of passing.
 // @code_class evidence
 
@@ -210,6 +211,11 @@ impl Reader<'_> {
         }
         if matches!(self.peek(), Some('?' | '*' | '+' | '{')) {
             return Err("the pattern construct of a lazy or double quantifier is not known".into());
+        }
+        // Each turn of a group goes one level deeper: an unbounded one could run out of stack.
+        // The schema needs none.
+        if matches!(atom, Node::Group(_)) && max.is_none() {
+            return Err("the pattern repeats a group without a bound".into());
         }
         Ok(Node::Repeat {
             node: Box::new(atom),

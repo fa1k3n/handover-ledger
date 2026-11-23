@@ -123,11 +123,10 @@ fn check(
     trial: &mut bool,
     each: &mut impl FnMut(usize, &Value),
 ) -> Vec<String> {
-    // 1. JSON, in strict UTF-8; a byte order mark at the start is passed over, as TextDecoder does.
+    // 1. JSON, in strict UTF-8. A byte order mark is not passed over: it is not JSON, as every reader has it.
     if bytes.is_empty() {
         return vec!["the line is empty".to_string()];
     }
-    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     let Ok(text) = std::str::from_utf8(bytes) else {
         return vec!["the line is not JSON".to_string()];
     };
