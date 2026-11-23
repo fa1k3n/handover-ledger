@@ -159,7 +159,17 @@ fn json_nested_128_deep_is_read_and_129_deep_refused() {
 
 #[test]
 fn what_is_not_json_is_refused() {
-    for json in ["", " ", "{", "[1,]", "{\"a\":1}x", "'a'", "NaN", "\u{feff}{}", "01"] {
+    for json in [
+        "",
+        " ",
+        "{",
+        "[1,]",
+        "{\"a\":1}x",
+        "'a'",
+        "NaN",
+        "\u{feff}{}",
+        "01",
+    ] {
         assert_eq!(refused(json), "not JSON", "{json:?}");
     }
 }
@@ -182,7 +192,11 @@ fn the_hash_of_an_event_and_of_a_line_agree_with_a_ledger_the_typescript_wrote()
         let held = read["prev"].as_str().map(str::to_string);
         assert_eq!(held, prev, "the prev of line {count}");
         let hash = event_hash(&read["event"]);
-        assert_eq!(read["hash"].as_str().unwrap(), hash, "the hash of line {count}");
+        assert_eq!(
+            read["hash"].as_str().unwrap(),
+            hash,
+            "the hash of line {count}"
+        );
         prev = Some(hash_line(line.as_bytes()));
     }
     assert!(count > 1);
