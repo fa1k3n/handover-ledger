@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Handover, KeyFigures } from "../read/overview.ts";
 import type { AgentRow, AgentState } from "../read/state.ts";
 import { concerns, detail, duration } from "../read/words.ts";
+import { waitsForPerson } from "../read/wait.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, statusMark, markText, nameTaken, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
+import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, needsPersonItems, waitFilter, waitRowKeys, statusMark, markText, nameTaken, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -115,7 +116,7 @@ export function App() {
         ) : view === "change" ? (
           <ChangeView what={route.what ?? null} project={project} onError={fail} />
         ) : (
-          <Stream ledger={ledger} onError={fail} project={project} served={projects?.projects.length ?? 1} unwritten={unwritten.filter((u) => !u.written).map((u) => u.project)} />
+          <Stream agents={agents} ledger={ledger} onError={fail} project={project} served={projects?.projects.length ?? 1} unwritten={unwritten.filter((u) => !u.written).map((u) => u.project)} />
         )}
       </main>
     </div>
@@ -453,7 +454,7 @@ function AgentLine({ row, now }: { row: AgentRow; now: number }) {
  * the filter. `project` is the one picked in the menu: only for the link of a
  * row that names no project of its own.
  */
-function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.LedgerState | null; onError: (e: unknown) => void; project: string; served: number; unwritten: string[] }) {
+function Stream({ agents, ledger, onError, project, served, unwritten }: { agents: api.Agents | null; ledger: api.LedgerState | null; onError: (e: unknown) => void; project: string; served: number; unwritten: string[] }) {
   const [paused, setPaused] = useState(false);
   // #89: the tool calls are asked for with the box ticked; the filter line starts empty and holds what the reader wrote.
   const [tools, setTools] = useState<boolean>(STREAM_START.tools);
@@ -476,6 +477,9 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
   const [storageRefused, setStorageRefused] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [bandNote, setBandNote] = useState<string | null>(null);
+  // The band's button that opened the dialog, so the focus goes back to it.
+  const fromBand = useRef<string | null>(null);
   // The expression last applied: the pressed button follows it, not the box.
   const [applied, setApplied] = useState<string>(STREAM_START.filter);
   const keep = (next: SavedFilter[]) => {
@@ -514,6 +518,7 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
   }, [filters, tools, onError]);
   usePoll(load, POLL_MS, !paused);
 
+  const needing = useMemo(() => waitRowKeys(items, agents?.rows ?? [], served > 1 ? project : null), [items, agents, served, project]);
   const cols = useMemo(() => streamColumns(items, served), [items, served]);
   // A click on a project or a repository in a row narrows the list to it.
   const narrow = (field: string, value: string) => {
@@ -549,6 +554,26 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
             {texts.stream.showTools}
           </label>
         </div>
+
+        <Band
+          agents={agents}
+          project={served > 1 ? project : null}
+          onOpen={(agent) => {
+            // The event the wait rests on: the agent's latest wait for a person.
+            api.events([waitFilter(agent, served > 1 ? project : null)], false, 5).then(
+              (r) => {
+                const found = [...r.events].reverse().find((i) => waitsForPerson(i.event));
+                if (found) {
+                  fromBand.current = agent;
+                  setPicked(found);
+                  setBandNote(null);
+                } else setBandNote(texts.stream.band.noEvent);
+              },
+              (e: Error) => setBandNote(e.message),
+            );
+          }}
+          note={bandNote}
+        />
 
         <div role="group" aria-label={texts.stream.filtersLabel} className="flex flex-wrap items-center gap-2">
           {[...builtInFilters(), ...saved].map((f, i) => {
@@ -690,17 +715,21 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
                   const mark = statusMark(item);
                   // #189: status is a mark, not a fill; the selected row has an outline.
                   const bg = `${isPicked ? "bg-picked font-medium outline-[1.5px] -outline-offset-[1.5px] outline-ink outline" : item.from === "activity" ? "bg-[#fafbfc] text-mute" : "bg-white"}${origin.claimed ? " italic" : ""}`;
+                  const needsPerson = needing.has(itemKey(item));
                   const label = item.from === "ledger" ? String(item.n) : "·";
                   return (
                     <tr
                       key={itemKey(item)}
                       // #110: a click anywhere on the row opens the event; a link in it goes where it leads.
                       onClick={(e) => {
-                        if (!(e.target as HTMLElement).closest("a")) setPicked(item);
+                        if (!(e.target as HTMLElement).closest("a")) {
+                          fromBand.current = null;
+                          setPicked(item);
+                        }
                       }}
                       className={`cursor-pointer border-t border-line hover:bg-picked ${bg}`}
                     >
-                      <td className="px-3 py-2 text-center font-sans font-semibold" title={markText(mark) || undefined}>
+                      <td className={`px-3 py-2 text-center font-sans font-semibold ${needsPerson ? "border-l-[6px] border-l-ink" : ""}`} title={markText(mark) || undefined}>
                         <span aria-hidden="true">{mark}</span>
                         <span className="sr-only">{markText(mark)}</span>
                       </td>
@@ -758,7 +787,10 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
                         </span>
                         <span className="text-mute">{item.event.source.adapter}</span>
                       </td>
-                      <td className="px-3 py-2 font-sans">{detail(item.event)}</td>
+                      <td className="px-3 py-2 font-sans">
+                        {needsPerson && <strong className="mr-2 font-semibold">{texts.stream.needsPerson}</strong>}
+                        {detail(item.event)}
+                      </td>
                     </tr>
                   );
                 })}
@@ -792,13 +824,68 @@ function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.L
             // Back to the row of the event that was shown last, when it is still in the list.
             const key = itemKey(picked);
             setPicked(null);
+            const band = fromBand.current;
+            fromBand.current = null;
             requestAnimationFrame(() => {
+              if (band !== null) {
+                for (const b of document.querySelectorAll<HTMLButtonElement>("button[data-band]")) if (b.dataset.band === band) return b.focus();
+              }
               for (const b of document.querySelectorAll<HTMLButtonElement>("button[data-event]")) if (b.dataset.event === key) return b.focus();
             });
           }}
         />
       )}
     </>
+  );
+}
+
+/**
+ * #190: what needs a person, above the event list: one button for each agent
+ * that waits for one, the longest wait first, each saying who established it.
+ * It is not a live region: the page polls, and a region would be read at every round.
+ */
+function Band({ agents, project, onOpen, note }: { agents: api.Agents | null; project: string | null; onOpen: (agent: string) => void; note: string | null }) {
+  const items = agents === null ? [] : needsPersonItems(agents.rows, agents.now);
+  return (
+    <section aria-labelledby="band-h" className="flex flex-col gap-2 rounded-xl border border-line bg-white px-4 py-3">
+      <h3 id="band-h" className="m-0 text-sm font-semibold">
+        {texts.stream.band.heading(items.length, project)}
+      </h3>
+      {agents === null ? null : items.length === 0 ? (
+        <p className="m-0 text-[13px] text-mute">{texts.stream.band.empty}</p>
+      ) : (
+        <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+          {items.map((it) => (
+            <li key={it.agent}>
+              <button
+                type="button"
+                data-band={it.agent}
+                onClick={() => onOpen(it.agent)}
+                className={`flex min-h-11 w-full cursor-pointer flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pale border-l-[6px] border-l-ink bg-white px-3 py-2 text-left font-sans text-sm text-ink ${it.established.claimed ? "italic" : ""}`}
+              >
+                <span aria-hidden="true" className="font-semibold">
+                  {it.mark}
+                </span>
+                <span className="sr-only">{`${markText(it.mark)}. ${texts.stream.band.open}`}</span>
+                <span className="font-semibold">{it.agent}</span>
+                <span>{it.subject}</span>
+                <span className="text-mute">{it.since}</span>
+                <span className="flex items-center gap-2">
+                  <span
+                    title={texts.stream.origin[it.established.code]}
+                    className="inline-block rounded border-[1.5px] border-ink bg-white px-1.5 py-0.5 text-[11px] font-semibold tracking-wider not-italic"
+                  >
+                    <span aria-hidden="true">{it.established.mark}</span> {it.established.code}
+                  </span>
+                  <span className="text-mute">{it.session !== undefined ? texts.stream.band.session(it.session) : texts.stream.band.noSession}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {note !== null && <p className="m-0 text-[13px] text-warn-ink">{note}</p>}
+    </section>
   );
 }
 

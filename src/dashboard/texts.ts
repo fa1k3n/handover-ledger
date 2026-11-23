@@ -67,6 +67,16 @@ export const texts = {
       people: "people by pseudonym · no figure per person",
     },
     showEvent: (what: string) => `Show event ${what}`,
+    /** #190: the band of what needs a person, above the list. */
+    band: {
+      heading: (n: number, project: string | null) => `Needs a person · ${n}${project === null ? "" : ` · ${project}`}`,
+      empty: "Nothing needs a person",
+      open: "Opens the event it rests on.",
+      session: (id: string) => `session ${id}`,
+      noSession: "no session named",
+      noEvent: "The event this rests on is not in the ledger now.",
+    },
+    needsPerson: "needs a person",
     empty: "No events match.",
   },
   decoded: { sub: "decoded", tool: "Tool call", line: (n: number) => `Line ${n}` },

@@ -513,3 +513,52 @@ export function markText(mark: string): string {
 export function nameTaken(name: string, _saved: SavedFilter[]): boolean {
   return builtInFilters().some((f) => f.name === name.trim());
 }
+
+/** #190: one item of the band of what needs a person. */
+export interface BandItem {
+  mark: "◷";
+  agent: string;
+  subject: string;
+  since: string;
+  waited: number;
+  session?: string;
+  /** A wait is always a session's claim: the state is folded from claimed events only, so this goes when the fold changes. */
+  established: ReturnType<typeof establishedBy>;
+}
+
+/** #190: the band's items from the agents' rows: each agent in "needs input", the longest wait first. */
+export function needsPersonItems(rows: AgentRow[], now: number): BandItem[] {
+  return rows
+    .filter((r) => r.state === "needs-input")
+    .map((r): BandItem => ({
+      mark: "◷",
+      agent: r.agent,
+      subject: teamWorksOn(r),
+      since: duration(now - Date.parse(r.since ?? r.last)),
+      waited: now - Date.parse(r.since ?? r.last),
+      ...(r.session !== undefined ? { session: r.session } : {}),
+      established: establishedBy("claimed"),
+    }))
+    .sort((a, b) => b.waited - a.waited);
+}
+
+/** #190: the filter that finds the wait an item rests on: the agent's waits, in the project when the server serves several. */
+export function waitFilter(agent: string, project: string | null): string {
+  const base = `event.type == "agent.waiting" && has(event.actor) && event.actor.id == ${JSON.stringify(agent)}`;
+  return project === null ? base : `${base} && event.project == ${JSON.stringify(project)}`;
+}
+
+/**
+ * #190: the rows of the list that need a person now: for each agent in "needs input", its latest wait for a person
+ * in the list (the list is newest first), in the project of the band when several are served. An answered wait
+ * and a wait for instructions are not among them.
+ */
+export function waitRowKeys(items: Item[], rows: AgentRow[], project: string | null): Set<string> {
+  const keys = new Set<string>();
+  for (const r of rows) {
+    if (r.state !== "needs-input") continue;
+    const found = items.find((i) => waitsForPerson(i.event) && i.event.actor?.id === r.agent && (project === null || i.project === project));
+    if (found) keys.add(itemKey(found));
+  }
+  return keys;
+}
