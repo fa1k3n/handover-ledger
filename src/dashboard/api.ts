@@ -2,6 +2,7 @@
 // @code_class reading
 import type { Handover, KeyFigures } from "../read/overview.ts";
 import type { AgentRow } from "../read/state.ts";
+import type { Provenance } from "../read/line.ts";
 import type { Item } from "../serve/server.ts";
 import type { Writing } from "../read/writing-text.ts";
 import { eventsQuery } from "./format.ts";
@@ -22,7 +23,8 @@ export function setProject(name: string | null): void {
 async function get<T>(path: string): Promise<T> {
   const url = new URL(path, location.href);
   // #79: the event log is asked for with no project: it is every project the server serves.
-  if (project !== null && url.pathname !== "/api/projects" && url.pathname !== "/api/events") url.searchParams.set("project", project);
+  // #191: a call that names its project itself (the line of an event of another project) keeps it.
+  if (project !== null && url.pathname !== "/api/projects" && url.pathname !== "/api/events" && !url.searchParams.has("project")) url.searchParams.set("project", project);
   const res = await fetch(url, { headers: { accept: "application/json" } });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -60,4 +62,11 @@ export const overview = () => get<{ now: number; figures: KeyFigures; handovers:
 /** #82: `failed` is there when a filter could not be worked out for some events: how many, and why. */
 export function events(filters: string[], tools: boolean, limit = 200): Promise<{ now: number; events: Item[]; failed?: { events: number; reason: string } }> {
   return get(`/api/events?${eventsQuery(filters, tools, limit)}`);
+}
+
+/** #191: one line's provenance for the event dialog, of the project the event names, else the page's. */
+export function line(of: string | undefined, n: number): Promise<{ now: number } & Provenance> {
+  const q = new URLSearchParams({ line: String(n) });
+  if (of !== undefined) q.set("project", of);
+  return get(`/api/line?${q}`);
 }
