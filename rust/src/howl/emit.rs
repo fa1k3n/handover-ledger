@@ -39,7 +39,7 @@ pub fn emit(options: &EmitOptions, actor: Option<&str>, cwd: &str, env: &Env) ->
     let Some(project) = find_project(cwd) else {
         return Ok(None);
     };
-    let wrong = |message: String| EmitError::Wrong(message);
+    let wrong = EmitError::Wrong;
     let mut data = None;
     if let Some(text) = &options.data {
         let value = match parse_json(text) {
