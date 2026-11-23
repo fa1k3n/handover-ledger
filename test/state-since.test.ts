@@ -36,7 +36,7 @@ test("#190: a later observed event or a task given to the agent does not move `s
   const rows = agentStates(
     [
       ev("agent.waiting", 600, { data: { waits_for: "person" } }),
-      ev("review.requested", 120, { source: { adapter: "github", kind: "observed" } }),
+      ev("change.opened", 120, { source: { adapter: "github", kind: "observed" } }),
       ev("task.assigned", 60, { actor: { kind: "person", id: "p-1" }, to: { kind: "agent", id: "agent-1" } }),
     ],
     NOW,

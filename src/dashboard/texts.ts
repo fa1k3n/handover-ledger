@@ -69,7 +69,7 @@ export const texts = {
     showEvent: (what: string) => `Show event ${what}`,
     /** #190: the band of what needs a person, above the list. */
     band: {
-      heading: (n: number) => `Needs a person · ${n}`,
+      heading: (n: number, project: string | null) => `Needs a person · ${n}${project === null ? "" : ` · ${project}`}`,
       empty: "Nothing needs a person",
       open: "Opens the event it rests on.",
       session: (id: string) => `session ${id}`,
