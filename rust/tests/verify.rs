@@ -473,16 +473,32 @@ fn ed25519_at_its_edges_as_dalek_s_verify_judges_it() {
         ("small-order", &[]),
         ("noncanon-A", &[]),
         ("negzero-A", &[]),
-        ("noncanon-R", &[(2, "key k1: the issuer's signature does not hold")]),
-        ("R-small", &[(3, "the signature does not hold: the event was changed after it was signed")]),
-        ("s-plus-L", &[(3, "the signature does not hold: the event was changed after it was signed")]),
+        (
+            "noncanon-R",
+            &[(2, "key k1: the issuer's signature does not hold")],
+        ),
+        (
+            "R-small",
+            &[(
+                3,
+                "the signature does not hold: the event was changed after it was signed",
+            )],
+        ),
+        (
+            "s-plus-L",
+            &[(
+                3,
+                "the signature does not hold: the event was changed after it was signed",
+            )],
+        ),
     ];
     for (name, want) in cases {
         let path = fixture(&format!("ed25519-edges/{name}.jsonl"));
         let Verdict::Holds { events, .. } = verify(&path).unwrap() else {
             panic!("{name} does not hold");
         };
-        let numbered: Vec<(usize, &Value)> = events.iter().enumerate().map(|(i, e)| (i + 1, e)).collect();
+        let numbered: Vec<(usize, &Value)> =
+            events.iter().enumerate().map(|(i, e)| (i + 1, e)).collect();
         let faults = check_signatures(&numbered, None).faults;
         let want: Vec<(usize, String)> = want.iter().map(|&(n, r)| (n, r.to_string())).collect();
         assert_eq!(faults, want, "{name}");
