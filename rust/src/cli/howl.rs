@@ -7,6 +7,8 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 
+use crate::cli::verify;
+
 /// The usage text, kept once in src/cli/usage.txt, which the TypeScript reads too.
 pub const USAGE: &str = include_str!("../../../src/cli/usage.txt");
 
@@ -16,11 +18,16 @@ const COMMANDS: [&str; 16] = [
     "classes", "watch", "show", "status", "serve", "trace",
 ];
 
+/// The commands this side does.
+const PORTED: [&str; 1] = ["verify"];
+
 /// What `howl` does with its arguments, chosen before anything else happens.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Choice {
     /// Print the usage text: `help`, `-h`, `--help`.
     Help,
+    /// A command this side does, by its name.
+    Ported(String),
     /// A usage error: the message, then the usage text, and 2.
     Usage(String),
     /// Become `node <entry> <args…>`: node, then the entry.
@@ -44,9 +51,17 @@ pub fn choose(args: &[OsString], entry: Option<OsString>, node: Option<OsString>
     if !COMMANDS.contains(&name.as_ref()) {
         return Choice::Usage(format!("no command {name}"));
     }
+    if PORTED.contains(&name.as_ref()) {
+        return Choice::Ported(name.into_owned());
+    }
+    fallback(name.into_owned(), entry, node)
+}
+
+/// The fallback to the TypeScript for `command`, with HOWL_FALLBACK and HOWL_NODE.
+fn fallback(name: String, entry: Option<OsString>, node: Option<OsString>) -> Choice {
     let entry = match entry {
         Some(entry) if !entry.is_empty() => entry,
-        _ => return Choice::NotBuilt(name.into_owned()),
+        _ => return Choice::NotBuilt(name),
     };
     if !Path::new(&entry).is_absolute() {
         let shown = entry.to_string_lossy();
@@ -66,6 +81,7 @@ pub fn run() -> i32 {
     let entry = std::env::var_os("HOWL_FALLBACK");
     let node = std::env::var_os("HOWL_NODE");
     match choose(&args, entry, node) {
+        Choice::Ported(_) => verify::run(&args[1..], fallback_to_node(&args)),
         Choice::Help => {
             // A closed standard output is not an error of howl's.
             let _ = std::io::stdout().write_all(USAGE.as_bytes());
@@ -74,16 +90,33 @@ pub fn run() -> i32 {
         Choice::Usage(message) => fail(&format!("howl: {message}\n\n{USAGE}")),
         Choice::NotBuilt(command) => fail(&format!("howl: {command} is not built yet\n")),
         Choice::Refused(message) => fail(&format!("howl: {message}\n")),
-        Choice::Fallback(node, entry) => {
-            let error = Command::new(&node).arg(&entry).args(&args).exec();
-            let node = node.to_string_lossy();
-            fail(&format!("howl: cannot start {node}: {error}\n"))
+        Choice::Fallback(node, entry) => exec_node(&node, &entry, &args),
+    }
+}
+
+/// For a command this side does only in part: becomes node when HOWL_FALLBACK is set, else says what is not built.
+/// `what` names the part, as `verify --checkpoint`.
+fn fallback_to_node(args: &[OsString]) -> impl FnOnce(&str) -> i32 + '_ {
+    move |what| {
+        let entry = std::env::var_os("HOWL_FALLBACK");
+        let node = std::env::var_os("HOWL_NODE");
+        match fallback(what.to_string(), entry, node) {
+            Choice::Fallback(node, entry) => exec_node(&node, &entry, args),
+            Choice::Refused(message) => fail(&format!("howl: {message}\n")),
+            _ => fail(&format!("howl: {what} is not built yet\n")),
         }
     }
 }
 
+/// Becomes `node <entry> <args…>`; returns only when node cannot be started.
+fn exec_node(node: &OsString, entry: &OsString, args: &[OsString]) -> i32 {
+    let error = Command::new(node).arg(entry).args(args).exec();
+    let node = node.to_string_lossy();
+    fail(&format!("howl: cannot start {node}: {error}\n"))
+}
+
 /// Says `text` on standard error and gives 2.
-fn fail(text: &str) -> i32 {
+pub(crate) fn fail(text: &str) -> i32 {
     let _ = std::io::stderr().write_all(text.as_bytes());
     2
 }

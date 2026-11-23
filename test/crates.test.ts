@@ -27,7 +27,8 @@ test("#137: the direct dependencies of the crate are the list in this test", () 
   const toml = readFileSync(new URL("../rust/Cargo.toml", import.meta.url), "utf8");
   // A piece that adds a crate adds it here and names it.
   // #139: serde and serde_json read JSON as JSON.parse does, ryu-js writes numbers as ECMAScript does, sha2 hashes.
-  assert.deepEqual(crates(toml), ["serde", "serde_json", "ryu-js", "sha2"]);
+  // #140: ed25519-dalek checks the Ed25519 signatures of howl verify.
+  assert.deepEqual(crates(toml), ["serde", "serde_json", "ryu-js", "sha2", "ed25519-dalek"]);
 });
 
 test("#139: serde_json's arbitrary_precision is never asked for", () => {

@@ -95,7 +95,7 @@ export interface RunOptions {
  */
 const BIN = process.env.HOWL_BIN ? resolve(process.env.HOWL_BIN) : undefined;
 /** #137: with HOWL_COMPARE set as well, `howl()` runs these read-only commands through both versions. Each piece adds what it moves. */
-export const COMPARED = ["help"];
+export const COMPARED = ["help", "verify"];
 
 /** The program, its arguments and its environment: no environment but PATH and `env`. */
 function command(args: string[], env: Record<string, string> = {}, typescript = BIN === undefined) {

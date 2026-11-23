@@ -10,7 +10,7 @@ import { closeSync, openSync, readSync } from "node:fs";
 import { LedgerError } from "./errors.ts";
 import { eventHash } from "./fixed.ts";
 import { hashLine } from "./ledger.ts";
-import { NotJson, parseJson } from "./json.ts";
+import { LoneSurrogate, NotJson, parseJson } from "./json.ts";
 import { eventFaults, lineFaults, type LedgerLine } from "./schema.ts";
 
 export type Verdict =
@@ -18,7 +18,8 @@ export type Verdict =
   | { ok: false; lines: number; line: number; faults: string[] };
 
 export function verify(path: string): Verdict {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
+  // #140: a byte order mark is kept, so that JSON.parse refuses it, as every reader of the ledger does.
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   let lines = 0;
   let head: string | null = null;
   let trial = false;
@@ -35,6 +36,7 @@ export function verify(path: string): Verdict {
     try {
       value = parseJson(decoder.decode(bytes));
     } catch (e) {
+      if (e instanceof LoneSurrogate) return [`the line: ${e.message}`];
       return [`the line is ${e instanceof NotJson ? e.message : "not JSON"}`];
     }
 
