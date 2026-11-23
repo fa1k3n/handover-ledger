@@ -42,3 +42,36 @@ test("#190: established by is a claim, never observed", () => {
 test("#190: no row, or none that needs a person, gives an empty band", () => {
   assert.deepEqual(needsPersonItems([], NOW), []);
 });
+
+test("#190: how long and the order follow the start of the wait, not the last event", () => {
+  const items = needsPersonItems(
+    [row("a", "needs-input", "2026-11-23T09:59:00Z", { since: "2026-11-23T09:00:00Z" }), row("b", "needs-input", "2026-11-23T09:30:00Z", { since: "2026-11-23T09:30:00Z" })],
+    NOW,
+  );
+  assert.deepEqual(items.map((i) => i.agent), ["a", "b"]);
+  assert.equal(items[0]!.since, "1 h 00 min");
+});
+
+import { waitFilter, waitRowKeys, itemKey } from "../src/dashboard/format.ts";
+import type { Item } from "../src/serve/server.ts";
+
+const wait = (n: number, agent: string, waitsFor: string, project?: string): Item =>
+  ({ n, from: "ledger", raw: "{}", ...(project ? { project } : {}), event: { v: 0, id: `w${n}`, time: "2026-11-23T09:00:00Z", type: "agent.waiting", actor: { kind: "agent", id: agent }, source: { adapter: "hook", kind: "claimed" }, data: { waits_for: waitsFor } } }) as unknown as Item;
+
+test("#190: the bar goes on the latest wait for a person of an agent that needs input, and on no other", () => {
+  const list = [wait(5, "a", "person"), wait(4, "b", "instructions"), wait(3, "a", "person"), wait(2, "c", "person")];
+  const keys = waitRowKeys(list, [row("a", "needs-input", "2026-11-23T09:00:00Z"), row("b", "needs-input", "2026-11-23T09:00:00Z"), row("c", "working", "2026-11-23T09:00:00Z")], null);
+  assert.deepEqual([...keys], [itemKey(list[0]!)]);
+});
+
+test("#190: with several projects, only the project of the band", () => {
+  const list = [wait(5, "a", "person", "other"), wait(4, "a", "person", "mine")];
+  const keys = waitRowKeys(list, [row("a", "needs-input", "2026-11-23T09:00:00Z")], "mine");
+  assert.deepEqual([...keys], [itemKey(list[1]!)]);
+});
+
+test("#190: the filter quotes an agent id with a quote and a backslash, with and without a project", () => {
+  const id = 'a"b\\c';
+  assert.equal(waitFilter(id, null), `event.type == "agent.waiting" && has(event.actor) && event.actor.id == "a\\"b\\\\c"`);
+  assert.equal(waitFilter(id, 'p"q'), `event.type == "agent.waiting" && has(event.actor) && event.actor.id == "a\\"b\\\\c" && event.project == "p\\"q"`);
+});
