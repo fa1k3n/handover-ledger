@@ -8,7 +8,8 @@
 /// A pattern, read once.
 #[derive(Debug, Clone)]
 pub struct Pattern {
-    alternatives: Vec<Vec<Node>>,
+    /// The whole pattern, as one group of its alternatives.
+    whole: [Node; 1],
 }
 
 #[derive(Debug, Clone)]
@@ -30,14 +31,13 @@ impl Pattern {
         if reader.at < chars.len() {
             return Err(format!("the pattern {source:?} has an unmatched ')'"));
         }
-        Ok(Pattern { alternatives })
+        Ok(Pattern { whole: [Node::Group(alternatives)] })
     }
 
     /// Whether the pattern is found in `text`, as RegExp.prototype.test finds it: anywhere, unless anchored.
     pub fn is_match(&self, text: &str) -> bool {
         let text: Vec<char> = text.chars().collect();
-        let group = [Node::Group(self.alternatives.clone())];
-        (0..=text.len()).any(|start| sequence(&group, start, &text, &mut |_| true))
+        (0..=text.len()).any(|start| sequence(&self.whole, start, &text, &mut |_| true))
     }
 }
 
@@ -211,20 +211,31 @@ fn sequence(nodes: &[Node], at: usize, text: &[char], then: &mut dyn FnMut(usize
         return then(at);
     };
     match first {
-        Node::Char(c) => text.get(at) == Some(c) && sequence(rest, at + 1, text, then),
-        Node::Class { ranges, negated } => match text.get(at) {
-            Some(&c) => {
-                let inside = ranges.iter().any(|&(low, high)| low <= c && c <= high);
-                inside != *negated && sequence(rest, at + 1, text, then)
-            }
-            None => false,
-        },
+        Node::Char(_) | Node::Class { .. } => {
+            text.get(at).is_some_and(|&c| one(first, c)) && sequence(rest, at + 1, text, then)
+        }
         Node::Start => at == 0 && sequence(rest, at, text, then),
         Node::End => at == text.len() && sequence(rest, at, text, then),
         Node::Group(alternatives) => alternatives
             .iter()
             .any(|alternative| sequence(alternative, at, text, &mut |end| sequence(rest, end, text, then))),
+        Node::Repeat { node, min, max } if matches!(**node, Node::Char(_) | Node::Class { .. }) => {
+            // One character at a time: as many as match, then give them back one by one.
+            let limit = max.map_or(usize::MAX, |max| max as usize);
+            let most = text[at..].iter().take(limit).take_while(|&&c| one(node, c)).count();
+            let least = *min as usize;
+            most >= least && (least..=most).rev().any(|n| sequence(rest, at + n, text, then))
+        }
         Node::Repeat { node, min, max } => repeat(node, *min, *max, 0, at, rest, text, then),
+    }
+}
+
+/// Whether a node of one character, a literal or a class, takes `c`.
+fn one(node: &Node, c: char) -> bool {
+    match node {
+        Node::Char(literal) => *literal == c,
+        Node::Class { ranges, negated } => ranges.iter().any(|&(low, high)| low <= c && c <= high) != *negated,
+        _ => false,
     }
 }
 

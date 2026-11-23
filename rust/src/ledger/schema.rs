@@ -233,14 +233,25 @@ fn names(list: &Value) -> Option<Vec<String>> {
 
 /// Checks `value` against `node`, adding each fault to `found` in ajv's order. `at` is the place of the value.
 fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<String>) {
-    // `where` as src/ledger/schema.ts makes it from ajv's instancePath: its parts, escaped, joined by dots.
-    let place = at.iter().map(|p| p.replace('~', "~0").replace('/', "~1")).collect::<Vec<_>>().join(".");
-    let named = if place.is_empty() { what } else { place.as_str() };
-    let field = |name: &str| [place.as_str(), name].iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(".");
+    // `where` as src/ledger/schema.ts makes it from ajv's instancePath: its parts, escaped, joined by dots. Made only
+    // when a fault is said.
+    let place = || at.iter().map(|p| p.replace('~', "~0").replace('/', "~1")).collect::<Vec<_>>().join(".");
+    let named = || {
+        let place = place();
+        if place.is_empty() {
+            what.to_string()
+        } else {
+            place
+        }
+    };
+    let field = |name: &str| {
+        let place = place();
+        [place.as_str(), name].iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(".")
+    };
     match node.always {
         Some(true) => return,
         Some(false) => {
-            found.push(format!("{named}: boolean schema is false"));
+            found.push(format!("{}: boolean schema is false", named()));
             return;
         }
         None => {}
@@ -248,7 +259,7 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
     let type_holds = node.types.is_empty() || node.types.iter().any(|(_, t)| t.holds(value));
     let type_fault = || {
         let names: Vec<&str> = node.types.iter().map(|(n, _)| n.as_str()).collect();
-        format!("{named}: must be {}", names.join(","))
+        format!("{}: must be {}", named(), names.join(","))
     };
     // A node with keywords for its one type reports a wrong type in that type's turn; any other node reports it first.
     let one = match node.types.as_slice() {
@@ -266,13 +277,13 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
     }
     if let Some(constant) = &node.constant {
         if !js_equal(constant, value) {
-            found.push(format!("{named}: must be equal to constant"));
+            found.push(format!("{}: must be equal to constant", named()));
         }
     }
     if let Some(allowed) = &node.allowed {
         if !allowed.iter().any(|a| js_equal(a, value)) {
             let list: Vec<String> = allowed.iter().map(join_text).collect();
-            found.push(format!("{place}: must be one of {}", list.join(", ")));
+            found.push(format!("{}: must be one of {}", place(), list.join(", ")));
         }
     }
     if let Some(not) = &node.not {
@@ -281,7 +292,7 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
             if node.path == "#" {
                 found.push("to: only on task.assigned and task.unassigned".to_string());
             } else {
-                found.push(format!("{named}: must NOT be valid"));
+                found.push(format!("{}: must NOT be valid", named()));
             }
         }
     }
@@ -297,17 +308,17 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
         let length = text.chars().count() as u64;
         if let Some(max) = node.max_length {
             if length > max {
-                found.push(format!("{named}: must NOT have more than {max} characters"));
+                found.push(format!("{}: must NOT have more than {max} characters", named()));
             }
         }
         if let Some(min) = node.min_length {
             if length < min {
-                found.push(format!("{named}: must NOT have fewer than {min} characters"));
+                found.push(format!("{}: must NOT have fewer than {min} characters", named()));
             }
         }
         if let Some((source, pattern)) = &node.pattern {
             if !pattern.is_match(text) {
-                found.push(format!("{named}: must match pattern \"{source}\""));
+                found.push(format!("{}: must match pattern \"{source}\"", named()));
             }
         }
     } else if one == Some(Type::String) {
@@ -353,7 +364,7 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
             for need in needs {
                 if !members.contains_key(need) {
                     let list = needs.join(", ");
-                    found.push(format!("{named}: must have {word} {list} when property {name} is present"));
+                    found.push(format!("{}: must have {word} {list} when property {name} is present", named()));
                 }
             }
         }
