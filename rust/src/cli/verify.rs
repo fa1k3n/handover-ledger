@@ -1,6 +1,6 @@
 // `howl verify` on a ledger: the text and the status of `verifyCommand` in src/cli/howl.ts (#140).
 // With --checkpoint, --signers or --bundle it is handed to the TypeScript, until their pieces.
-// @code_class evidence
+// @code_class recording
 use crate::cli::args::parse_args;
 use crate::cli::howl::{fail, USAGE};
 use crate::keys::Signatures;
