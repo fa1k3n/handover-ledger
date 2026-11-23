@@ -41,7 +41,11 @@ fn trim_is_javascript_s_with_its_white_space() {
 
 #[test]
 fn the_settings_reader_reads_top_level_keys_as_project_ts_does() {
-    let text = "# a comment\nproject: 'example'  # the project\nproject: other\nlist: [a, \"b\", , c]\nitems:\n  - one\n  - 'two' # a comment\n\t- three\nnested:\n  key: value\nempty:\nhash: a#b\n";
+    let text = concat!(
+        "# a comment\nproject: 'example'  # the project\nproject: other\n",
+        "list: [a, \"b\", , c]\nitems:\n  - one\n  - 'two' # a comment\n\t- three\n",
+        "nested:\n  key: value\nempty:\nhash: a#b\n",
+    );
     let settings = top_level(text);
     assert_eq!(settings.get("project"), Some(&Setting::Text("example".into())));
     let list = |items: &[&str]| Setting::List(items.iter().map(|i| i.to_string()).collect());
@@ -94,9 +98,12 @@ fn the_nearest_howl_yml_names_the_project_and_one_without_a_project_stops_the_se
     }
     fs::write(root.join("a/.howl/howl.yml"), "project: x\nactivity_days: 12\n").unwrap();
     assert_eq!(find_project(&s(&below)).unwrap().project, "x");
-    // `..` in the folder is taken as Node's dirname takes it: lexically.
+    // `..` in the folder is taken as Node's join and dirname take it: lexically, and the root is the folder as given.
     let odd = format!("{}/a/b/..", s(&root));
-    assert_eq!(find_project(&odd).unwrap().root, format!("{}/a", s(&root)));
+    assert_eq!(find_project(&odd).unwrap().root, odd);
+    fs::remove_file(root.join("a/.howl/howl.yml")).unwrap();
+    let up = format!("{}/a/b/../..", s(&root));
+    assert_eq!(find_project(&up).unwrap().project, "example");
 }
 
 #[test]
@@ -231,7 +238,8 @@ fn paths_are_joined_and_compared_as_node_s_posix_path_does() {
 
 #[test]
 fn the_input_is_read_as_json_parse_reads_it_and_only_what_is_used_is_kept() {
-    let Some(Json::Object(top)) = read_input("{\"a\":\"x\",\"a\":\"y\\u00e5\",\"b\":{\"c\":\"d\"},\"n\":[1,-2.5e3,true,false,null]}") else {
+    let input = r#"{"a":"x","a":"y\u00e5","b":{"c":"d"},"n":[1,-2.5e3,true,false,null]}"#;
+    let Some(Json::Object(top)) = read_input(input) else {
         panic!("an object is read");
     };
     assert_eq!(top.get("a"), Some(&Json::Text("yå".into(), false)));
@@ -242,7 +250,8 @@ fn the_input_is_read_as_json_parse_reads_it_and_only_what_is_used_is_kept() {
     let deep = format!("{{\"x\":{}{}}}", "[".repeat(100_000), "]".repeat(100_000));
     assert!(read_input(&deep).is_some());
     // A lone surrogate is read, and marked.
-    let Some(Json::Object(lone)) = read_input("{\"s\":\"a\\ud800\",\"p\":\"\\ud83d\\ude00\"}") else {
+    let input = r#"{"s":"a\ud800","p":"\ud83d\ude00"}"#;
+    let Some(Json::Object(lone)) = read_input(input) else {
         panic!("read")
     };
     assert_eq!(lone.get("s"), Some(&Json::Text("a\u{fffd}".into(), true)));
@@ -254,15 +263,16 @@ fn the_input_is_read_as_json_parse_reads_it_and_only_what_is_used_is_kept() {
     ] {
         assert!(read_input(bad).is_none(), "{bad:?}");
     }
-    for good in ["{}", " \t\r\n{} \n", "[]", "1", "-0.5E+2", "\"\\/\\b\\f\\n\\r\\t\\\"\\\\\"", "null"] {
+    let escapes = r#""\/\b\f\n\r\t\"\\""#;
+    for good in ["{}", " \t\r\n{} \n", "[]", "1", "-0.5E+2", escapes, "null"] {
         assert!(read_input(good).is_some(), "{good:?}");
     }
 }
 
 #[test]
 fn an_id_is_a_lowercase_v4_uuid_and_a_time_has_milliseconds() {
-    let a = random_uuid();
-    let b = random_uuid();
+    let a = random_uuid().unwrap();
+    let b = random_uuid().unwrap();
     assert_ne!(a, b);
     for id in [&a, &b] {
         let chars: Vec<char> = id.chars().collect();
