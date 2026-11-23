@@ -62,9 +62,9 @@ test("#192: the arrows of the story: direction, label and time, in the order of 
     [m(10), a, "host", `change opened · head ${SHA.a.slice(0, 7)}`],
     [m(12), "checks", "host", `checks passed · head ${SHA.a.slice(0, 7)}`],
     [m(20), key("person", REVIEWER), a, "changes asked for"],
-    [m(30), "host", "host", `new head ${SHA.b.slice(0, 7)}`],
+    [m(30), a, "host", `new head ${SHA.b.slice(0, 7)}`],
     [m(33), "checks", "host", `checks failed · head ${SHA.b.slice(0, 7)}`],
-    [m(40), "host", "host", `new head ${SHA.c.slice(0, 7)}`],
+    [m(40), a, "host", `new head ${SHA.c.slice(0, 7)}`],
     [m(45), "checks", "host", `checks passed · head ${SHA.c.slice(0, 7)}`],
     [m(55), key("person", REVIEWER), a, "approved"],
     [m(60), key("person", MERGER), "host", "merged"],
@@ -163,6 +163,14 @@ test("#192: the agent behind a person's account is the lane, and the account is 
   assert.equal(row!.from, key("agent", "agent-1"));
   assert.equal(row!.via, "person-aaaa");
   assert.match(rowName(row!, flowOf(view(events)).lanes, "10:00"), /via person-aaaa/);
+});
+
+test("#192: a head that names no one and matches no agent is a mark in the code host's lane", () => {
+  const [row] = flowOf(view([ev("change.updated", 1, of(SHA.b))])).rows;
+  assert.equal(row!.kind, "arrow");
+  assert.equal(row!.from, "host");
+  assert.equal(row!.to, "host");
+  assert.equal(row!.label, `new head ${SHA.b.slice(0, 7)}`);
 });
 
 test("#192: a review by the author of the change is a mark in that lane, not an arrow between two", () => {
