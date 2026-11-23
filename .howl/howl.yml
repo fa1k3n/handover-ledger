@@ -3,16 +3,16 @@ task_from_branch: '^issue-([0-9]+)'
 review_comment_pattern: '^\[review\]'
 classes:                                   # from the highest demand to the lowest
   - name: evidence                         # what the proof rests on: a fault can make a broken chain look whole
-    paths: [src/ledger/**, src/keys/**, src/anchor/**, src/export/**, schema/**]
+    paths: [src/ledger/**, src/keys/**, src/anchor/**, src/export/**, schema/**, rust/src/ledger/**, rust/src/keys/**, rust/src/anchor/**, rust/src/export/**]
   - name: rules                            # what decides how a change is built, checked and merged
-    paths: [.howl/**, .github/**, .watchbill/**, scripts/**, CLAUDE.md, package.json, package-lock.json, 'tsconfig*.json', .gitignore]
+    paths: [.howl/**, .github/**, .watchbill/**, scripts/**, CLAUDE.md, package.json, package-lock.json, 'tsconfig*.json', .gitignore, rust-toolchain.toml, rust/Cargo.toml, rust/Cargo.lock]
   - name: recording                        # what writes events: a fault loses or distorts what happened
-    paths: [src/hook/**, src/observe/**, src/inbox/**, src/howl/**, src/cli/**]
+    paths: [src/hook/**, src/observe/**, src/inbox/**, src/howl/**, src/cli/**, rust/src/hook/**, rust/src/observe/**, rust/src/inbox/**, rust/src/howl/**, rust/src/cli/**, rust/src/main.rs, rust/src/lib.rs]
   - name: reading                          # what only reads and shows
-    paths: [src/read/**, src/serve/**, src/dashboard/**]
+    paths: [src/read/**, src/serve/**, src/dashboard/**, rust/src/read/**, rust/src/serve/**]
   - name: tests                            # the tests and their data
-    paths: [test/**]
+    paths: [test/**, rust/tests/**]
   - name: documents                        # text for people
     paths: [docs/**, README.md, LICENSE]
 class_header: '@code_class\s+(\S+)'        # the first group is the class
-class_header_in: ['*.ts', '*.tsx', '*.sh'] # the files that must carry the header
+class_header_in: ['*.ts', '*.tsx', '*.sh', '*.rs'] # the files that must carry the header

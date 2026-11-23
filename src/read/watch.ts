@@ -1,6 +1,7 @@
 // `howl watch`: one line per event, then the events as they come.
 // @code_class reading
 import { LedgerError } from "../ledger/errors.ts";
+import { presentTime } from "./now.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { readFilters, wantsActivity } from "./filter.ts";
 import { activityBeside, byTime, Tail, type Read } from "./reader.ts";
@@ -54,7 +55,7 @@ export function shortTime(time: string, utc = false): string {
 }
 
 /** Which zone the times are in, said once: times in Europe/Stockholm (UTC+01:00); --utc for UTC. */
-export function zoneLine(now = Date.now()): string {
+export function zoneLine(now = presentTime()): string {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const offset =
     new Intl.DateTimeFormat("en-US", { timeZoneName: "longOffset" }).formatToParts(new Date(now)).find((x) => x.type === "timeZoneName")?.value ?? "GMT";

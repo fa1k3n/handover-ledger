@@ -1,4 +1,4 @@
-// A made-up module, for the tests of `howl trace`.
+// A made-up module, for the tests of `howl trace`. @code_class tests
 
 pub fn limit(now: f32, target: f32) -> f32 {
     if target > now + 2.5 { now + 2.5 } else { target }

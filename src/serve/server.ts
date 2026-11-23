@@ -14,6 +14,7 @@ import { LedgerError } from "../ledger/errors.ts";
 import { LEDGER_FILE } from "../ledger/names.ts";
 import { isProjectName } from "../ledger/place.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
+import { presentTime } from "../read/now.ts";
 import { activityBeside, activityFrom, activityLines, byTime, ledgerLines, lineCount, readAll, type Read } from "../read/reader.ts";
 import { checkSignatures } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
@@ -218,7 +219,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     // #102: whether each project is being written and what waits for its writer. Not for a server of one ledger file: that file need not lie in a project's folder.
     const one = options.ledger !== undefined;
     json(res, 200, {
-      now: Date.now(),
+      now: presentTime(),
       single: one || options.project !== undefined,
       default: defaultOf(projects, options)?.name ?? null,
       projects: projects.map((p) => ({ name: p.name, lines: lineCount(p.ledger), ...(one ? {} : writingOf(p.ledger)) })),
@@ -237,7 +238,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     if (served.length === 0) throw new LedgerError("no project with a ledger");
     const found = events(served, url.searchParams, options.ledger === undefined, lines);
     // #82: what a filter could not work out is said only when there is something to say.
-    json(res, 200, found.failed === null ? { now: Date.now(), events: found.events } : { now: Date.now(), events: found.events, failed: found.failed });
+    json(res, 200, found.failed === null ? { now: presentTime(), events: found.events } : { now: presentTime(), events: found.events, failed: found.failed });
     return;
   }
   const project = projectFor(url.searchParams, options);
@@ -245,12 +246,12 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   const agents = options.ledger !== undefined || project.name === firstOf(options) ? options.agents : undefined;
   switch (url.pathname) {
     case "/api/agents": {
-      const now = Date.now();
+      const now = presentTime();
       json(res, 200, { now, rows: agentStates(readAll(ledger).map((r) => r.event), now, { agents }) });
       return;
     }
     case "/api/overview": {
-      const now = Date.now();
+      const now = presentTime();
       const items = ledgerLines(ledger);
       json(res, 200, { now, figures: keyFigures(items.map((i) => i.event), now), handovers: handovers(items).slice(0, 50) });
       return;

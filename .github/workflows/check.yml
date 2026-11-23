@@ -18,6 +18,14 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # The toolchain rust-toolchain.toml pins, with rustfmt and clippy (#137).
+      - run: rustup toolchain install
       - run: npm ci
       - run: npm run build:dashboard
       - run: npm run check
+      # Every test again, through the Rust binary, which compares what it does with the TypeScript.
+      - run: cargo build --release --locked --manifest-path rust/Cargo.toml
+      - run: npm test
+        env:
+          HOWL_BIN: rust/target/release/howl
+          HOWL_COMPARE: "1"

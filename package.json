@@ -10,11 +10,11 @@
   },
   "scripts": {
     "howl": "node src/cli/howl.ts",
-    "test": "node --test \"test/**/*.test.ts\"",
+    "test": "node --test \"test/**/*.test.ts\" && cargo test --locked --manifest-path rust/Cargo.toml",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/dashboard",
     "build": "tsc -p tsconfig.build.json",
     "gen": "node scripts/gen-types.ts",
-    "check": "npm run typecheck && node scripts/gen-types.ts --check && npm test",
+    "check": "npm run typecheck && node scripts/gen-types.ts --check && cargo fmt --check --manifest-path rust/Cargo.toml && cargo clippy --locked --manifest-path rust/Cargo.toml -- -D warnings && npm test",
     "build:dashboard": "vite build --config src/dashboard/vite.config.ts && node scripts/dashboard-size.ts",
     "dev:dashboard": "vite --config src/dashboard/vite.config.ts"
   },

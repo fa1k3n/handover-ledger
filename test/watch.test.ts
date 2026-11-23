@@ -1,16 +1,13 @@
 // `howl watch`: the tests of issue #4.
 // @code_class tests
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { openLedger } from "../src/ledger/ledger.ts";
-import { event, howl, PROJECT, rawLines } from "./helpers.ts";
+import { event, howl, PROJECT, rawLines, startHowl } from "./helpers.ts";
 import { m, writeStory } from "./story.ts";
 
-const CLI = fileURLToPath(new URL("../src/cli/howl.ts", import.meta.url));
 const ESC = "\u001b[";
 
 /** `howl watch` without following: what is there, then it ends. */
@@ -101,9 +98,7 @@ test("a wait for a person, failed checks and a review asking for changes stand o
 
 test("an event appended while it follows is printed; a half-written last line is not, and is printed when it is whole", async () => {
   const ledger = writeStory();
-  const child = spawn(process.execPath, [CLI, "watch", "--ledger", ledger, "--interval", "0.05"], {
-    env: { PATH: process.env.PATH ?? "" },
-  });
+  const child = startHowl(["watch", "--ledger", ledger, "--interval", "0.05"]);
   let out = "";
   child.stdout.on("data", (d) => (out += d));
   const closed = new Promise((resolve) => child.on("close", resolve));

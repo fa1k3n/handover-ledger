@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { fixedForm } from "../src/ledger/fixed.ts";
 import { openLedger } from "../src/ledger/ledger.ts";
 import { ACTIVITY_TYPES } from "../src/ledger/schema.ts";
-import { event, howl, inboxFiles, lines, PROJECT, rawLines, workspace, type Workspace } from "./helpers.ts";
+import { event, howl, inboxFiles, lines, PROJECT, rawLines, startHowl, workspace, type Workspace } from "./helpers.ts";
 
 /** Leaves an event in the inbox under `name`, as a hook would. */
 function leave(ws: Workspace, name: string, content: unknown): void {
@@ -161,15 +161,8 @@ test("howl ingest outside a repository with .howl/howl.yml needs --project", () 
 });
 
 test("howl ingest --watch brings in what arrives while it runs, and lets go of the lock when it is stopped", async () => {
-  const { spawn } = await import("node:child_process");
-  const { fileURLToPath } = await import("node:url");
   const ws = workspace();
-  const cli = fileURLToPath(new URL("../src/cli/howl.ts", import.meta.url));
-  const child = spawn(process.execPath, [cli, "ingest", "--watch", "--interval", "0.1"], {
-    cwd: ws.root,
-    env: { PATH: process.env.PATH ?? "", ...ws.env },
-    stdio: "ignore",
-  });
+  const child = startHowl(["ingest", "--watch", "--interval", "0.1"], { cwd: ws.root, env: ws.env, stdio: "ignore" });
   const closed = new Promise((resolve) => child.on("close", resolve));
   try {
     await until(() => existsSync(ws.ledger));

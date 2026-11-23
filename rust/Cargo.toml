@@ -1,0 +1,17 @@
+# The Rust `howl`, beside the TypeScript until the cut (docs/decisions.md).
+[package]
+name = "howl"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "howl"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1

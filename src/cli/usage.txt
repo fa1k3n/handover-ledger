@@ -1,0 +1,107 @@
+usage:
+  howl verify [--project <name>] [--ledger <path>] [--issuer <fingerprint>] [--checkpoint <file | git>] [--signers <file>]
+  howl verify --bundle <file> [--signers <file>]
+  howl export (--change <id> | --task <id> | --since <time> --until <time>) [--out <file>]
+  howl anchor [--project <name>] [--ledger <path>] [--to <git | file:path | ->] [--sign <ssh key>]
+  howl key issue --actor <agent> [--task <id>] [--change <id>] [--role <name>] [--hours <n>]
+  howl key revoke <key id>
+  howl keyd [--project <name>] [--socket <path>] [--state <folder>]
+  howl hook
+  howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
+  howl ingest [--project <name>] [--watch] [--interval <seconds>]
+  howl observe [--once] [--interval <seconds>] [--since <date | now>] [--anchor-every <minutes>]
+  howl up [--port <n>] [--interval <seconds>] [--since <date | now>] [--anchor-every <minutes>]
+  howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--utc] [--json] [--no-follow]
+  howl show <task or change> [--utc] [--json]
+  howl status [--follow] [--json]
+  howl serve [--port <n>] [--all]
+  howl classes [--check] [--json]
+  howl trace [--at <commit>] [--check] [--json]
+
+  verify    check every line of the ledger and the chain between the lines,
+            then every signed claim against the key issued for it
+  export    an evidence bundle (.tar.gz) of a change, a task or a period: the
+            ledger up to its head, the lines selected, the timeline, what howl
+            matched (inferred.json, not for a period), the checkpoints and a
+            manifest; never the activity file or people.json.
+            howl verify --bundle checks it offline
+  anchor    keep the ledger's head outside this machine: a checkpoint (lines and
+            head) as a commit on refs/howl/checkpoints, pushed to origin (the
+            default), or in a file, or printed. --sign signs it with an SSH key
+  key       issue a key for one assignment of an agent (8 hours by default),
+            or revoke one. The private key goes to the session as HOWL_KEY;
+            the hook then signs every event of the session. With HOWL_KEYD
+            (keyd's socket) and HOWL_KEYD_ADMIN (its admin token file), keyd
+            holds the key and the session gets a token instead
+  keyd      a signing service that holds the keys, so a session never sees one.
+            Run it as another user for the keys to be out of the sessions' reach
+  hook      called by the hooks of Claude Code: hands an event to howl up
+            when it runs, else leaves it in the inbox. Prints nothing and
+            always ends with 0
+  emit      an event from a script, delivered as the hook delivers one
+  ingest    the one writer: bring the inbox into the ledger and the activity file
+  observe   the one writer a team keeps running: each round brings the inbox in
+            and records what happened at the code host since the last round.
+            Read access is enough. GitHub: a token from $HOWL_GITHUB_TOKEN,
+            else $GITHUB_TOKEN, else `gh auth token`
+  up        observe and serve in one process, for a team to start once: the
+            one writer of the project, the dashboard on http://127.0.0.1:4317
+            and POST /api/events, where the hook and howl emit send their
+            events while it runs. It says where it is, with a token, in
+            server.json in the project's folder, and removes it when it stops.
+            POST /api/hook takes the JSON of a hook of Claude Code as it
+            stands, from a hook line that is only curl, and builds the event:
+            no Node on the developer's side. Its token is the file token in
+            the project's folder, made once and kept
+  watch     print the events of the ledger, then follow them. --activity adds
+            the tool calls of the activity file; a filter that names
+            tool.used does too. A filter is a CEL expression over event:
+            'event.type.startsWith("review.") && event.project == "a"';
+            has(event.change) tests for a field. A field and a value still
+            filter: type=review.*, actor=agent-1, kind=claimed, change=12,
+            harness=<name>, revision=<revision>.
+            Colour unless NO_COLOR is set. Times
+            in the local time zone (TZ), --utc as stored; --since without
+            an offset is local time
+  show      the timeline of one assignment, from the hand-over to the merge:
+            12, task:12 or change:30. A change that is asked for is shown
+            alone; the other changes of its task are named in one line
+  status    one line per agent: NEEDS INPUT, working, waiting, idle or ended,
+            what it works on, its model, its last tool and how long ago.
+            NEEDS INPUT is a wait for a person, as a permission prompt; an
+            agent that asks in the text of its answer looks done and shows
+            as waiting. --follow redraws it every second
+  serve     the dashboard on http://127.0.0.1:4317: the team right now and the
+            event stream of the project (of the nearest howl.yml, or
+            --project); --all serves every project, picked in the page, the
+            project first; --ledger serves one ledger only. Read-only, on
+            this machine only: a request that names another host is refused.
+            Build the page first with npm run build:dashboard
+
+  classes   the code class of every file git tracks, by path (classes in
+            .howl/howl.yml) and from the file's header (class_header, in the
+            files class_header_in matches); the higher one is in force.
+            --check ends with 1 and names each file with no class by path,
+            no header where one is needed, a header that names no class, or
+            a header that differs from its path's class. Only reads
+  trace     the requirements in the repository's Markdown tables
+            (requirements_in in .howl/howl.yml) and the tests that name them
+            (tests_in, test_pattern): a line per requirement, then the gaps.
+            A test covers the requirement whose ID its name starts with and
+            touches each ID in brackets; a comment line covers: or touches:
+            counts for the next test. --check ends with 1 and names each
+            built requirement by test that no test covers, each test that
+            names an ID no table holds, and each ID given twice. --at reads
+            one commit and nothing from the working tree. Only reads
+
+watch, show, status, serve and verify also take --project <name> or --ledger <path>. They
+only read: they take no lock and run while the writer appends.
+
+The project is read from the nearest .howl/howl.yml, unless --project names it.
+Its files are in $HOWL_HOME, else $XDG_STATE_HOME/howl, else ~/.local/state/howl,
+in a folder named after the project: ledger.jsonl, activity.jsonl, inbox/,
+people.json (the pseudonyms of people, never in the ledger) and observe.json.
+
+verify ends with 0 when the ledger holds, 1 when it does not, and 2 when it
+could not be read. It cannot show lines cut off the end: compare the head it
+prints with one kept somewhere else.
