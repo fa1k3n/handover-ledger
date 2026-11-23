@@ -2,13 +2,15 @@
 // Under HOWL_COMPARE the Rust and the TypeScript must give the same bytes for each.
 // @code_class tests
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { eventHash, fixedForm } from "../src/ledger/fixed.ts";
 import { parseJson } from "../src/ledger/json.ts";
 import { hashLine, openLedger } from "../src/ledger/ledger.ts";
-import { event, folder, howl, PROJECT, rawLines } from "./helpers.ts";
+import { event, folder, howl, PROJECT, rawLines, workspace } from "./helpers.ts";
 
 /** A ledger of its first line and `line` as line 2, written as it stands. */
 function ledgerOf(line: string): string {
@@ -166,17 +168,20 @@ test("#140: a line that is not UTF-8 is not JSON", () => {
   assert.equal(faultsOf(path).faults, "the line is not JSON");
 });
 
-test("#140: a byte order mark at the start of a line is passed over, and the line is hashed as it stands", () => {
+test("#140: a byte order mark at the start of a line is refused: the line is not JSON, as every reader has it", () => {
   const path = ledgerOf("");
   const first = rawLines(path)[0]!;
   const e = event();
-  const line = Buffer.from(`﻿{"prev":"${hashLine(Buffer.from(first))}","hash":"${eventHash(e)}","event":${fixedForm(e).toString("utf8")}}`);
+  const line = Buffer.from(`\ufeff{"prev":"${hashLine(Buffer.from(first))}","hash":"${eventHash(e)}","event":${fixedForm(e).toString("utf8")}}`);
   const e2 = event();
   const third = `{"prev":"${hashLine(line)}","hash":"${eventHash(e2)}","event":${fixedForm(e2).toString("utf8")}}`;
   writeFileSync(path, Buffer.concat([Buffer.from(`${first}\n`), line, Buffer.from(`\n${third}\n`)]));
   const r = howl(["verify", "--ledger", path]);
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /^ok: 3 lines checked/m);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(r.stdout, `${path}\nline 2: the line is not JSON\nfailed at line 2, after 1 line that hold\n`);
+  // On the first line too.
+  writeFileSync(path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(`${first}\n`)]));
+  assert.match(howl(["verify", "--ledger", path]).stdout, /\nline 1: the line is not JSON\n/);
 });
 
 test("#140: the first line must be ledger.created, and its prev null", () => {
@@ -284,4 +289,80 @@ test("#140: parseJson refuses a number beyond a double, and a lone surrogate, wi
   assert.throws(() => parseJson('{"\\udc00":1}'), { message: "a string with a lone surrogate has no fixed form" });
   assert.throws(() => parseJson('["\\ud800", 1e400]'), { message: "not JSON" });
   assert.deepEqual(parseJson('["\\ud83d\\ude00", 1e308]'), ["\u{1F600}", 1e308]);
+});
+
+/** The signed ledger the TypeScript wrote, with the events of some lines changed, and hash and prev made right again. */
+function signedWith(change: (events: Record<string, any>[]) => void): string {
+  const lines = readFileSync(new URL("./fixtures/ledger-signed.jsonl", import.meta.url), "utf8").trim().split("\n");
+  const events = lines.map((l) => (JSON.parse(l) as { event: Record<string, any> }).event);
+  change(events);
+  let prev: string | null = null;
+  const out: string[] = [];
+  for (const e of events) {
+    const line: string = `{"prev":${JSON.stringify(prev)},"hash":"${eventHash(e as never)}","event":${fixedForm(e).toString("utf8")}}`;
+    out.push(line);
+    prev = hashLine(Buffer.from(line));
+  }
+  const path = join(folder(), "ledger.jsonl");
+  writeFileSync(path, out.map((l) => `${l}\n`).join(""));
+  return path;
+}
+
+const ISSUER = "57dee94ab5fa8b0af3b365496f1f491236317de76867398da40ad065cbfa1445";
+
+test("#140: base64 is read as Node reads it: the low byte of each code unit, and an emoji ends it", () => {
+  // Each character moved up by U+0100 keeps its low byte, so the signature still holds.
+  const moved = signedWith((events) => {
+    events[2]!.sig.value = [...(events[2]!.sig.value as string)].map((c) => String.fromCharCode(c.charCodeAt(0) + 0x100)).join("");
+  });
+  const held = howl(["verify", "--ledger", moved]);
+  assert.equal(held.status, 0, held.stdout + held.stderr);
+  assert.match(held.stdout, new RegExp(`\\nsignatures: 2 signed, 1 unsigned claimed, issuer ${ISSUER}\\n$`));
+  // The high surrogate of an emoji has the low byte of "=": the signature ends there, and does not hold.
+  const cut = signedWith((events) => {
+    const value = events[3]!.sig.value as string;
+    events[3]!.sig.value = `${value.slice(0, 40)}\u{1F600}${value.slice(40)}`;
+  });
+  const failed = howl(["verify", "--ledger", cut]);
+  assert.equal(failed.status, 1, failed.stdout + failed.stderr);
+  assert.match(failed.stdout, /\nline 4: the signature does not hold: the event was changed after it was signed\n$/);
+});
+
+test("#140: Ed25519 at its edges is judged alike by both versions (test/fixtures/ed25519-edges)", () => {
+  const edges: [string, string, string[]][] = [
+    ["small-order", "0 signed, 0 unsigned claimed, issuer " + "b".repeat(64), []],
+    ["noncanon-A", "0 signed, 0 unsigned claimed, issuer " + "c".repeat(64), []],
+    ["negzero-A", "0 signed, 0 unsigned claimed, issuer " + "c".repeat(64), []],
+    ["noncanon-R", "0 signed, 0 unsigned claimed, issuer " + "b".repeat(64), ["line 2: key k1: the issuer's signature does not hold"]],
+    ["R-small", "1 signed, 0 unsigned claimed, issuer 60eeb62f21e16e73e7353791b6603aecdfa264b690a202f2eff1e081ffa3e6c7", ["line 3: the signature does not hold: the event was changed after it was signed"]],
+    ["s-plus-L", "1 signed, 0 unsigned claimed, issuer 60eeb62f21e16e73e7353791b6603aecdfa264b690a202f2eff1e081ffa3e6c7", ["line 3: the signature does not hold: the event was changed after it was signed"]],
+  ];
+  for (const [name, signatures, faults] of edges) {
+    const path = fileURLToPath(new URL(`./fixtures/ed25519-edges/${name}.jsonl`, import.meta.url));
+    const r = howl(["verify", "--ledger", path]);
+    assert.equal(r.status, faults.length === 0 ? 0 : 1, `${name}: ${r.stdout}${r.stderr}`);
+    const tail = r.stdout.split("\n").slice(3, -1);
+    assert.deepEqual(tail, [`signatures: ${signatures}`, ...faults], name);
+  }
+});
+
+test("#140: an inbox file with a lone surrogate is refused by howl ingest as not JSON, and nothing is written", () => {
+  const ws = workspace();
+  mkdirSync(ws.inbox, { recursive: true });
+  writeFileSync(join(ws.inbox, "0001.json"), fixedForm(event()).toString("utf8").replace('"id":"', '"id":"\\ud800'));
+  const r = howl(["ingest"], { cwd: ws.root, env: ws.env });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(readFileSync(join(ws.inbox, "rejected", "0001.json.reason"), "utf8").trim(), "the file is not JSON");
+  assert.equal(rawLines(ws.ledger).length, 1);
+});
+
+const bin = process.env.HOWL_BIN;
+
+test("#140: without HOWL_FALLBACK the binary refuses verify --checkpoint, --signers and --bundle, with 2", { skip: bin ? false : "HOWL_BIN is not set" }, () => {
+  for (const [args, named] of [[["--checkpoint", "git"], "--checkpoint"], [["--bundle", "b.tar.gz", "--signers", "s"], "--bundle"]] as const) {
+    const run = spawnSync(resolve(bin!), ["verify", "--ledger", "x", ...args], { env: { PATH: process.env.PATH ?? "" }, input: "", encoding: "utf8" });
+    assert.equal(run.status, 2);
+    assert.equal(run.stdout, "");
+    assert.equal(run.stderr, `howl: verify ${named} is not built yet\n`);
+  }
 });

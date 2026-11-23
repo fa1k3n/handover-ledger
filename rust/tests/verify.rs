@@ -104,8 +104,21 @@ fn the_patterns_of_the_schema_match_as_javascript_with_the_u_flag() {
     let inside = Pattern::new("b+c?").unwrap();
     assert!(inside.is_match("abbbd"));
     assert!(!inside.is_match("acd"));
-    let any = Pattern::new("^(?:ab|a)*x$").unwrap();
-    assert!(any.is_match("abaabx"));
+    let bounded = Pattern::new("^(?:ab|a){0,3}x$").unwrap();
+    assert!(bounded.is_match("abaabx"));
+    assert!(!bounded.is_match("ababaabx"));
+}
+
+#[test]
+fn an_unbounded_repeat_of_a_group_is_refused() {
+    // Each turn of it would go one level deeper; the schema needs none.
+    for source in ["^(?:ab|a)*x$", "(ab)+", "(?:a){2,}", "^(x|y)*$"] {
+        let refused = Pattern::new(source).unwrap_err();
+        assert!(refused.contains("group"), "{source}: {refused}");
+    }
+    assert!(Pattern::new("(ab)?").is_ok());
+    assert!(Pattern::new("(ab){1,9}").is_ok());
+    assert!(Pattern::new("[ab]*").is_ok());
 }
 
 #[test]
@@ -398,7 +411,12 @@ fn times_are_read_as_date_parse_reads_the_iso_forms() {
 
 #[test]
 fn base64_is_read_as_node_reads_it() {
-    let cases: [(&str, &[u8]); 10] = [
+    let cases: [(&str, &[u8]); 13] = [
+        // The low byte of each UTF-16 code unit: U+0151 is read as Q, and so on.
+        ("\u{151}\u{155}\u{14a}\u{144}", b"ABC"),
+        // The high surrogate of an emoji, D83D, has the low byte of `=`: the end.
+        ("QU\u{1F600}JD", b"A"),
+        ("QUJD\u{100}", b"ABC"),
         ("AAAA", &[0, 0, 0]),
         ("AA==", &[0]),
         ("AA", &[0]),
