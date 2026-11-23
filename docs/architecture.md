@@ -138,10 +138,10 @@ An event says what happened, not who shall do the next step. `howl` checks the r
 ## Rules
 
 - A review is done by another team member than the author. A team or a pack may also ask, for an agent, a higher model level. This is a rule for quality, not evidence of independence ([standards.md](standards.md)).
-- A bounded number of review rounds, then escalation to a person.
+- A team or a pack may bound the review rounds and ask for a person after the last. `howl` checks it and escalates nothing.
 - Every finding gets a fix or a reason. Not everything a reviewer doubts is a fault.
 - Idempotent per event and commit.
-- A wrong reviewer model, or a step taken by one who may not take it, is recorded as a broken rule.
+- A wrong reviewer model, where a team's or a pack's rule asks for one, or a step taken by one who may not take it, is recorded as a broken rule.
 - A fix never changes an existing test without a person having asked for it.
 - Project rules come on top, for example "high risk needs a human approver". Some rules belong to the core and cannot be switched off ([levels.md](levels.md)).
 
@@ -153,7 +153,7 @@ An event says what happened, not who shall do the next step. `howl` checks the r
 
 ## Configuration
 
-In two places ([commissioning.md](commissioning.md)). A `.howl/` folder in the repository declares what is true about its code: the code classes with their paths, owners and the levels asked for, the mandatory checks, the role prompts. The instance holds what decides: the enrolled repositories, the rules of each project, the teams and agents, the adapters, the approved levels.
+In two places ([commissioning.md](commissioning.md)). A `.howl/` folder in the repository declares what is true about its code: the code classes with their paths, owners and the levels asked for, the mandatory checks. The instance holds what decides: the enrolled repositories, the rules of each project, the teams and agents, the adapters, the approved levels.
 
 ## The ledger
 

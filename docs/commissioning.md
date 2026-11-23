@@ -26,7 +26,7 @@ The instance must not be owned by the team: the ledger would then be kept by tho
 
 The repository declares, the instance decides.
 
-**In `.howl/` in the repository:** the paths of each code class, the owning team, the level asked for, the source of the requirements, the checks that are mandatory, and the role prompts. The folder is versioned with the code, and a change to it counts as high risk.
+**In `.howl/` in the repository:** the paths of each code class, the owning team, the level asked for, the source of the requirements, and the checks that are mandatory. The folder is versioned with the code, and a change to it counts as high risk.
 
 **In the instance:** which repositories are enrolled, the rules of each project, teams and agents, keys, and the levels that are approved.
 
@@ -69,7 +69,7 @@ An agent is two things to `howl`, an identity and an entitlement. Both are check
 ## The steps
 
 1. **A trial in an afternoon.** `howl init` creates `.howl/` and runs locally against a ledger file, with no server. The ledger is marked as a trial and does not count as evidence.
-2. **A pilot with one team.** One instance in the R&D network, one or two enrolled repositories, level 0. It needs only read access, so the approval from IT is small.
+2. **A pilot with one team.** One instance in the R&D network, one or two enrolled repositories, at whatever level the team works. The instance only reads, so the approval from IT is small.
 3. **The organisation.** Rules from quality and safety, teams imported from the login service, more repositories.
 
 What the instance reads grows with the level. The rights to write branches, to write to the tracker and to merge are the team's own tools', never the instance's.
