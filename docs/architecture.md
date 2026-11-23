@@ -4,15 +4,14 @@
 
 - **The core records what happens, the packs say what is demanded.** What records is the core, what fetches data from another system is an adapter, what a standard or a law demands is a rule pack ([target.md](target.md)).
 - **Agents are measured one by one, people only as a team.** Traceability needs an identity, figures do not. An agent is known by an account of its own (see [Who contributes](#who-contributes)).
-- **Agents do the work, code steers the flow.** Orchestration is deterministic code. State is owned by the program, never by a model.
 - **Agents are short-lived.** Every assignment is a new session that starts cold. A review needs independence, a test author starts from the requirement and not from the code, and memory kept in a clone gathers faults.
 - **No hidden agent memory.** State per task lives in the task, the change and its comments. Lasting learning is written into the repository (instructions, role files).
 - **Observed before claimed.** Events come from adapters that read what happened in the team's tools. An event an agent sends about itself is marked as a claim.
 - **The evidence does not depend on how a team is set up.** An assessor can do the same work on a team of people, of people with AI tools, or of agents (see [Who contributes](#who-contributes)).
 - **Identity and memory are separate.** A named agent is a lasting identity; each assignment is a new session. Its "memory" is its history in the team's tools.
-- **Role, model and effort belong to the assignment.** Any team member can take any role. The dispatcher sets role, model and effort from the task (for example its size and risk).
-- **People are full team members.** When a task is assigned to a person no session starts; the dispatcher waits for a real event. People keep working in their usual tools: a review in the code host becomes a core event.
-- **Safe defaults.** Agents never merge. High risk needs a human approver. At the highest level a deterministic program may merge on conditions; a model never does.
+- **Role, model and effort belong to the assignment.** Any team member can take any role. The team's own tools set them, and `howl` records them as the session's claims.
+- **People are full team members.** A task given to a person is recorded as one given to an agent is. People keep working in their usual tools: a review in the code host becomes a core event.
+- **Safe defaults, as `howl` checks them.** Agents never merge. High risk needs a human approver. At the highest level the team's own deterministic program may merge on conditions; a model never does.
 
 ## Who contributes
 
@@ -52,7 +51,13 @@ Today `howl` does not hold to this yet: it records a session whenever an actor i
 
 ## Core concepts
 
-The core knows only its own concepts: task, team member (agent or person), assignment, role, event, rules, level and code class. It knows nothing about any one code host or tracker.
+The nouns of the core are what `howl` observes, not a workflow it assumes: task, change, review, check, session, team member (agent or person), assignment, event, rule, level and code class. It knows nothing about any one code host or tracker.
+
+- **A task** is any piece of work a tracker holds: an issue, a work item.
+- **A change** is any proposed change a code host holds: a pull request, a merge request, a Gerrit change.
+- **A review, a check and a session** are the same across hosts and agent tools.
+- Each adapter maps its own names onto these, and says which it lacks.
+- **No role is built in.** A role is a label the team's own tools claim on an event, and an agent's name never carries one (no "builder", no "reviewer"). A rule that names a role, or a policy such as "a review at a model level above the author", is a team's or a pack's rule, never the core's.
 
 ## Ports and adapters
 
@@ -61,11 +66,10 @@ The core knows only its own concepts: task, team member (agent or person), assig
 | Code host | GitHub, GitLab, Gerrit, Bitbucket |
 | Tracker | GitHub Projects, Jira, Linear |
 | Requirements | Tables in the repository, Polarion, DOORS, codebeamer, Jama |
-| Runner | Claude Code CLI, an agent SDK; locally, in CI, in a container; a model through the team's own cloud agreement |
 | Bus | Polling, webhooks, a queue |
 | Identity | Accounts of people and agents |
 
-- Adapters translate both ways.
+- Adapters translate the team's tools into the core's concepts. The tracker is read, never written.
 - An adapter announces what it can do beyond the port, so the core does not sink to the lowest common level.
 - Do not abstract ahead of need. Build at least two adapters of a port at once: a real one and a local, file-based one that is also the test environment.
 - Teams in regulated development seldom have their code on a public host and often may not send code off the premises. Independence from one code host and one model provider is a condition, not a nicety.
@@ -82,7 +86,7 @@ The core knows only its own concepts: task, team member (agent or person), assig
 
 The dashboard and the extension read only the ledger, so they work whatever the tracker. One repository. The engine and the CLI are Rust, moving from TypeScript side by side until the cut; the dashboard's page and the extension are TypeScript; what a team programs itself is Python (below).
 
-The first version only **records**: a ledger over a flow that exists (level 0). Steering comes after.
+`howl` only **records and checks**: a ledger over a flow that exists, checked against the rules and the levels. It steers nothing.
 
 ## What a team programs itself
 
@@ -129,11 +133,11 @@ Types, in the first draft: task assigned, change opened or updated, tests writte
 
 An event does not know its place in a ledger. A line of the ledger holds `prev`, the SHA-256 of the line before; `hash`, the SHA-256 of the event in its fixed form; and the event itself, in that fixed form. The fixed form is the JSON Canonicalization Scheme (RFC 8785), so that the Python package gives the same bytes as the engine. The same event can then wait in an inbox, and later be kept in more than one ledger.
 
-An event says what happened, not who shall do the next step. The dispatcher applies the rules.
+An event says what happened, not who shall do the next step. `howl` checks the rules against what happened; acting on them is the team's.
 
 ## Rules
 
-- A review is done by another team member than the author, and for an agent at a higher model level. This is a rule for quality, not evidence of independence ([standards.md](standards.md)).
+- A review is done by another team member than the author. A team or a pack may also ask, for an agent, a higher model level. This is a rule for quality, not evidence of independence ([standards.md](standards.md)).
 - A bounded number of review rounds, then escalation to a person.
 - Every finding gets a fix or a reason. Not everything a reviewer doubts is a fault.
 - Idempotent per event and commit.
@@ -143,15 +147,13 @@ An event says what happened, not who shall do the next step. The dispatcher appl
 
 ## Named agents
 
-- Agents have names and appear on the board, in the log and in the history as colleagues.
-- Every comment shows what ran, for example "agent-1 (Opus, high effort) reviewed".
-- A few lines of working style per agent (tests first, asks before guessing). They may never lower the quality demands. Start empty and add one line at a time.
-- Files: one per agent (identity, style) and one per role (instructions, tools), in the project's configuration.
+- Agents have names and appear on the board, in the log and in the history as colleagues. An agent's name and identity are recorded.
+- How an agent works (its style, its role files, what a comment shows of what ran) is the team's own tools', not `howl`'s.
 - Quality figures per agent say little while any agent can take any role and model. Measure per model and per role first.
 
 ## Configuration
 
-In two places ([commissioning.md](commissioning.md)). A `.howl/` folder in the repository declares what is true about its code: the code classes with their paths, owners and the levels asked for, the mandatory checks, the role prompts. The instance holds what decides: the enrolled repositories, the rules of each project, the teams and agents, the table of model and effort per size and risk, the adapters, the approved levels.
+In two places ([commissioning.md](commissioning.md)). A `.howl/` folder in the repository declares what is true about its code: the code classes with their paths, owners and the levels asked for, the mandatory checks, the role prompts. The instance holds what decides: the enrolled repositories, the rules of each project, the teams and agents, the adapters, the approved levels.
 
 ## The ledger
 

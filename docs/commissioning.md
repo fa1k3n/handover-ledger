@@ -30,7 +30,7 @@ The repository declares, the instance decides.
 
 **In the instance:** which repositories are enrolled, the rules of each project, teams and agents, keys, and the levels that are approved.
 
-- **Discovery only proposes.** The code host adapter finds repositories with a `.howl/` folder and lists them as waiting. A responsible person enrols them, and that is a ledger entry. Otherwise anyone could start agents by adding a folder.
+- **Discovery only proposes.** The code host adapter finds repositories with a `.howl/` folder and lists them as waiting. A responsible person enrols them, and that is a ledger entry. Otherwise anyone could enrol a repository by adding a folder.
 - **The repository can only be stricter than the rules,** never freer. The level in force is the lower of what the repository asks for and what the instance has approved.
 
 ```yaml
@@ -61,11 +61,10 @@ A team is never bound to a repository. Ownership lies on the path, as in the exa
 
 ## Provisioning agents
 
-An agent is three things, set up separately:
+An agent is two things to `howl`, an identity and an entitlement. Both are checked, not granted: the team's own tools provision and run the agent.
 
 - **Identity.** Created centrally by a responsible person, with an account of its own at the code host, and placed in teams just as a person is. It is a ledger entry.
-- **Runner.** Registered with the instance at the level of the organisation, a project or a repository, in the way CI runners are. The runner decides which model is reached (a cloud agreement or a local model) and which toolchain is at hand. Sensitive projects get runners of their own in a network of their own.
-- **Entitlement.** Computed from team membership, the level of the code class and the rules. An agent gets a short-lived key per assignment, limited to one repository and one branch. It holds no standing credentials.
+- **Entitlement.** Computed from team membership, the level of the code class and the rules. An agent gets a short-lived key per assignment, limited to one repository and one branch. It holds no standing credentials. `howl` checks what the agent did against what it was entitled to.
 
 ## The steps
 
@@ -73,14 +72,14 @@ An agent is three things, set up separately:
 2. **A pilot with one team.** One instance in the R&D network, one or two enrolled repositories, level 0. It needs only read access, so the approval from IT is small.
 3. **The organisation.** Rules from quality and safety, teams imported from the login service, more repositories.
 
-The rights grow with the level:
+What the instance reads grows with the level. The rights to write branches, to write to the tracker and to merge are the team's own tools', never the instance's.
 
 | Level | The instance needs |
 |---|---|
-| 0 Records | To read repositories and merge requests |
-| 1 Review | To comment, and a runner with a model |
-| 2 Small jobs | To write branches, the tracker, agent identities |
-| 3 Agent team | To merge, for the program only |
+| 0 No agents | To read repositories and merge requests |
+| 1 Review | To read the reviews and their comments |
+| 2 Small jobs | To read the tracker and the agents' identities |
+| 3 Agent team | To read the merges and the conditions they were made on |
 
 ## A change to `.howl/` is high risk
 

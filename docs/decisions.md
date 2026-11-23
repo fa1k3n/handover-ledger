@@ -10,8 +10,8 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **Several parts:** core, adapters, CLI, dashboard, VS Code extension. (2026-11-12)
 - **Open source with consulting** for the integration at clients. (2026-11-12)
 - **Levels of autonomy** as the way in for a team, combined with traceability so that it fits ISO and similar standards. (2026-11-12)
-- **Helpers are short-lived and start cold; orchestration is deterministic code; no hidden agent memory.** (2026-11-12)
-- **Named agents:** identity is lasting, memory is not; role, model and effort belong to the assignment. (2026-11-12)
+- **Helpers are short-lived and start cold; orchestration is deterministic code; no hidden agent memory.** (2026-11-12) Its orchestration is replaced 2026-11-22 by "howl records and checks, and never steers", at the end of this list: orchestration is the team's own tools'.
+- **Named agents:** identity is lasting, memory is not; role, model and effort belong to the assignment. (2026-11-12) Its steering part, a dispatcher that sets role, model and effort, is replaced 2026-11-22 by "howl records and checks, and never steers", at the end of this list. The names, the identity and what is recorded stand.
 - **Safe defaults:** agents never merge, high risk needs a person. (2026-11-12)
 - **Wording:** "supports certification" or "audit-ready", never "ISO certified". (2026-11-12)
 - **Languages:** the engine, the CLI, the dashboard and the VS Code extension are built in TypeScript. Whatever a development team itself programs (checks, adapters to in-house tools, scripts in `.howl/`) is Python, and a shell script shall work as well: embedded developers do not know TypeScript. (2026-11-13) Replaced 2026-11-17 by "The engine and the command line are Rust", at the end of this list.
@@ -49,6 +49,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
   - **The pieces,** one issue each, in this order, each naming the ones before it: 1 the skeleton (#137); 2 TypeScript says what it means (#138); 3 fixed form and hashes (#139), the schema and `howl verify` (#140); 4 `howl hook` to the inbox (#141), delivery, signing and `howl emit` (#142); 5 the writer and `howl ingest` (#143); 6 `howl key` and `howl keyd` (#144), `howl anchor` and checkpoints (#145); 7 `howl classes` and `howl trace` (#146), `howl watch` and the filter (#147), the agent folds and `howl status` (#148), `howl show` (#149), `howl export` and `verify --bundle` (#150); 8 the observer's parts (#151), `howl observe` (#152), the GitHub adapter (#153); 9 the page asks the server for its texts, in TypeScript (#154), `howl serve` with the page inside the executable (#155), `howl up` (#156); 10 the cut (#157); 11 the owner's machine moves to the binary (#158); 12 the release, static executables for Linux, then packages (#159; this replaces #98).
   - **#146 can be built beside #141 to #145:** it needs only the settings reader and git.
 - **A pause on the readers.** The readers (`src/read`) move in the second half. Open issues that change them (#42, #43, #52, #53, #93, #95) either go in before that starts or wait for the cut. The owner says which, in #135. (2026-11-17)
+- **howl records and checks, and never steers.** It gives out no task, starts or runs no agent, sets no role, model or effort, and merges nothing. What a team's own tools did is recorded and checked against the rules and the levels; a step that breaks a rule is a broken rule in the ledger. This replaces the dispatcher, the runner and the merging program of 2026-11-12 and of the order of the work. (2026-11-22)
 
 ## Proposed, not yet answered
 
@@ -82,17 +83,18 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **A separate test author** as a role of its own, or tests written by the one who builds.
 - **The name of the configuration:** a `.howl/` folder in the repository is the suggestion, with `howl.yml` in it.
 - **From the target picture** ([target.md](target.md)): which rule pack comes first; OSCAL and CEL, or simpler forms; how much of the handling of vulnerabilities belongs to the core; where the agents' manifests live.
+- **CVE flows, as a module beside the standards packs.** The core keeps only two things: a vulnerability is a kind of task, and the moment it became known is an event. The rest is a module: feed readers and an SBOM matcher as adapters, the assessment (affected or not, with a reason), and the clocks. Unlike a standards pack it cannot be a version updated now and then: the CVE sources change every day. The team's own automation, never `howl`'s, compares them with the SBOM every night and tags each match for triage at the tracker; `howl` observes that tag, and the tag is the moment the CVE became known. `howl` records when the CVE was published beside when it became known, and writes nothing to the tracker. Its clocks, in the owner's words: 24 hours from known to the analysis of whether a product is affected, and 14 days for a critical one from known to the fix in place. Each clock runs in the dashboard as a countdown, and a notice goes out before it ends; `howl` neither decides nor reports. Open: whether the clocks are the team's own settings or a pack's, and how a closed network gets the feeds (a mirror). (2026-11-22)
 
 ## The order of the work
 
 0. Before code: check the clause numbers of the control mapping and show it to two or three safety managers or an assessor; ask every team the five questions.
 1. The event schema, the hash chain, `howl verify` and the local file adapter, which is also the test environment. Then the split of event and line, and `howl hook` with the inbox ([observation.md](observation.md), steps 1 and 2).
 2. An adapter that reads merge and pull requests. This is level 0.
-3. Level 1: a runner for a reviewer, the rules around it, the share of dismissed findings.
+3. Level 1: the rules around any reviewer and the share of dismissed findings, with no runner.
 4. The evidence export and the control mapping for one safety standard.
 5. The requirements port: tables in the repository first, then one requirements tool.
-6. Level 2: the tracker adapter, the dispatcher, named agents.
-7. Level 3: conditional merge, with shadow mode first.
+6. Level 2: the tracker, read as a port, and the checks of level 2.
+7. Level 3: the check of a merge made on conditions, with the figures of shadow mode.
 8. A first dashboard came forward on 2026-11-13 (see Decided); the rest of it and the VS Code extension when someone asks for them. An init command and documentation along the way.
 
 The order in the first discussion was: core with ledger and two adapters, dashboard, documentation and init command, Jira adapter, control mapping. It was changed because levels 0 and 1 need only the ledger, a reader of merge requests and a runner, and because the control mapping decides what the ledger has to hold.
