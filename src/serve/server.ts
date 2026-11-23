@@ -21,7 +21,7 @@ import { actingAgents } from "../read/acting.ts";
 import { Kept } from "./kept.ts";
 import { projectsWriting, writingOf } from "../read/writing.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
-import { lineProvenance } from "../read/line.ts";
+import { lineProvenance, prepareLines, type Prepared } from "../read/line.ts";
 import { parseAsked, show } from "../read/show.ts";
 import { agentStates } from "../read/state.ts";
 import { readFilters, wantsActivity, type Failed } from "../read/filter.ts";
@@ -121,7 +121,7 @@ export async function startServer(options: ServeOptions): Promise<Served> {
   };
 
   // #85: the lines of each ledger and each activity file as the event log gives them, kept until the file changes.
-  const lines: Lines = { ledger: new Kept<Item[]>(), activity: new Kept<Item[]>() };
+  const lines: Lines = { ledger: new Kept<Item[]>(), activity: new Kept<Item[]>(), provenance: new Kept<Prepared>() };
 
   let port = options.port;
   const server = createServer((req, res) => {
@@ -277,9 +277,10 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     case "/api/line": {
       // #191: one line's provenance, for the event dialog. A whole number, never a path; line 0 is not there.
       const asked = url.searchParams.get("line") ?? "";
-      if (!/^(0|[1-9][0-9]{0,15})$/.test(asked)) throw new LedgerError("give line: the number of a line of the ledger");
+      if (!/^(0|[1-9][0-9]{0,14})$/.test(asked)) throw new LedgerError("give line: the number of a line of the ledger");
       const n = Number(asked);
-      const found = lineProvenance(ledger, n, ledgerVerdict(ledger), options.ledger === undefined ? project.name : undefined);
+      const prepared = lines.provenance.of(ledger, () => prepareLines(ledger));
+      const found = lineProvenance(ledger, prepared, n, ledgerVerdict(ledger), options.ledger === undefined ? project.name : undefined);
       if (found === null) {
         json(res, 404, { error: `the ledger has no line ${n} that howl can read` });
         return;
@@ -324,6 +325,8 @@ function events(projects: Project[], params: URLSearchParams, named: boolean, li
 interface Lines {
   ledger: Kept<Item[]>;
   activity: Kept<Item[]>;
+  /** #191: what /api/line reads of a ledger as a whole. */
+  provenance: Kept<Prepared>;
 }
 
 /**

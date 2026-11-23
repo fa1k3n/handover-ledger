@@ -814,10 +814,7 @@ function Stream({ agents, ledger, onError, project, served, unwritten }: { agent
           item={picked}
           beside={neighbours(items, itemKey(picked))}
           onStep={(key) => setPicked(items.find((i) => itemKey(i) === key) ?? picked)}
-          onOpenLine={(of, n) => {
-            // #191: a related event may be outside the list: it is read from the ledger.
-            api.line(of, n).then((a) => setPicked(a.item as Item), onError);
-          }}
+          onPick={setPicked}
           onNarrow={(field, value) => {
             setPicked(null);
             narrow(field, value);
@@ -903,14 +900,14 @@ function EventDialog({
   item,
   beside,
   onStep,
-  onOpenLine,
+  onPick,
   onNarrow,
   onClose,
 }: {
   item: Item;
   beside: { newer: string | null; older: string | null };
   onStep: (key: string) => void;
-  onOpenLine: (project: string | undefined, n: number) => void;
+  onPick: (item: Item) => void;
   onNarrow: (field: "project" | "repo", value: string) => void;
   onClose: () => void;
 }) {
@@ -925,13 +922,20 @@ function EventDialog({
   }, []);
   useEffect(() => setCopied(false), [item]);
   // #191: the line's provenance, read once for each event shown: a tool call is not a line of the ledger.
-  const [prov, setProv] = useState<{ key: string; answer?: Awaited<ReturnType<typeof api.line>>; error?: string } | null>(null);
+  const [prov, setProv] = useState<{ key: string; answer?: LineAnswer; error?: string } | null>(null);
+  // A related line opened from the dialog comes with its answer: it is not read twice.
+  const preloaded = useRef<{ key: string; answer: LineAnswer } | null>(null);
   useEffect(() => {
     if (item.from !== "ledger" || item.n === undefined) {
       setProv(null);
       return;
     }
     const key = itemKey(item);
+    if (preloaded.current?.key === key) {
+      setProv(preloaded.current);
+      preloaded.current = null;
+      return;
+    }
     let live = true;
     setProv({ key });
     api.line(item.project, item.n).then(
@@ -943,6 +947,19 @@ function EventDialog({
     };
   }, [item]);
   const answer = prov !== null && prov.key === itemKey(item) ? prov.answer : undefined;
+  const heading = useRef<HTMLHeadingElement>(null);
+  // #191: a related event may be outside the list: it is read from the ledger, and the focus goes to the heading, as the button that had it is gone.
+  const openLine = (n: number) => {
+    api.line(item.project, n).then(
+      (a) => {
+        const next = a.item as Item;
+        preloaded.current = { key: itemKey(next), answer: a };
+        onPick(next);
+        requestAnimationFrame(() => heading.current?.focus());
+      },
+      (e: unknown) => setProv({ key: itemKey(item), answer, error: (e as Error).message }),
+    );
+  };
   // The arrow keys are heard on the window, wherever the focus is inside the dialog.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -977,7 +994,7 @@ function EventDialog({
     >
       <div className="flex max-h-[calc(100vh-48px)] flex-col">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-5 py-3.5">
-          <h2 id="event-h" className="m-0 text-base font-semibold">
+          <h2 id="event-h" ref={heading} tabIndex={-1} className="m-0 text-base font-semibold">
             {dialogHeading(item)}
           </h2>
           <span className="font-mono text-[13px] text-mute">{item.event.type}</span>
@@ -995,7 +1012,7 @@ function EventDialog({
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto md:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4 px-5 py-[18px]">
             <span className="text-[13px] text-mute">{texts.provenance.heading}</span>
-            {item.from === "ledger" && prov?.error !== undefined && <p className="m-0 text-[13px] text-error-ink">{texts.provenance.failed(prov.error)}</p>}
+            {item.from === "ledger" && prov?.error !== undefined && <p role="alert" className="m-0 text-[13px] text-error-ink">{texts.provenance.failed(prov.error)}</p>}
             {item.from === "ledger" && answer === undefined && prov?.error === undefined && <p className="m-0 text-[13px] text-mute">{texts.provenance.loading}</p>}
             <Part id="p-source" title={texts.provenance.parts.source}>
               <Facts rows={sourceRows(item)} />
@@ -1013,7 +1030,7 @@ function EventDialog({
               <KeptPart item={item} />
             </Part>
             <Part id="p-related" title={texts.provenance.parts.related}>
-              <RelatedPart item={item} answer={answer} onOpen={(n) => onOpenLine(item.project, n)} />
+              <RelatedPart item={item} answer={answer} onOpen={openLine} />
             </Part>
             <section aria-labelledby="p-reading" className="flex flex-col gap-2.5 rounded-lg border-2 border-dashed border-pale px-4 py-3">
               <h3 id="p-reading" className="m-0 text-sm font-semibold">
@@ -1137,7 +1154,8 @@ function IntegrityPart({ item, answer }: { item: Item; answer: LineAnswer | unde
   ];
   if (answer !== undefined) {
     const c = answer.checkpoint;
-    rows.push({ k: t.chain, v: answer.intact ? t.intact : t.broken(answer.broken ?? 0) });
+    const chain = answer.intact ? t.intact : answer.broken === null ? t.unchecked : answer.doubted ? t.doubted(answer.broken) : t.broken(answer.broken);
+    rows.push({ k: t.chain, v: answer.intact && answer.last ? `${chain}; ${t.last}` : chain });
     rows.push({ k: t.checkpoint, v: c === null ? t.none : c.holds ? t.covered(utcTime(c.time), c.lines, c.head.slice(0, 12)) : t.notHeld(utcTime(c.time), c.lines) });
   }
   return (

@@ -6,11 +6,11 @@
 // @code_class reading
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { checkSignatures } from "../keys/keys.ts";
+import { checkSignatures, type SignatureCheck } from "../keys/keys.ts";
 import { hashLine } from "../ledger/ledger.ts";
 import type { Verdict } from "../ledger/verify.ts";
 import { actingAgents } from "./acting.ts";
-import { readWhole, type Read } from "./reader.ts";
+import { readWhole, type Read, type Whole } from "./reader.ts";
 
 /** One event related to the line, as the dialog lists it. */
 export interface Related {
@@ -58,8 +58,12 @@ export interface LineItem extends Read {
 export interface Provenance {
   item: LineItem;
   intact: boolean;
-  /** The line where the chain breaks, when it does. */
+  /** The line where the check of the chain fails, when it does. */
   broken: number | null;
+  /** The line before `broken`, whose hash the line after it does not hold: it may have been changed. */
+  doubted: boolean;
+  /** The last line of the ledger: held by nothing after it, only by a checkpoint. */
+  last: boolean;
   checkpoint: Covering | null;
   signature: LineSignature | null;
   related: RelatedEvents;
@@ -118,20 +122,48 @@ function keptCheckpoint(ledger: string): { lines: number; head: string; time: st
   }
 }
 
+/** What `/api/line` reads of a ledger as a whole, kept by the server until the file changes. */
+export interface Prepared {
+  whole: Whole;
+  signatures: SignatureCheck;
+  acting: Map<string, { agent: string }>;
+}
+
+export function prepareLines(ledger: string): Prepared {
+  const whole = readWhole(ledger);
+  return {
+    whole,
+    signatures: checkSignatures(whole.lines.map((r) => ({ n: r.n ?? 0, event: r.event }))),
+    acting: actingAgents(whole.lines.map((r) => r.event)),
+  };
+}
+
+/**
+ * The first line the check does not prove: the line where it failed, or the
+ * line before it when that line's hash is not held by a line after it (a
+ * `prev` fault, or a line whose form could not be read).
+ */
+function firstUnproven(verdict: Verdict): number {
+  if (verdict.ok) return verdict.lines + 1;
+  const prevHeld = verdict.faults.every((f) => f.startsWith("hash:") || f.startsWith("event:"));
+  return prevHeld ? verdict.line : verdict.line - 1;
+}
+
 /**
  * The provenance of line `n` of the ledger; null when the ledger has no such
- * line, or howl cannot read it. `verdict` is the check of the whole ledger.
+ * line, or howl cannot read it. `verdict` is the check of the whole ledger. A
+ * line is intact only when the check proves the chain past it: the last line
+ * is held by nothing after it, only by a checkpoint.
  */
-export function lineProvenance(ledger: string, n: number, verdict: Verdict, project?: string): Provenance | null {
-  const whole = readWhole(ledger);
+export function lineProvenance(ledger: string, prepared: Prepared, n: number, verdict: Verdict, project?: string): Provenance | null {
+  const { whole, signatures: check, acting } = prepared;
   const read = whole.lines.find((r) => r.n === n);
   if (read === undefined) return null;
   const item: LineItem = { ...read };
   if (project !== undefined) item.project = project;
-  const by = actingAgents(whole.lines.map((r) => r.event)).get(read.event.id)?.agent;
+  const by = acting.get(read.event.id)?.agent;
   if (by !== undefined) item.by = by;
 
-  const check = checkSignatures(whole.lines.map((r) => ({ n: r.n ?? 0, event: r.event })));
   const signed = check.byEvent.get(read.event.id);
   if (signed !== undefined) item.signed = signed;
   let signature: LineSignature | null = null;
@@ -141,13 +173,25 @@ export function lineProvenance(ledger: string, n: number, verdict: Verdict, proj
     signature = fault !== undefined ? { key: read.event.sig.key, ok: false, reason: fault.reason } : { key: read.event.sig.key, ok: true };
   }
 
-  const intact = verdict.ok || n < verdict.line;
+  const unproven = firstUnproven(verdict);
+  const intact = n < unproven;
+  const broken = verdict.ok ? null : verdict.line;
   const kept = keptCheckpoint(ledger);
   let checkpoint: Covering | null = null;
   if (kept !== null && n <= kept.lines) {
     const bytes = whole.bytes[kept.lines - 1];
-    checkpoint = { ...kept, holds: bytes !== undefined && hashLine(bytes) === kept.head };
+    // The head alone is not enough: the chain from this line up to it must hold too.
+    checkpoint = { ...kept, holds: bytes !== undefined && hashLine(bytes) === kept.head && kept.lines < unproven };
   }
 
-  return { item, intact, broken: verdict.ok ? null : verdict.line, checkpoint, signature, related: relatedEvents(whole.lines, n) };
+  return {
+    item,
+    intact,
+    broken,
+    doubted: broken !== null && !intact && n === unproven && n < broken,
+    last: n === whole.bytes.length,
+    checkpoint,
+    signature,
+    related: relatedEvents(whole.lines, n),
+  };
 }

@@ -607,7 +607,8 @@ export function partTime(item: Item, timeZone?: string): { stated: string; by: s
   const e = item.event;
   return {
     stated: `${localTime(e.time, timeZone)} local · ${utcTime(e.time)}`,
-    by: texts.provenance.time.by[originOf(e)],
+    // A hook received over HTTP is made into an event by howl up, on its own clock.
+    by: e.source.adapter === "claude-code-http" ? texts.provenance.time.by.http : texts.provenance.time.by[originOf(e)],
     received: texts.provenance.time.notRecorded,
   };
 }
@@ -625,7 +626,10 @@ export function partIdentity(item: Item, signature: LineSignature | null | undef
   const note = e.source.kind === "observed" && originOf(e) === "host" ? t.observed : null;
   if (item.from !== "ledger" || signature === undefined) return { actor, signature: t.tool, limit: null, note };
   if (signature === null) return { actor, signature: t.notSigned, limit: null, note };
-  return { actor, signature: signature.ok ? t.valid(signature.key.slice(0, 12)) : t.invalid(signature.reason ?? "unknown"), limit: t.limit, note };
+  // A key's issue or revocation is checked against the issuer key the line names itself, as given.
+  const issuer = e.type === "key.issued" || e.type === "key.revoked";
+  const key = signature.key.slice(0, 12);
+  return { actor, signature: signature.ok ? (issuer ? t.validIssuer(key) : t.valid(key)) : t.invalid(signature.reason ?? "unknown"), limit: t.limit, note };
 }
 
 /** #191, part 5: what was dropped or not kept, by where the event comes from; and its data as kept, or null when it holds none. */
