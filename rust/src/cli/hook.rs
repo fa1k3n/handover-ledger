@@ -1,41 +1,42 @@
-// The command `howl hook`: the event of a Claude Code hook, left in the inbox (#141).
+// The command `howl hook`: the event of a Claude Code hook, signed when the session has a key, and handed to the
+// writer's server or left in the inbox (#141, #142).
 //
 // It never disturbs the session: it prints nothing and ends with 0 in every case. A panic is caught, an error is
-// swallowed, and each call to git ends after a second. What this side does not do yet (signing with HOWL_KEY, and
-// delivery to the writer's server) goes to the TypeScript, decided before a byte of standard input is read.
+// swallowed, each call to git ends after a second, keyd and the server are given half a second each, and an event is
+// never lost to a failure of either: it is left in the inbox. Nothing of the hook goes to the TypeScript any more.
 // @code_class recording
-use crate::cli::howl::{fallback, Choice};
 use crate::hook::hook::{event_of_hook, iso_time, named, HookEnv};
 use crate::hook::input::{read_input, Json};
 use crate::howl::path::{is_absolute, join};
-use crate::howl::project::find_project;
+use crate::howl::project::Project;
+use crate::inbox::deliver::deliver;
+use crate::inbox::down::{mark_down, recently_down};
 use crate::inbox::inbox::{leave, now_ms, random_uuid};
+use crate::keys::js::truthy;
+use crate::keys::keyd::{parse_keyd_key, request, Answer};
+use crate::keys::sign::{read_key, sign_event};
 use crate::ledger::place::{inbox_path, project_dir, Env};
-use std::ffi::OsString;
+use serde_json::{json, Value};
 use std::io::Read;
-use std::os::unix::process::CommandExt;
-use std::process::Command;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+
+/// How long the hook waits for keyd: well within a tool call.
+pub const KEYD_TIMEOUT_MS: u64 = 500;
+/// After keyd failed to answer, how long the hook does not ask it again.
+pub const KEYD_PAUSE_MS: i64 = 60_000;
 
 /// The adapter of the events the hook makes.
 const ADAPTER: &str = "claude-code-hook";
 
-/// Runs `howl hook` with `args` (the command first): always 0, and nothing printed.
-pub fn run(args: &[OsString]) -> i32 {
+/// Runs `howl hook`: always 0, and nothing printed.
+pub fn run() -> i32 {
     // A panic says nothing: the message would reach the session.
     std::panic::set_hook(Box::new(|_| {}));
-    let _ = std::panic::catch_unwind(|| hook(args));
+    let _ = catch_unwind(hook);
     0
 }
 
-fn hook(args: &[OsString]) {
-    if goes_to_node() {
-        let entry = std::env::var_os("HOWL_FALLBACK");
-        let node = std::env::var_os("HOWL_NODE");
-        if let Choice::Fallback(node, entry) = fallback("hook".to_string(), entry, node) {
-            // Returns only when node cannot be started: then this side leaves the event, unsigned, in the inbox.
-            let _ = Command::new(node).arg(entry).args(args).exec();
-        }
-    }
+fn hook() {
     let mut bytes = Vec::new();
     if std::io::stdin().read_to_end(&mut bytes).is_err() {
         return;
@@ -63,26 +64,60 @@ fn hook(args: &[OsString]) {
     let Ok(Some((project, event))) = event_of_hook(&input, &env, &dir, ADAPTER, id, time) else {
         return;
     };
-    if let Ok(inbox) = inbox_path(&project.project, &Env::of_process()) {
-        let _ = leave(&inbox, &event);
+    let places = Env::of_process();
+    // #23: signed with the key of the assignment, when the session has one. A key that cannot be read, or a fault of
+    // any kind in signing, never stops the hook: the event goes unsigned.
+    let out = match named(std::env::var_os("HOWL_KEY").map(|k| k.to_string_lossy().into_owned()).as_deref()) {
+        Some(key) => catch_unwind(AssertUnwindSafe(|| sign(&key, &project, &event, &places)))
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| event.clone()),
+        None => event.clone(),
+    };
+    // Whatever goes wrong in delivering, the event is not lost: it is left in the inbox.
+    let delivered = catch_unwind(AssertUnwindSafe(|| deliver(&project.project, &out, &places)));
+    if !matches!(delivered, Ok(Ok(_))) {
+        if let Ok(inbox) = inbox_path(&project.project, &places) {
+            let _ = leave(&inbox, &out);
+        }
     }
 }
 
-/// Whether the TypeScript must make the event: HOWL_KEY names a key to sign with, or a `server.json` stands in the
-/// folder of the project of the working directory. Decided from the environment and the files alone.
-fn goes_to_node() -> bool {
-    let key = std::env::var_os("HOWL_KEY").map(|k| k.to_string_lossy().into_owned());
-    if named(key.as_deref()).is_some() {
-        return true;
+/// The event signed by the key `key` names, or none when it cannot be: keyd that does not answer, a key that cannot be
+/// read, an answer that is no signature.
+fn sign(key: &str, project: &Project, event: &Value, places: &Env) -> Option<Value> {
+    // #24: through keyd, which holds the key, when HOWL_KEY names it; else from a key file.
+    let Some(keyd) = parse_keyd_key(key) else {
+        return Some(sign_event(event, &read_key(key).ok()?));
+    };
+    // #30: a keyd that hangs or is gone never slows a session: after a failure it is not asked for a while.
+    let down = join(&[&project_dir(&project.project, places).ok()?, "keyd.down"]);
+    if recently_down(&down, KEYD_PAUSE_MS) {
+        return None;
     }
-    let Ok(cwd) = std::env::current_dir() else {
-        return false;
-    };
-    let Some(project) = find_project(&cwd.to_string_lossy()) else {
-        return false;
-    };
-    let Ok(folder) = project_dir(&project.project, &Env::of_process()) else {
-        return false;
-    };
-    std::fs::symlink_metadata(join(&[&folder, "server.json"])).is_ok()
+    let req = json!({"op": "sign", "key": keyd.key, "token": keyd.token, "event": event});
+    match request(&keyd.socket, &req, KEYD_TIMEOUT_MS) {
+        Answer::Unreachable(_) => {
+            mark_down(&down);
+            None
+        }
+        Answer::Reply(Value::Object(answer)) => {
+            if truthy(answer.get("ok")) {
+                // Only a signature in form is taken: the key's id and the signature, both text.
+                let sig = answer.get("sig")?.as_object()?;
+                let both = sig.get("key")?.is_string() && sig.get("value")?.is_string();
+                let mut signed = event.clone();
+                signed.as_object_mut()?.insert("sig".to_string(), Value::Object(sig.clone()));
+                both.then_some(signed)
+            } else {
+                // keyd's own words say it is not there, as `request` of the TypeScript does when it gives up.
+                if truthy(answer.get("unreachable")) {
+                    mark_down(&down);
+                }
+                None
+            }
+        }
+        // An answer that is no object is no signature, and no sign that keyd is gone.
+        Answer::Reply(_) => None,
+    }
 }

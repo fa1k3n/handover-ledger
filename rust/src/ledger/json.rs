@@ -54,6 +54,42 @@ pub fn parse_json(text: &str) -> Result<Value, JsonError> {
     Err(JsonError::LoneSurrogate)
 }
 
+/// Refuses a text nested deeper than `limit`, as `checkDepth` does: each array and object inside another counts one,
+/// brackets inside strings and after a `\` do not. The text is not read.
+pub fn check_depth(bytes: &[u8], limit: usize) -> Result<(), JsonError> {
+    // Signed, as in the TypeScript: a closing bracket too many lets as many more opening ones in.
+    let mut depth: i64 = 0;
+    let mut in_string = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_string {
+            if c == b'\\' {
+                i += 1;
+            } else if c == b'"' {
+                in_string = false;
+            }
+        } else if c == b'"' {
+            in_string = true;
+        } else if c == b'[' || c == b'{' {
+            depth += 1;
+            if depth > limit as i64 {
+                return Err(JsonError::TooDeep);
+            }
+        } else if c == b']' || c == b'}' {
+            depth -= 1;
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
+/// The check on an event in its fixed form (`checkEventDepth`): its line holds it one level down, so it is at most 127
+/// deep. The writer, `howl ingest` and `howl emit` hold an event to it.
+pub fn check_event_depth(fixed: &[u8]) -> Result<(), JsonError> {
+    check_depth(fixed, MAX_DEPTH - 1)
+}
+
 /// The nesting check, and where the hex digits of each lone surrogate escape start.
 fn scan(bytes: &[u8]) -> Result<Vec<usize>, JsonError> {
     // Signed, as in the TypeScript: a closing bracket too many lets as many more opening ones in.

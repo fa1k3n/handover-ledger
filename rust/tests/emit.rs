@@ -10,7 +10,10 @@ const BIN: &str = env!("CARGO_BIN_EXE_howl");
 const USAGE: &str = include_str!("../../src/cli/usage.txt");
 
 fn folder(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("howl-emit-{}-{name}", std::process::id()));
+    // One folder for each call: the tests of a file run at the same time.
+    static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("howl-emit-{}-{n}-{name}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir

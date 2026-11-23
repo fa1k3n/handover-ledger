@@ -1,7 +1,9 @@
 // Signed claims with a key per assignment: the check of `howl verify`, the twin of `checkSignatures` in
-// src/keys/keys.ts (#23, #140). Issuing keys and signing stay in the TypeScript until their piece.
+// src/keys/keys.ts (#23, #140), and the signing of the hook (#142). Issuing keys stays in the TypeScript until its piece.
 // @code_class evidence
 pub mod js;
+pub mod keyd;
+pub mod sign;
 
 pub use js::{base64_decode, date_parse, js_string};
 

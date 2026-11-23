@@ -194,6 +194,8 @@ test("#142: something on the port that is no server of howl's loses nothing and 
     const ws = workspace();
     const odd: TcpServer = createTcp((socket) => {
       socket.on("error", () => {});
+      // Read, so that the end of the other side is seen and the connection closes.
+      socket.resume();
       behave(socket);
     });
     await new Promise<void>((resolve) => odd.listen(0, "127.0.0.1", resolve));
