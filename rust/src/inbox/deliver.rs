@@ -131,7 +131,10 @@ fn address(url: &str) -> Option<Address> {
         if inside != "::1" {
             return None;
         }
-        ("[::1]".to_string(), after.strip_prefix(':').or(after.is_empty().then_some("")))
+        (
+            "[::1]".to_string(),
+            after.strip_prefix(':').or(after.is_empty().then_some("")),
+        )
     } else {
         match authority.split_once(':') {
             Some((host, port)) => (host.to_ascii_lowercase(), Some(port)),
@@ -174,7 +177,8 @@ fn address(url: &str) -> Option<Address> {
 pub fn deliver(project: &str, event: &Value, env: &Env) -> Result<Option<String>, LeaveError> {
     let inbox = inbox_path(project, env).map_err(LeaveError::other)?;
     let folder = project_dir(project, env).map_err(LeaveError::other)?;
-    let Some(server) = read_server_file(&server_path(project, env).map_err(LeaveError::other)?) else {
+    let Some(server) = read_server_file(&server_path(project, env).map_err(LeaveError::other)?)
+    else {
         return leave(&inbox, event).map(Some);
     };
     let down = join(&[&folder, "server.down"]);
@@ -183,7 +187,8 @@ pub fn deliver(project: &str, event: &Value, env: &Env) -> Result<Option<String>
     }
     // Whatever goes wrong in asking, the event is not lost.
     let body = fixed_form(event);
-    let answer = std::panic::catch_unwind(|| post(&server, &body, SERVER_TIMEOUT_MS)).unwrap_or(Answer::Refused);
+    let answer = std::panic::catch_unwind(|| post(&server, &body, SERVER_TIMEOUT_MS))
+        .unwrap_or(Answer::Refused);
     match answer {
         Answer::Taken => return Ok(None),
         Answer::Silent => mark_down(&down),
@@ -257,7 +262,14 @@ fn read_some(stream: &mut TcpStream, into: &mut [u8], deadline: Instant) -> Got 
     match stream.read(into) {
         Ok(0) => Got::End,
         Ok(n) => Got::Bytes(n),
-        Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => Got::TimedOut,
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ) =>
+        {
+            Got::TimedOut
+        }
         Err(e) if e.kind() == std::io::ErrorKind::Interrupted => Got::Bytes(0),
         Err(_) => Got::Failed,
     }
@@ -350,7 +362,12 @@ fn too_much(body: &[u8]) -> bool {
     body.len() > 3 * BODY_MOST || String::from_utf8_lossy(body).encode_utf16().count() > BODY_MOST
 }
 
-fn read_length(stream: &mut TcpStream, body: &mut Vec<u8>, length: usize, deadline: Instant) -> Result<(), Stop> {
+fn read_length(
+    stream: &mut TcpStream,
+    body: &mut Vec<u8>,
+    length: usize,
+    deadline: Instant,
+) -> Result<(), Stop> {
     let mut chunk = [0u8; 4096];
     loop {
         if too_much(body) {
@@ -369,7 +386,11 @@ fn read_length(stream: &mut TcpStream, body: &mut Vec<u8>, length: usize, deadli
     }
 }
 
-fn read_to_close(stream: &mut TcpStream, body: &mut Vec<u8>, deadline: Instant) -> Result<(), Stop> {
+fn read_to_close(
+    stream: &mut TcpStream,
+    body: &mut Vec<u8>,
+    deadline: Instant,
+) -> Result<(), Stop> {
     let mut chunk = [0u8; 4096];
     loop {
         if too_much(body) {
@@ -385,7 +406,11 @@ fn read_to_close(stream: &mut TcpStream, body: &mut Vec<u8>, deadline: Instant) 
 }
 
 /// A body in chunks: each a size in hex (and an extension after `;`), a line break, that many bytes, a line break.
-fn read_chunked(stream: &mut TcpStream, mut raw: Vec<u8>, deadline: Instant) -> Result<Vec<u8>, Stop> {
+fn read_chunked(
+    stream: &mut TcpStream,
+    mut raw: Vec<u8>,
+    deadline: Instant,
+) -> Result<Vec<u8>, Stop> {
     let mut body = Vec::new();
     let mut at = 0;
     let mut chunk = [0u8; 4096];

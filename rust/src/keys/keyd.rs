@@ -89,7 +89,10 @@ fn exchange(socket: &str, line: &str, deadline: Instant) -> Answer {
         if data.len() > MOST {
             return Answer::Unreachable("keyd's answer is not JSON".to_string());
         }
-        let Some(wait) = deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) else {
+        let Some(wait) = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+        else {
             return Answer::Unreachable("keyd did not answer".to_string());
         };
         if let Err(e) = stream.set_read_timeout(Some(wait)) {

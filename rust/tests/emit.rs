@@ -23,7 +23,11 @@ fn folder(name: &str) -> PathBuf {
 fn emit(args: &[&str], name: &str) -> (Output, PathBuf) {
     let root = folder(name);
     fs::create_dir_all(root.join("repo").join(".howl")).unwrap();
-    fs::write(root.join("repo").join(".howl").join("howl.yml"), "project: example\n").unwrap();
+    fs::write(
+        root.join("repo").join(".howl").join("howl.yml"),
+        "project: example\n",
+    )
+    .unwrap();
     fs::create_dir_all(root.join("home")).unwrap();
     let out = Command::new(BIN)
         .arg("emit")
@@ -45,25 +49,55 @@ fn text(bytes: &[u8]) -> String {
 
 #[test]
 fn an_event_is_left_in_the_inbox_and_nothing_is_printed() {
-    let (out, inbox) = emit(&["checks.passed", "--change", "123", "--task", "45", "--data", "{\"check\":\"static-analysis\"}"], "ok");
+    let (out, inbox) = emit(
+        &[
+            "checks.passed",
+            "--change",
+            "123",
+            "--task",
+            "45",
+            "--data",
+            "{\"check\":\"static-analysis\"}",
+        ],
+        "ok",
+    );
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
-    assert_eq!((text(&out.stdout), text(&out.stderr)), (String::new(), String::new()));
-    let files: Vec<_> = fs::read_dir(&inbox).unwrap().map(|e| e.unwrap().path()).collect();
+    assert_eq!(
+        (text(&out.stdout), text(&out.stderr)),
+        (String::new(), String::new())
+    );
+    let files: Vec<_> = fs::read_dir(&inbox)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
     assert_eq!(files.len(), 1);
-    let event: serde_json::Value = serde_json::from_str(&fs::read_to_string(&files[0]).unwrap()).unwrap();
+    let event: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&files[0]).unwrap()).unwrap();
     assert_eq!(event["type"], "checks.passed");
     assert_eq!(event["change"], "123");
     assert_eq!(event["task"], "45");
-    assert_eq!(event["data"], serde_json::json!({"check": "static-analysis"}));
-    assert_eq!(event["source"], serde_json::json!({"adapter": "emit", "kind": "claimed"}));
-    assert_eq!(event["actor"], serde_json::json!({"kind": "agent", "id": "agent-1"}));
+    assert_eq!(
+        event["data"],
+        serde_json::json!({"check": "static-analysis"})
+    );
+    assert_eq!(
+        event["source"],
+        serde_json::json!({"adapter": "emit", "kind": "claimed"})
+    );
+    assert_eq!(
+        event["actor"],
+        serde_json::json!({"kind": "agent", "id": "agent-1"})
+    );
 }
 
 #[test]
 fn without_a_type_it_ends_with_1_and_the_usage_text() {
     let (out, inbox) = emit(&[], "no-type");
     assert_eq!(out.status.code(), Some(1));
-    assert_eq!(text(&out.stderr), format!("howl: emit needs a type\n\n{}", USAGE));
+    assert_eq!(
+        text(&out.stderr),
+        format!("howl: emit needs a type\n\n{}", USAGE)
+    );
     assert!(!inbox.exists());
 }
 
@@ -71,10 +105,17 @@ fn without_a_type_it_ends_with_1_and_the_usage_text() {
 fn a_wrong_use_is_a_usage_error_with_2() {
     let (out, _) = emit(&["a", "b"], "too-many");
     assert_eq!(out.status.code(), Some(2));
-    assert_eq!(text(&out.stderr), format!("howl: too many arguments: b\n\n{USAGE}"));
+    assert_eq!(
+        text(&out.stderr),
+        format!("howl: too many arguments: b\n\n{USAGE}")
+    );
     let (out, _) = emit(&["a", "--nope"], "unknown");
     assert_eq!(out.status.code(), Some(2));
-    assert!(text(&out.stderr).starts_with("howl: Unknown option '--nope'."), "{}", text(&out.stderr));
+    assert!(
+        text(&out.stderr).starts_with("howl: Unknown option '--nope'."),
+        "{}",
+        text(&out.stderr)
+    );
     let (out, _) = emit(&["a", "--data"], "missing");
     assert_eq!(out.status.code(), Some(2));
     assert!(text(&out.stderr).starts_with("howl: Option '--data <value>' argument missing"));
@@ -112,7 +153,10 @@ fn an_event_nested_too_deep_is_refused_before_it_is_left() {
     assert_eq!(fs::read_dir(&inbox).unwrap().count(), 1);
     let (out, inbox) = emit(&["checks.passed", "--data", &deep(126)], "deep-no");
     assert_eq!(out.status.code(), Some(1));
-    assert_eq!(text(&out.stderr), "howl: not JSON: nested more than 128 deep\n");
+    assert_eq!(
+        text(&out.stderr),
+        "howl: not JSON: nested more than 128 deep\n"
+    );
     assert!(!inbox.exists());
 }
 
@@ -120,7 +164,10 @@ fn an_event_nested_too_deep_is_refused_before_it_is_left() {
 fn the_check_of_an_event_is_127_deep() {
     let nested = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
     assert_eq!(check_event_depth(nested(127).as_bytes()), Ok(()));
-    assert_eq!(check_event_depth(nested(128).as_bytes()), Err(JsonError::TooDeep));
+    assert_eq!(
+        check_event_depth(nested(128).as_bytes()),
+        Err(JsonError::TooDeep)
+    );
     // Brackets in a string do not count.
     let in_string = format!("{{\"a\":\"{}\"}}", "[".repeat(500));
     assert_eq!(check_event_depth(in_string.as_bytes()), Ok(()));
@@ -139,7 +186,10 @@ fn outside_a_project_nothing_is_written_and_it_ends_with_0() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(0));
-    assert_eq!((text(&out.stdout), text(&out.stderr)), (String::new(), String::new()));
+    assert_eq!(
+        (text(&out.stdout), text(&out.stderr)),
+        (String::new(), String::new())
+    );
     assert!(!root.join("home").exists());
 }
 
@@ -147,7 +197,11 @@ fn outside_a_project_nothing_is_written_and_it_ends_with_0() {
 fn an_inbox_that_cannot_be_written_ends_with_2_and_names_the_call() {
     let root = folder("blocked");
     fs::create_dir_all(root.join("repo").join(".howl")).unwrap();
-    fs::write(root.join("repo").join(".howl").join("howl.yml"), "project: example\n").unwrap();
+    fs::write(
+        root.join("repo").join(".howl").join("howl.yml"),
+        "project: example\n",
+    )
+    .unwrap();
     // A file where the project's folder should be.
     fs::write(root.join("home"), "x").unwrap();
     let out = Command::new(BIN)
@@ -163,14 +217,24 @@ fn an_inbox_that_cannot_be_written_ends_with_2_and_names_the_call() {
     assert_eq!(out.status.code(), Some(2));
     let said = text(&out.stderr);
     let inbox = root.join("home").join("example").join("inbox");
-    assert_eq!(said, format!("howl: ENOTDIR: not a directory, mkdir '{}'\n", inbox.display()));
+    assert_eq!(
+        said,
+        format!(
+            "howl: ENOTDIR: not a directory, mkdir '{}'\n",
+            inbox.display()
+        )
+    );
 }
 
 #[test]
 fn an_inbox_that_is_a_file_ends_with_1_as_the_typescript_ends_with_its_error() {
     let root = folder("is-a-file");
     fs::create_dir_all(root.join("repo").join(".howl")).unwrap();
-    fs::write(root.join("repo").join(".howl").join("howl.yml"), "project: example\n").unwrap();
+    fs::write(
+        root.join("repo").join(".howl").join("howl.yml"),
+        "project: example\n",
+    )
+    .unwrap();
     fs::create_dir_all(root.join("home").join("example")).unwrap();
     fs::write(root.join("home").join("example").join("inbox"), "x").unwrap();
     let out = Command::new(BIN)
@@ -185,5 +249,11 @@ fn an_inbox_that_is_a_file_ends_with_1_as_the_typescript_ends_with_its_error() {
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
     let inbox = root.join("home").join("example").join("inbox");
-    assert_eq!(text(&out.stderr), format!("howl: EEXIST: file already exists, mkdir '{}'\n", inbox.display()));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "howl: EEXIST: file already exists, mkdir '{}'\n",
+            inbox.display()
+        )
+    );
 }

@@ -67,7 +67,11 @@ fn hook() {
     let places = Env::of_process();
     // #23: signed with the key of the assignment, when the session has one. A key that cannot be read, or a fault of
     // any kind in signing, never stops the hook: the event goes unsigned.
-    let out = match named(std::env::var_os("HOWL_KEY").map(|k| k.to_string_lossy().into_owned()).as_deref()) {
+    let out = match named(
+        std::env::var_os("HOWL_KEY")
+            .map(|k| k.to_string_lossy().into_owned())
+            .as_deref(),
+    ) {
         Some(key) => catch_unwind(AssertUnwindSafe(|| sign(&key, &project, &event, &places)))
             .ok()
             .flatten()
@@ -75,7 +79,9 @@ fn hook() {
         None => event.clone(),
     };
     // Whatever goes wrong in delivering, the event is not lost: it is left in the inbox.
-    let delivered = catch_unwind(AssertUnwindSafe(|| deliver(&project.project, &out, &places)));
+    let delivered = catch_unwind(AssertUnwindSafe(|| {
+        deliver(&project.project, &out, &places)
+    }));
     if !matches!(delivered, Ok(Ok(_))) {
         if let Ok(inbox) = inbox_path(&project.project, &places) {
             let _ = leave(&inbox, &out);
@@ -107,7 +113,9 @@ fn sign(key: &str, project: &Project, event: &Value, places: &Env) -> Option<Val
                 let sig = answer.get("sig")?.as_object()?;
                 let both = sig.get("key")?.is_string() && sig.get("value")?.is_string();
                 let mut signed = event.clone();
-                signed.as_object_mut()?.insert("sig".to_string(), Value::Object(sig.clone()));
+                signed
+                    .as_object_mut()?
+                    .insert("sig".to_string(), Value::Object(sig.clone()));
                 both.then_some(signed)
             } else {
                 // keyd's own words say it is not there, as `request` of the TypeScript does when it gives up.

@@ -1,7 +1,9 @@
 // How an event leaves the hook: to the writer's server when one runs, else into the inbox; the twin of
 // `src/inbox/deliver.ts` and `src/inbox/down.ts` (#142). The server here is a socket of the test's own.
 // @code_class tests
-use howl::inbox::deliver::{deliver, post, read_server_file, Answer, ServerFile, SERVER_PAUSE_MS, SERVER_TIMEOUT_MS};
+use howl::inbox::deliver::{
+    deliver, post, read_server_file, Answer, ServerFile, SERVER_PAUSE_MS, SERVER_TIMEOUT_MS,
+};
 use howl::inbox::down::{mark_down, recently_down};
 use howl::inbox::inbox::now_ms;
 use howl::ledger::fixed::fixed_form;
@@ -32,7 +34,11 @@ fn s(path: &std::path::Path) -> String {
 }
 
 fn env_of(home: &std::path::Path) -> Env {
-    Env { howl_home: Some(s(home)), xdg_state_home: None, home: Some("/nowhere".to_string()) }
+    Env {
+        howl_home: Some(s(home)),
+        xdg_state_home: None,
+        home: Some("/nowhere".to_string()),
+    }
 }
 
 fn event() -> Value {
@@ -120,7 +126,11 @@ fn http(status: &str, headers: &[&str], body: &str) -> Reply {
 
 fn ok_json(status: u16, body: &str) -> Reply {
     let length = format!("content-length: {}", body.len());
-    http(&format!("{status} X"), &["content-type: application/json", &length], body)
+    http(
+        &format!("{status} X"),
+        &["content-type: application/json", &length],
+        body,
+    )
 }
 
 fn read_request(conn: &mut TcpStream) -> Seen {
@@ -136,7 +146,11 @@ fn read_request(conn: &mut TcpStream) -> Seen {
     let head = String::from_utf8_lossy(&data).to_string();
     let length = head
         .lines()
-        .find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+        .find_map(|l| {
+            l.to_lowercase()
+                .strip_prefix("content-length:")
+                .map(|v| v.trim().parse::<usize>().unwrap())
+        })
         .unwrap_or(0);
     let mut body = vec![0u8; length];
     let _ = conn.read_exact(&mut body);
@@ -152,7 +166,11 @@ fn server_file(url: &str, pid: u32) -> ServerFile {
 }
 
 fn answer_of(server: &Server, body: &[u8]) -> Answer {
-    post(&server_file(&server.url(), std::process::id()), body, SERVER_TIMEOUT_MS)
+    post(
+        &server_file(&server.url(), std::process::id()),
+        body,
+        SERVER_TIMEOUT_MS,
+    )
 }
 
 // ----- the server file
@@ -169,9 +187,18 @@ fn a_server_file_names_a_url_a_token_and_a_live_process() {
     let pid = std::process::id();
     let good = json!({"url": "http://127.0.0.1:4317", "token": TOKEN, "pid": pid}).to_string();
     let server = read_text(&good).unwrap();
-    assert_eq!((server.url.as_str(), server.token.as_str(), server.pid), ("http://127.0.0.1:4317", TOKEN, pid as i64));
+    assert_eq!(
+        (server.url.as_str(), server.token.as_str(), server.pid),
+        ("http://127.0.0.1:4317", TOKEN, pid as i64)
+    );
     // The three addresses of this machine, and a path after the port, which the post does not use.
-    for url in ["http://localhost:4317", "http://LOCALHOST:1", "http://[::1]:4317", "http://127.0.0.1", "http://127.0.0.1:4317/base/"] {
+    for url in [
+        "http://localhost:4317",
+        "http://LOCALHOST:1",
+        "http://[::1]:4317",
+        "http://127.0.0.1",
+        "http://127.0.0.1:4317/base/",
+    ] {
         let text = json!({"url": url, "token": TOKEN, "pid": pid}).to_string();
         assert!(read_text(&text).is_some(), "{url}");
     }
@@ -183,30 +210,83 @@ fn a_server_file_names_a_url_a_token_and_a_live_process() {
 #[test]
 fn a_server_file_that_does_not_hold_is_passed_over() {
     let pid = std::process::id();
-    let with = |url: Value, token: Value, pid: Value| json!({"url": url, "token": token, "pid": pid}).to_string();
+    let with = |url: Value, token: Value, pid: Value| {
+        json!({"url": url, "token": token, "pid": pid}).to_string()
+    };
     let good = |url: &str| with(json!(url), json!(TOKEN), json!(pid));
     let cases = [
         ("another machine", good("http://example.invalid:4317")),
         ("https", good("https://127.0.0.1:4317")),
-        ("a name that starts as the address", good("http://127.0.0.1.evil.test:4317")),
+        (
+            "a name that starts as the address",
+            good("http://127.0.0.1.evil.test:4317"),
+        ),
         ("a user name", good("http://user@127.0.0.1:4317")),
         ("a short form of the address", good("http://127.1:4317")),
-        ("the address of another machine of the net", good("http://10.0.0.1:4317")),
+        (
+            "the address of another machine of the net",
+            good("http://10.0.0.1:4317"),
+        ),
         ("not a url", good("127.0.0.1:4317")),
         ("a port too large", good("http://127.0.0.1:99999")),
         ("a port that is not a number", good("http://127.0.0.1:abc")),
         ("white space", good(" http://127.0.0.1:4317")),
-        ("no token", json!({"url": "http://127.0.0.1:1", "pid": pid}).to_string()),
-        ("an empty token", with(json!("http://127.0.0.1:1"), json!(""), json!(pid))),
-        ("a token with a line break", with(json!("http://127.0.0.1:1"), json!("a\nb"), json!(pid))),
-        ("a token with a space", with(json!("http://127.0.0.1:1"), json!("a b"), json!(pid))),
-        ("a token beyond ASCII", with(json!("http://127.0.0.1:1"), json!("snow\u{2603}man"), json!(pid))),
-        ("a token that is a number", with(json!("http://127.0.0.1:1"), json!(5), json!(pid))),
-        ("a pid that is no whole number", with(json!("http://127.0.0.1:1"), json!(TOKEN), json!(1.5))),
-        ("pid 0", with(json!("http://127.0.0.1:1"), json!(TOKEN), json!(0))),
-        ("a negative pid", with(json!("http://127.0.0.1:1"), json!(TOKEN), json!(-5))),
-        ("a pid as text", with(json!("http://127.0.0.1:1"), json!(TOKEN), json!(pid.to_string()))),
-        ("a pid beyond 2^31", with(json!("http://127.0.0.1:1"), json!(TOKEN), json!(4_294_967_296u64))),
+        (
+            "no token",
+            json!({"url": "http://127.0.0.1:1", "pid": pid}).to_string(),
+        ),
+        (
+            "an empty token",
+            with(json!("http://127.0.0.1:1"), json!(""), json!(pid)),
+        ),
+        (
+            "a token with a line break",
+            with(json!("http://127.0.0.1:1"), json!("a\nb"), json!(pid)),
+        ),
+        (
+            "a token with a space",
+            with(json!("http://127.0.0.1:1"), json!("a b"), json!(pid)),
+        ),
+        (
+            "a token beyond ASCII",
+            with(
+                json!("http://127.0.0.1:1"),
+                json!("snow\u{2603}man"),
+                json!(pid),
+            ),
+        ),
+        (
+            "a token that is a number",
+            with(json!("http://127.0.0.1:1"), json!(5), json!(pid)),
+        ),
+        (
+            "a pid that is no whole number",
+            with(json!("http://127.0.0.1:1"), json!(TOKEN), json!(1.5)),
+        ),
+        (
+            "pid 0",
+            with(json!("http://127.0.0.1:1"), json!(TOKEN), json!(0)),
+        ),
+        (
+            "a negative pid",
+            with(json!("http://127.0.0.1:1"), json!(TOKEN), json!(-5)),
+        ),
+        (
+            "a pid as text",
+            with(
+                json!("http://127.0.0.1:1"),
+                json!(TOKEN),
+                json!(pid.to_string()),
+            ),
+        ),
+        (
+            "a pid beyond 2^31",
+            with(
+                json!("http://127.0.0.1:1"),
+                json!(TOKEN),
+                json!(4_294_967_296u64),
+            ),
+        ),
         ("not JSON", "{not json".to_string()),
         ("an array", "[1]".to_string()),
         ("null", "null".to_string()),
@@ -241,7 +321,11 @@ fn a_server_file_that_is_large_or_no_plain_file_is_passed_over_and_does_not_hold
     assert!(read_server_file(&s(&big)).is_some(), "less than 64 KiB");
     let started = Instant::now();
     let pipe = dir.join("pipe.json");
-    assert!(std::process::Command::new("mkfifo").arg(&pipe).status().unwrap().success());
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&pipe)
+        .status()
+        .unwrap()
+        .success());
     assert!(read_server_file(&s(&pipe)).is_none());
     assert!(read_server_file(&s(&dir)).is_none(), "a folder");
     assert!(read_server_file(&s(&dir.join("missing"))).is_none());
@@ -262,7 +346,10 @@ fn a_service_that_failed_is_not_asked_for_a_pause_and_a_file_that_says_nothing_i
     assert!(!recently_down(&file, 0), "a pause of nothing");
     let at = |ms: i64| format!("{}\n", howl::hook::hook::iso_time(ms));
     fs::write(&file, at(now_ms() - 120_000)).unwrap();
-    assert!(!recently_down(&file, SERVER_PAUSE_MS), "older than the pause");
+    assert!(
+        !recently_down(&file, SERVER_PAUSE_MS),
+        "older than the pause"
+    );
     fs::write(&file, at(now_ms() - 30_000)).unwrap();
     assert!(recently_down(&file, SERVER_PAUSE_MS), "within it");
     fs::write(&file, at(now_ms() + 365 * 86_400_000)).unwrap();
@@ -287,7 +374,11 @@ fn the_request_is_a_post_of_the_body_with_its_headers() {
     let lines: Vec<&str> = seen.head.split("\r\n").collect();
     assert_eq!(lines[0], "POST /api/events HTTP/1.1");
     let header = |name: &str| {
-        lines.iter().find_map(|l| l.to_lowercase().strip_prefix(&format!("{name}:")).map(|v| v.trim().to_string()))
+        lines.iter().find_map(|l| {
+            l.to_lowercase()
+                .strip_prefix(&format!("{name}:"))
+                .map(|v| v.trim().to_string())
+        })
     };
     assert_eq!(header("host"), Some(format!("127.0.0.1:{}", server.port)));
     assert_eq!(header("authorization"), Some(format!("bearer {TOKEN}")));
@@ -303,10 +394,22 @@ fn the_request_is_a_post_of_the_body_with_its_headers() {
 fn only_a_200_with_ok_true_has_taken_the_event() {
     let cases: Vec<(&str, Reply, Answer)> = vec![
         ("ok", ok_json(200, "{\"ok\":true}"), Answer::Taken),
-        ("ok with room and more", ok_json(200, " {\"id\":1, \"ok\" : true }\n"), Answer::Taken),
-        ("ok given twice, the last holds", ok_json(200, "{\"ok\":false,\"ok\":true}"), Answer::Taken),
+        (
+            "ok with room and more",
+            ok_json(200, " {\"id\":1, \"ok\" : true }\n"),
+            Answer::Taken,
+        ),
+        (
+            "ok given twice, the last holds",
+            ok_json(200, "{\"ok\":false,\"ok\":true}"),
+            Answer::Taken,
+        ),
         ("ok false", ok_json(200, "{\"ok\":false}"), Answer::Refused),
-        ("ok as text", ok_json(200, "{\"ok\":\"true\"}"), Answer::Refused),
+        (
+            "ok as text",
+            ok_json(200, "{\"ok\":\"true\"}"),
+            Answer::Refused,
+        ),
         ("no ok", ok_json(200, "{}"), Answer::Refused),
         ("an array", ok_json(200, "[true]"), Answer::Refused),
         ("null", ok_json(200, "null"), Answer::Refused),
@@ -316,17 +419,85 @@ fn only_a_200_with_ok_true_has_taken_the_event() {
         ("400", ok_json(400, "{\"error\":\"no\"}"), Answer::Refused),
         ("500", ok_json(500, "{\"error\":\"no\"}"), Answer::Refused),
         ("204", http("204 No Content", &[], ""), Answer::Refused),
-        ("a redirect", http("302 Found", &["location: http://elsewhere.invalid/"], ""), Answer::Refused),
-        ("HTTP/1.0", Reply::Bytes(b"HTTP/1.0 200 OK\r\n\r\n{\"ok\":true}".to_vec()), Answer::Taken),
-        ("the body ends at the close", http("200 OK", &[], "{\"ok\":true}"), Answer::Taken),
-        ("a chunked body", http("200 OK", &["transfer-encoding: chunked"], "5\r\n{\"ok\"\r\n6\r\n:true}\r\n0\r\n\r\n"), Answer::Taken),
-        ("a chunked body with an extension", http("200 OK", &["Transfer-Encoding: Chunked"], "b;x=y\r\n{\"ok\":true}\r\n0\r\n\r\n"), Answer::Taken),
-        ("a body cut short", http("200 OK", &["content-length: 50"], "{\"ok\":true"), Answer::Refused),
-        ("a chunk cut short", http("200 OK", &["transfer-encoding: chunked"], "20\r\n{\"ok\":true}"), Answer::Refused),
-        ("more than 1024 characters", ok_json(200, &format!("{{\"ok\":true,\"pad\":\"{}\"}}", "x".repeat(1100))), Answer::Refused),
-        ("1024 characters", ok_json(200, &format!("{{\"ok\":true,\"pad\":\"{}\"}}", "x".repeat(1024 - 20))), Answer::Taken),
-        ("1024 characters beyond ASCII, more bytes", ok_json(200, &format!("{{\"ok\":true,\"pad\":\"{}\"}}", "\u{e5}".repeat(1024 - 20))), Answer::Taken),
-        ("1025 characters", ok_json(200, &format!("{{\"ok\":true,\"pad\":\"{}\"}}", "x".repeat(1025 - 20))), Answer::Refused),
+        (
+            "a redirect",
+            http("302 Found", &["location: http://elsewhere.invalid/"], ""),
+            Answer::Refused,
+        ),
+        (
+            "HTTP/1.0",
+            Reply::Bytes(b"HTTP/1.0 200 OK\r\n\r\n{\"ok\":true}".to_vec()),
+            Answer::Taken,
+        ),
+        (
+            "the body ends at the close",
+            http("200 OK", &[], "{\"ok\":true}"),
+            Answer::Taken,
+        ),
+        (
+            "a chunked body",
+            http(
+                "200 OK",
+                &["transfer-encoding: chunked"],
+                "5\r\n{\"ok\"\r\n6\r\n:true}\r\n0\r\n\r\n",
+            ),
+            Answer::Taken,
+        ),
+        (
+            "a chunked body with an extension",
+            http(
+                "200 OK",
+                &["Transfer-Encoding: Chunked"],
+                "b;x=y\r\n{\"ok\":true}\r\n0\r\n\r\n",
+            ),
+            Answer::Taken,
+        ),
+        (
+            "a body cut short",
+            http("200 OK", &["content-length: 50"], "{\"ok\":true"),
+            Answer::Refused,
+        ),
+        (
+            "a chunk cut short",
+            http(
+                "200 OK",
+                &["transfer-encoding: chunked"],
+                "20\r\n{\"ok\":true}",
+            ),
+            Answer::Refused,
+        ),
+        (
+            "more than 1024 characters",
+            ok_json(
+                200,
+                &format!("{{\"ok\":true,\"pad\":\"{}\"}}", "x".repeat(1100)),
+            ),
+            Answer::Refused,
+        ),
+        (
+            "1024 characters",
+            ok_json(
+                200,
+                &format!("{{\"ok\":true,\"pad\":\"{}\"}}", "x".repeat(1024 - 20)),
+            ),
+            Answer::Taken,
+        ),
+        (
+            "1024 characters beyond ASCII, more bytes",
+            ok_json(
+                200,
+                &format!("{{\"ok\":true,\"pad\":\"{}\"}}", "\u{e5}".repeat(1024 - 20)),
+            ),
+            Answer::Taken,
+        ),
+        (
+            "1025 characters",
+            ok_json(
+                200,
+                &format!("{{\"ok\":true,\"pad\":\"{}\"}}", "x".repeat(1025 - 20)),
+            ),
+            Answer::Refused,
+        ),
     ];
     for (label, reply, expected) in cases {
         let server = Server::start(vec![reply]);
@@ -338,10 +509,22 @@ fn only_a_200_with_ok_true_has_taken_the_event() {
 fn a_reply_that_is_no_http_or_no_reply_at_all_is_silence() {
     let cases: Vec<(&str, Reply)> = vec![
         ("the connection closed", Reply::Close),
-        ("a text that is no HTTP", Reply::Bytes(b"hello there\r\n\r\n".to_vec())),
-        ("a status line cut short", Reply::Bytes(b"HTTP/1.1 20".to_vec())),
-        ("headers cut short", Reply::Bytes(b"HTTP/1.1 200 OK\r\ncontent-le".to_vec())),
-        ("another protocol", Reply::Bytes(b"SSH-2.0-OpenSSH_9.9\r\n".to_vec())),
+        (
+            "a text that is no HTTP",
+            Reply::Bytes(b"hello there\r\n\r\n".to_vec()),
+        ),
+        (
+            "a status line cut short",
+            Reply::Bytes(b"HTTP/1.1 20".to_vec()),
+        ),
+        (
+            "headers cut short",
+            Reply::Bytes(b"HTTP/1.1 200 OK\r\ncontent-le".to_vec()),
+        ),
+        (
+            "another protocol",
+            Reply::Bytes(b"SSH-2.0-OpenSSH_9.9\r\n".to_vec()),
+        ),
     ];
     for (label, reply) in cases {
         let server = Server::start(vec![reply]);
@@ -355,21 +538,37 @@ fn a_server_that_never_answers_is_given_500_ms_in_all() {
     let started = Instant::now();
     assert_eq!(answer_of(&server, b"{}"), Answer::Silent);
     let took = started.elapsed();
-    assert!(took >= Duration::from_millis(450) && took < Duration::from_millis(900), "{took:?}");
+    assert!(
+        took >= Duration::from_millis(450) && took < Duration::from_millis(900),
+        "{took:?}"
+    );
 }
 
 #[test]
 fn the_500_ms_is_for_the_whole_reply_a_body_that_trickles_in_is_cut_off() {
-    let parts = vec![b"HTTP/1.1 200 OK\r\ncontent-length: 11\r\n\r\n".to_vec(), b"{\"ok\"".to_vec(), b":".to_vec(), b"true".to_vec(), b"}".to_vec()];
+    let parts = vec![
+        b"HTTP/1.1 200 OK\r\ncontent-length: 11\r\n\r\n".to_vec(),
+        b"{\"ok\"".to_vec(),
+        b":".to_vec(),
+        b"true".to_vec(),
+        b"}".to_vec(),
+    ];
     let server = Server::start(vec![Reply::Parts(parts, Duration::from_millis(200))]);
     let started = Instant::now();
     assert_eq!(answer_of(&server, b"{}"), Answer::Silent);
-    assert!(started.elapsed() < Duration::from_millis(900), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_millis(900),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 #[test]
 fn a_non_200_is_refused_at_once_without_waiting_for_its_body() {
-    let parts = vec![b"HTTP/1.1 401 Unauthorized\r\ncontent-length: 100\r\n\r\n".to_vec(), b"{".to_vec()];
+    let parts = vec![
+        b"HTTP/1.1 401 Unauthorized\r\ncontent-length: 100\r\n\r\n".to_vec(),
+        b"{".to_vec(),
+    ];
     let server = Server::start(vec![Reply::Parts(parts, Duration::from_secs(2))]);
     let started = Instant::now();
     assert_eq!(answer_of(&server, b"{}"), Answer::Refused);
@@ -393,10 +592,16 @@ fn a_port_nothing_listens_on_is_silence() {
 #[test]
 fn localhost_is_tried_as_the_ipv4_address_and_then_as_the_ipv6_one() {
     let server = Server::start(vec![ok_json(200, "{\"ok\":true}")]);
-    let at = ServerFile { url: format!("http://localhost:{}", server.port), token: TOKEN.to_string(), pid: std::process::id() as i64 };
+    let at = ServerFile {
+        url: format!("http://localhost:{}", server.port),
+        token: TOKEN.to_string(),
+        pid: std::process::id() as i64,
+    };
     assert_eq!(post(&at, b"{}", SERVER_TIMEOUT_MS), Answer::Taken);
     // A server on ::1 only.
-    let Ok(listener) = TcpListener::bind("[::1]:0") else { return };
+    let Ok(listener) = TcpListener::bind("[::1]:0") else {
+        return;
+    };
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {
         if let Ok((mut conn, _)) = listener.accept() {
@@ -404,7 +609,11 @@ fn localhost_is_tried_as_the_ipv4_address_and_then_as_the_ipv6_one() {
             let _ = conn.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 11\r\n\r\n{\"ok\":true}");
         }
     });
-    let there = ServerFile { url: format!("http://[::1]:{port}"), token: TOKEN.to_string(), pid: std::process::id() as i64 };
+    let there = ServerFile {
+        url: format!("http://[::1]:{port}"),
+        token: TOKEN.to_string(),
+        pid: std::process::id() as i64,
+    };
     assert_eq!(post(&there, b"{}", SERVER_TIMEOUT_MS), Answer::Taken);
 }
 
@@ -425,8 +634,12 @@ fn project_with(url: Option<&str>) -> (PathBuf, Env) {
 
 fn inbox_files(home: &std::path::Path) -> Vec<String> {
     let inbox = home.join("example").join("inbox");
-    let Ok(read) = fs::read_dir(inbox) else { return Vec::new() };
-    let mut names: Vec<String> = read.map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
+    let Ok(read) = fs::read_dir(inbox) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = read
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
     names.sort();
     names
 }
@@ -459,7 +672,10 @@ fn a_server_that_answers_with_a_refusal_is_asked_again_the_next_time() {
         assert!(deliver("example", &event(), &env).unwrap().is_some());
         assert_eq!(server.calls(), 2, "{status}");
         assert_eq!(inbox_files(&home).len(), 2);
-        assert!(!home.join("example").join("server.down").exists(), "a server that answers is not down");
+        assert!(
+            !home.join("example").join("server.down").exists(),
+            "a server that answers is not down"
+        );
     }
 }
 
@@ -477,17 +693,29 @@ fn a_server_that_is_gone_is_marked_down_and_not_asked_again_within_the_pause() {
 
     // A server on the file again, yet within the pause: no call.
     let back = Server::start(vec![ok_json(200, "{\"ok\":true}")]);
-    fs::write(home.join("example").join("server.json"), json!({"url": back.url(), "token": TOKEN, "pid": std::process::id()}).to_string()).unwrap();
+    fs::write(
+        home.join("example").join("server.json"),
+        json!({"url": back.url(), "token": TOKEN, "pid": std::process::id()}).to_string(),
+    )
+    .unwrap();
     assert!(deliver("example", &event(), &env).unwrap().is_some());
     assert_eq!(back.calls(), 0);
     // After the pause it is asked again, and takes the event.
-    fs::write(&down, format!("{}\n", howl::hook::hook::iso_time(now_ms() - SERVER_PAUSE_MS - 1000))).unwrap();
+    fs::write(
+        &down,
+        format!(
+            "{}\n",
+            howl::hook::hook::iso_time(now_ms() - SERVER_PAUSE_MS - 1000)
+        ),
+    )
+    .unwrap();
     assert_eq!(deliver("example", &event(), &env).unwrap(), None);
     assert_eq!(back.calls(), 1);
 }
 
 #[test]
-fn a_server_that_takes_the_connection_and_never_answers_costs_500_ms_and_the_event_is_in_the_inbox() {
+fn a_server_that_takes_the_connection_and_never_answers_costs_500_ms_and_the_event_is_in_the_inbox()
+{
     let server = Server::start(vec![Reply::Silent]);
     let (home, env) = project_with(Some(&server.url()));
     let started = Instant::now();
@@ -506,10 +734,19 @@ fn a_server_file_that_holds_nothing_up_sends_nothing() {
     let mut child = std::process::Command::new("true").spawn().unwrap();
     let pid = child.id();
     child.wait().unwrap();
-    fs::write(dir.join("server.json"), json!({"url": server.url(), "token": TOKEN, "pid": pid}).to_string()).unwrap();
+    fs::write(
+        dir.join("server.json"),
+        json!({"url": server.url(), "token": TOKEN, "pid": pid}).to_string(),
+    )
+    .unwrap();
     assert!(deliver("example", &event(), &env).unwrap().is_some());
     // Another machine.
-    fs::write(dir.join("server.json"), json!({"url": "http://example.invalid:4317", "token": TOKEN, "pid": std::process::id()}).to_string()).unwrap();
+    fs::write(
+        dir.join("server.json"),
+        json!({"url": "http://example.invalid:4317", "token": TOKEN, "pid": std::process::id()})
+            .to_string(),
+    )
+    .unwrap();
     assert!(deliver("example", &event(), &env).unwrap().is_some());
     assert_eq!(server.calls(), 0);
     assert_eq!(inbox_files(&home).len(), 2);
@@ -519,7 +756,11 @@ fn a_server_file_that_holds_nothing_up_sends_nothing() {
 #[test]
 fn a_hook_that_cannot_write_the_inbox_says_so_to_its_caller() {
     let (home, env) = project_with(None);
-    fs::write(home.join("example").join("inbox"), "a file where the folder should be").unwrap();
+    fs::write(
+        home.join("example").join("inbox"),
+        "a file where the folder should be",
+    )
+    .unwrap();
     assert!(deliver("example", &event(), &env).is_err());
 }
 

@@ -68,7 +68,10 @@ fn a_key_with_its_public_key_after_the_seed_is_read_too() {
 fn a_pem_is_read_as_openssl_reads_it() {
     let dir = folder("pem");
     let pem = fs::read_to_string(fixture("key.pem")).unwrap();
-    let id = json_fixture("expected.json")["key"].as_str().unwrap().to_string();
+    let id = json_fixture("expected.json")["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let body: String = pem.lines().nth(1).unwrap().to_string();
     let cases = [
         ("crlf", pem.replace('\n', "\r\n")),
@@ -76,7 +79,10 @@ fn a_pem_is_read_as_openssl_reads_it() {
         ("no end of line", pem.trim_end().to_string()),
         ("two keys, the first counts", format!("{pem}{pem}")),
         ("blank line", pem.replacen('\n', "\n\n", 1)),
-        ("a space in the base64", pem.replacen(&body, &format!("{} {}", &body[..20], &body[20..]), 1)),
+        (
+            "a space in the base64",
+            pem.replacen(&body, &format!("{} {}", &body[..20], &body[20..]), 1),
+        ),
         ("no padding", pem.replace("=", "")),
     ];
     for (label, text) in cases {
@@ -92,7 +98,9 @@ fn a_key_that_cannot_be_read_is_an_error_not_a_key() {
     let dir = folder("bad");
     let pem = fs::read_to_string(fixture("key.pem")).unwrap();
     let good = pem.lines().nth(1).unwrap().to_string();
-    let wrapped = |body: &str, label: &str| format!("-----BEGIN {label}-----\n{body}\n-----END {label}-----\n");
+    let wrapped = |body: &str, label: &str| {
+        format!("-----BEGIN {label}-----\n{body}\n-----END {label}-----\n")
+    };
     let cases = [
         ("empty", String::new()),
         ("not a key", "hello\n".to_string()),
@@ -100,8 +108,17 @@ fn a_key_that_cannot_be_read_is_an_error_not_a_key() {
         ("another label", wrapped(&good, "ED25519 PRIVATE KEY")),
         ("not base64", wrapped("!!!!", "PRIVATE KEY")),
         ("cut short", wrapped(&good[..40], "PRIVATE KEY")),
-        ("the public key", wrapped("MCowBQYDK2VwAyEAT8uA7J4XaFYzdT4GKeq4LXklgM2Prc1su51xOqxVXsk=", "PUBLIC KEY")),
-        ("no end line", pem.lines().take(2).collect::<Vec<_>>().join("\n")),
+        (
+            "the public key",
+            wrapped(
+                "MCowBQYDK2VwAyEAT8uA7J4XaFYzdT4GKeq4LXklgM2Prc1su51xOqxVXsk=",
+                "PUBLIC KEY",
+            ),
+        ),
+        (
+            "no end line",
+            pem.lines().take(2).collect::<Vec<_>>().join("\n"),
+        ),
     ];
     for (label, text) in cases {
         let path = dir.join("k.pem");
@@ -125,10 +142,17 @@ fn a_file_that_is_too_large_or_no_plain_file_is_not_read() {
     fs::write(&big, text).unwrap();
     assert!(read_key(big.to_str().unwrap()).is_err());
     let pipe = dir.join("pipe.pem");
-    assert!(std::process::Command::new("mkfifo").arg(&pipe).status().unwrap().success());
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&pipe)
+        .status()
+        .unwrap()
+        .success());
     let started = Instant::now();
     assert!(read_key(pipe.to_str().unwrap()).is_err());
-    assert!(started.elapsed() < Duration::from_secs(2), "a pipe does not hold it up");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "a pipe does not hold it up"
+    );
 }
 
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -138,18 +162,37 @@ const TOKEN: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba98765
 fn a_keyd_key_is_socket_hash_key_colon_token() {
     let ok = format!("keyd:/run/keyd.sock#{KEY}:{TOKEN}");
     let parsed = parse_keyd_key(&ok).unwrap();
-    assert_eq!((parsed.socket.as_str(), parsed.key.as_str(), parsed.token.as_str()), ("/run/keyd.sock", KEY, TOKEN));
+    assert_eq!(
+        (
+            parsed.socket.as_str(),
+            parsed.key.as_str(),
+            parsed.token.as_str()
+        ),
+        ("/run/keyd.sock", KEY, TOKEN)
+    );
     // A `#` in the socket's path stays in it: the last one parts the key.
     let hash = parse_keyd_key(&format!("keyd:/a#b/s.sock#{KEY}:{TOKEN}")).unwrap();
     assert_eq!(hash.socket, "/a#b/s.sock");
     for (label, text) in [
         ("no socket", format!("keyd:#{KEY}:{TOKEN}")),
-        ("upper case", format!("keyd:/s#{}:{TOKEN}", KEY.to_uppercase())),
+        (
+            "upper case",
+            format!("keyd:/s#{}:{TOKEN}", KEY.to_uppercase()),
+        ),
         ("a short key", format!("keyd:/s#{}:{TOKEN}", &KEY[1..])),
         ("a long token", format!("keyd:/s#{KEY}:{TOKEN}0")),
-        ("a line break in the socket", format!("keyd:/a\nb#{KEY}:{TOKEN}")),
-        ("a return in the socket", format!("keyd:/a\rb#{KEY}:{TOKEN}")),
-        ("U+2028 in the socket", format!("keyd:/a\u{2028}b#{KEY}:{TOKEN}")),
+        (
+            "a line break in the socket",
+            format!("keyd:/a\nb#{KEY}:{TOKEN}"),
+        ),
+        (
+            "a return in the socket",
+            format!("keyd:/a\rb#{KEY}:{TOKEN}"),
+        ),
+        (
+            "U+2028 in the socket",
+            format!("keyd:/a\u{2028}b#{KEY}:{TOKEN}"),
+        ),
         ("a file name", "/nowhere/key.pem".to_string()),
         ("another scheme", format!("keyx:/s#{KEY}:{TOKEN}")),
         ("trailing", format!("keyd:/s#{KEY}:{TOKEN} ")),
@@ -159,7 +202,10 @@ fn a_keyd_key_is_socket_hash_key_colon_token() {
 }
 
 /// A keyd that answers `reply` to the first connection and gives what it was asked.
-fn keyd_answering(reply: Vec<&'static [u8]>, pause_between: Duration) -> (String, mpsc::Receiver<String>) {
+fn keyd_answering(
+    reply: Vec<&'static [u8]>,
+    pause_between: Duration,
+) -> (String, mpsc::Receiver<String>) {
     let socket = folder("keyd").join("k.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let (send, got) = mpsc::channel();
@@ -186,7 +232,10 @@ fn keyd_answering(reply: Vec<&'static [u8]>, pause_between: Duration) -> (String
 
 #[test]
 fn keyd_is_asked_for_a_signature_in_one_line_and_its_answer_is_taken() {
-    let (socket, got) = keyd_answering(vec![b"{\"ok\":true,\"sig\":{\"key\":\"k\",\"value\":\"v\"}}\n"], Duration::ZERO);
+    let (socket, got) = keyd_answering(
+        vec![b"{\"ok\":true,\"sig\":{\"key\":\"k\",\"value\":\"v\"}}\n"],
+        Duration::ZERO,
+    );
     let event = json!({"v": 0, "id": "x", "type": "session.started"});
     let req = json!({"op": "sign", "key": KEY, "token": TOKEN, "event": event});
     match request(&socket, &req, 500) {
@@ -197,14 +246,24 @@ fn keyd_is_asked_for_a_signature_in_one_line_and_its_answer_is_taken() {
         other => panic!("{other:?}"),
     }
     let asked = got.recv().unwrap();
-    assert!(asked.ends_with('\n') && asked.matches('\n').count() == 1, "one line: {asked:?}");
+    assert!(
+        asked.ends_with('\n') && asked.matches('\n').count() == 1,
+        "one line: {asked:?}"
+    );
     let parsed: Value = serde_json::from_str(&asked).unwrap();
     assert_eq!(parsed, req);
 }
 
 #[test]
 fn an_answer_in_pieces_is_put_together() {
-    let (socket, _) = keyd_answering(vec![b"{\"ok\":fal", b"se,\"error\":\"outside the key's window\"}", b"\n"], Duration::from_millis(30));
+    let (socket, _) = keyd_answering(
+        vec![
+            b"{\"ok\":fal",
+            b"se,\"error\":\"outside the key's window\"}",
+            b"\n",
+        ],
+        Duration::from_millis(30),
+    );
     match request(&socket, &json!({"op": "sign"}), 500) {
         Answer::Reply(answer) => assert_eq!(answer["error"], json!("outside the key's window")),
         other => panic!("{other:?}"),
@@ -231,20 +290,35 @@ fn a_keyd_that_is_gone_or_silent_or_answers_no_json_is_unreachable_within_the_ti
     let answer = request(silent.to_str().unwrap(), &json!({}), 500);
     let took = started.elapsed();
     assert!(matches!(answer, Answer::Unreachable(_)), "{answer:?}");
-    assert!(took >= Duration::from_millis(450) && took < Duration::from_millis(900), "{took:?}");
+    assert!(
+        took >= Duration::from_millis(450) && took < Duration::from_millis(900),
+        "{took:?}"
+    );
     drop(hold);
 
     let (not_json, _) = keyd_answering(vec![b"hello\n"], Duration::ZERO);
-    assert!(matches!(request(&not_json, &json!({}), 500), Answer::Unreachable(_)));
+    assert!(matches!(
+        request(&not_json, &json!({}), 500),
+        Answer::Unreachable(_)
+    ));
     // Closed before the line ends.
     let (cut, _) = keyd_answering(vec![b"{\"ok\":true"], Duration::ZERO);
-    assert!(matches!(request(&cut, &json!({}), 500), Answer::Unreachable(_)));
+    assert!(matches!(
+        request(&cut, &json!({}), 500),
+        Answer::Unreachable(_)
+    ));
 }
 
 #[test]
 fn an_answer_that_never_ends_its_line_is_not_read_without_end() {
-    let (socket, _) = keyd_answering(vec![Box::leak(vec![b'x'; 2 * 1024 * 1024].into_boxed_slice())], Duration::ZERO);
+    let (socket, _) = keyd_answering(
+        vec![Box::leak(vec![b'x'; 2 * 1024 * 1024].into_boxed_slice())],
+        Duration::ZERO,
+    );
     let started = Instant::now();
-    assert!(matches!(request(&socket, &json!({}), 500), Answer::Unreachable(_)));
+    assert!(matches!(
+        request(&socket, &json!({}), 500),
+        Answer::Unreachable(_)
+    ));
     assert!(started.elapsed() < Duration::from_millis(900));
 }

@@ -35,7 +35,12 @@ pub enum EmitError {
 
 /// Delivers the event. Gives the path of its file when it is left in the inbox, none when the server took it or
 /// outside a repository with `.howl/howl.yml`.
-pub fn emit(options: &EmitOptions, actor: Option<&str>, cwd: &str, env: &Env) -> Result<Option<String>, EmitError> {
+pub fn emit(
+    options: &EmitOptions,
+    actor: Option<&str>,
+    cwd: &str,
+    env: &Env,
+) -> Result<Option<String>, EmitError> {
     let Some(project) = find_project(cwd) else {
         return Ok(None);
     };
@@ -45,7 +50,9 @@ pub fn emit(options: &EmitOptions, actor: Option<&str>, cwd: &str, env: &Env) ->
         let value = match parse_json(text) {
             Ok(value) => value,
             // Only `not JSON` says its words; a lone surrogate is `not JSON` here, as in the TypeScript.
-            Err(e @ (JsonError::NotJson | JsonError::TooDeep)) => return Err(wrong(format!("--data is {e}"))),
+            Err(e @ (JsonError::NotJson | JsonError::TooDeep)) => {
+                return Err(wrong(format!("--data is {e}")))
+            }
             Err(JsonError::LoneSurrogate) => return Err(wrong("--data is not JSON".to_string())),
         };
         if !value.is_object() {
@@ -54,7 +61,9 @@ pub fn emit(options: &EmitOptions, actor: Option<&str>, cwd: &str, env: &Env) ->
         data = Some(value);
     }
     if options.kind == "ledger.created" {
-        return Err(wrong("type: ledger.created is written by the ledger itself".to_string()));
+        return Err(wrong(
+            "type: ledger.created is written by the ledger itself".to_string(),
+        ));
     }
 
     let actor = find_actor(&project.root, actor);
@@ -64,7 +73,10 @@ pub fn emit(options: &EmitOptions, actor: Option<&str>, cwd: &str, env: &Env) ->
     event.insert("id".into(), json!(id));
     event.insert("time".into(), json!(iso_time(now_ms())));
     event.insert("type".into(), json!(options.kind));
-    event.insert("source".into(), json!({"adapter": "emit", "kind": "claimed"}));
+    event.insert(
+        "source".into(),
+        json!({"adapter": "emit", "kind": "claimed"}),
+    );
     event.insert("project".into(), json!(project.project));
     if let Some(actor) = actor {
         event.insert("actor".into(), json!({"kind": "agent", "id": actor}));
@@ -90,13 +102,19 @@ pub fn emit(options: &EmitOptions, actor: Option<&str>, cwd: &str, env: &Env) ->
 
 /// Runs `howl emit` with its arguments (after `emit`): the status, and the words on standard error.
 pub fn run(args: &[OsString]) -> i32 {
-    let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let args: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let parsed = match parse_args(&args, &["task", "change", "data"]) {
         Ok(parsed) => parsed,
         Err(message) => return usage(&message),
     };
     if parsed.positionals.len() > 1 {
-        return usage(&format!("too many arguments: {}", parsed.positionals[1..].join(" ")));
+        return usage(&format!(
+            "too many arguments: {}",
+            parsed.positionals[1..].join(" ")
+        ));
     }
     let Some(kind) = parsed.positionals.first() else {
         let _ = fail(&format!("howl: emit needs a type\n\n{USAGE}"));
@@ -112,7 +130,12 @@ pub fn run(args: &[OsString]) -> i32 {
         return fail("howl: the working directory cannot be read\n");
     };
     let actor = std::env::var_os("HOWL_ACTOR").map(|v| v.to_string_lossy().into_owned());
-    match emit(&options, actor.as_deref(), &cwd.to_string_lossy(), &Env::of_process()) {
+    match emit(
+        &options,
+        actor.as_deref(),
+        &cwd.to_string_lossy(),
+        &Env::of_process(),
+    ) {
         Ok(_) => 0,
         Err(EmitError::Wrong(message)) => {
             let _ = fail(&format!("howl: {message}\n"));
