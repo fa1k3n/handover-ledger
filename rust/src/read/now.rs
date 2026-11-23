@@ -1,6 +1,7 @@
 // The present time of a reader: HOWL_NOW when it is set, else the clock (#137).
 // The one place a reader takes "now" from, so that the two versions of howl agree when compared.
 // @code_class reading
+use std::ffi::OsString;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// What HOWL_NOW must be.
@@ -9,8 +10,22 @@ const GIVE: &str = "give an ISO time with Z or an offset, as 2026-11-23T10:00:00
 /// Now, for a reader: HOWL_NOW when it is set and not empty, else the clock.
 /// A HOWL_NOW that is not a time is refused.
 pub fn present_time() -> Result<i64, String> {
-    let value = std::env::var("HOWL_NOW").ok();
-    present_time_of(value.as_deref())
+    present_time_from(std::env::var_os("HOWL_NOW"))
+}
+
+/// As `present_time`, with HOWL_NOW as the environment holds it.
+/// A value that is not UTF-8 is refused, as any other that is not a time.
+pub fn present_time_from(howl_now: Option<OsString>) -> Result<i64, String> {
+    let Some(value) = howl_now else {
+        return present_time_of(None);
+    };
+    match value.to_str() {
+        Some(text) => present_time_of(Some(text)),
+        None => {
+            let shown = value.to_string_lossy();
+            Err(format!("HOWL_NOW {shown}: {GIVE}"))
+        }
+    }
 }
 
 /// As `present_time`, with the value of HOWL_NOW given.
