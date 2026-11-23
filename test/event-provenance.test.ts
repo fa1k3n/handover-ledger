@@ -99,7 +99,8 @@ test("#191: part 2 gives the time the event states and by whom, and says the rec
   assert.equal(partTime(KINDS.claim).by, texts.provenance.time.by.claim);
   assert.equal(partTime(KINDS.howl).by, texts.provenance.time.by.howl);
   assert.equal(partTime(KINDS.unknown).by, texts.provenance.time.by.unknown);
-  assert.equal(seen.size, 5, "each origin says whose clock it is");
+  assert.equal(partTime(KINDS.http).by, texts.provenance.time.by.http, "a hook received over HTTP: howl up's clock");
+  assert.equal(seen.size, 6, "each origin says whose clock it is");
 });
 
 test("#191: part 5 says what was dropped or not kept for each kind, and shows the data as kept", () => {
@@ -124,10 +125,22 @@ test("#191: part 3 says not signed, valid for the key in the ledger, or why not;
   assert.doesNotMatch(valid.signature, /trusted|known issuer|pinned/i);
   assert.equal(valid.limit, texts.provenance.identity.limit, "a signed event carries the limit of what a signature shows");
   assert.match(valid.limit!, /stays a claim/);
+  assert.match(valid.limit!, /sent with that key, unchanged since/);
   assert.match(valid.limit!, /does not show that the issuer/);
   const wrong = partIdentity(claim, { key, ok: false, reason: "the signature does not hold: the event was changed after it was signed" });
-  assert.match(wrong.signature, /^does not hold: the signature does not hold/);
+  assert.match(wrong.signature, /^not valid: the signature does not hold/);
   assert.equal(partIdentity(claim, null).limit, null, "an unsigned event has no limit to say");
   assert.equal(partIdentity(KINDS.http, undefined).signature, texts.provenance.identity.tool, "a tool call is not checked here");
   assert.match(partIdentity(KINDS.hook, null).actor, /agent|person|no actor/);
+});
+
+test("#191 (review): part 3 says a key's issue or revocation is valid for the issuer key the line names, never issued on an earlier line", () => {
+  const key = "b".repeat(64);
+  for (const type of ["key.issued", "key.revoked"] as const) {
+    const it = item({ type, source: { adapter: "howl-key", kind: "claimed" }, data: { key: "c".repeat(64), issuer: key } });
+    const id = partIdentity(it, { key, ok: true });
+    assert.match(id.signature, /issuer key this line names \(bbbbbbbbbbbb\)/, type);
+    assert.match(id.signature, /taken as the ledger's issuer from its first key line/, type);
+    assert.doesNotMatch(id.signature, /earlier line/, type);
+  }
 });

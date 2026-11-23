@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { eventHash } from "../src/ledger/fixed.ts";
 import { hashLine, openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
 import { issueKey, readKey, signEvent } from "../src/keys/keys.ts";
 import { startServer } from "../src/serve/server.ts";
@@ -31,6 +32,8 @@ interface Answer {
   item: { n: number; from: string; raw: string; hash: string; prev: string | null; event: LedgerEvent };
   intact: boolean;
   broken: number | null;
+  doubted: boolean;
+  last: boolean;
   checkpoint: { lines: number; head: string; time: string; holds: boolean } | null;
   signature: { key: string; ok: boolean; reason?: string } | null;
   related: { before: { n: number }[]; after: { n: number }[]; beforeMore: number; afterMore: number };
@@ -225,5 +228,52 @@ test("#191: /api/line gives the related events of the line's task, before and af
       a.body.related.after.map((r) => r.n),
       [5],
     );
+  });
+});
+
+test("#191 (review): a line changed with its hash made again is not intact, nor is the checkpoint that covers it", async () => {
+  const ledger = ledgerWith(5);
+  const raws = rawLines(ledger);
+  const head5 = hashLine(Buffer.from(raws[4]!));
+  const third = JSON.parse(raws[2]!);
+  third.event.task = "forged";
+  third.hash = eventHash(third.event);
+  raws[2] = JSON.stringify(third);
+  writeLines(ledger, raws);
+  writeFileSync(join(ledger, "..", "anchor.json"), `${JSON.stringify({ at: "2026-01-03T00:00:00.000Z", lines: 5, head: head5 })}\n`);
+  await withServer({ ledger }, async (url) => {
+    const changed = await line(url, 3);
+    assert.equal(changed.body.broken, 4, "the check fails at line 4: its prev");
+    assert.equal(changed.body.intact, false, "line 4 does not hold line 3's hash: line 3 may have been changed");
+    assert.equal(changed.body.doubted, true);
+    assert.equal(changed.body.checkpoint?.holds, false, "the head matches, but the chain up to it is broken");
+    const before = await line(url, 2);
+    assert.equal(before.body.intact, true);
+    assert.equal(before.body.doubted, false);
+    assert.equal(before.body.checkpoint?.holds, false, "a checkpoint holds only when the chain is intact up to its line count");
+    const at = await line(url, 4);
+    assert.equal(at.body.intact, false);
+    assert.equal(at.body.doubted, false);
+  });
+});
+
+test("#191 (review): the last line is said to be the last; a checkpoint over an intact chain holds", async () => {
+  const ledger = ledgerWith(3);
+  const raws = rawLines(ledger);
+  writeFileSync(join(ledger, "..", "anchor.json"), `${JSON.stringify({ at: "2026-01-03T00:00:00.000Z", lines: 4, head: hashLine(Buffer.from(raws[3]!)) })}\n`);
+  await withServer({ ledger }, async (url) => {
+    const last = await line(url, 4);
+    assert.equal(last.body.intact, true);
+    assert.equal(last.body.last, true);
+    assert.equal(last.body.checkpoint?.holds, true);
+    assert.equal((await line(url, 3)).body.last, false);
+  });
+});
+
+test("#191 (review): a line number past a safe integer is refused", async () => {
+  const ledger = ledgerWith(1);
+  await withServer({ ledger }, async (url) => {
+    assert.equal((await line(url, "9999999999999999")).status, 400);
+    assert.equal((await line(url, "999999999999999")).status, 404);
   });
 });
