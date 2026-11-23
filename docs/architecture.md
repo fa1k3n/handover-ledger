@@ -153,7 +153,7 @@ A second axis beside the origin: how far `howl` could establish an event itself.
 |---|---|
 | *As given* | Only the source's word |
 | *Corroborated* | A second, independent source agrees |
-| *Checked* | `howl` established it itself: by a signature, a hash, or a versioned rule run again on the named lines |
+| *Checked* | `howl` established it itself: by a hash, or a versioned rule run again on the named lines. A signature checks the sender, which provenance records; what a signed claim says stays as given |
 
 An event carries its level and what gave it. The word is assurance, not verification: verification is the review and test work of the standards, done by people and their tools.
 
@@ -173,20 +173,20 @@ Provenance is first-class. Each event keeps, beside what it says:
 - its original source and a reference into it: a webhook delivery, an API path, a session, a rule and its run;
 - the time the source claims beside the time `howl` received it and wrote it, so a wrong clock shows;
 - how its sender was authenticated (a webhook signature, a reader's token, a session key, `howl`'s own key), and how far that reaches;
-- the SHA-256 of the payload as received, where one is kept;
+- the SHA-256 of the payload as kept beside the ledger, with each person replaced by their label, where one is kept;
 - the events it relates to: the same subject, what it was derived from, what was derived from it.
 
 `howl`'s interpretation is kept apart from all of that, and can be worked out again from it.
 
 - **A hook's payload is never kept.** It is reduced in the hook's own process, as the rules of observation ask ([observation.md](observation.md)), and the event says what was dropped.
-- **A code host's payload names people** (logins, often addresses), and a person is in the ledger only as a label (below). So what is kept beside the ledger is the payload with each person replaced by their label, and the SHA-256 in the line is of the payload as received.
-- **The payload as received,** where an organisation keeps it at all, is kept apart with the link to the people, for a set time, and every look at it is recorded. That is what proves the hash. Where it is not kept, the event says so, and its assurance rests on the webhook's signature and the second read.
+- **A code host's payload names people** (logins, often addresses), and a person is in the ledger only as a label (below). So what is kept beside the ledger is the payload with each person replaced by their label, and the SHA-256 in the line is of that copy, never of the payload as received: a plain hash of the original beside the replaced copy would let anyone who holds both try each login of a small team until it matches.
+- **The payload as received,** where an organisation keeps it at all, is kept apart at the organisation with the link to the people and its own SHA-256, for a set time, and every look at it is recorded. That pair is what proves what was received. Where it is not kept, the event says so, and its assurance rests on the webhook's signature and the second read.
 
 ### The actor: which person, and where
 
 *Which person* and *where the work was done* are kept apart. A label is still personal data: a stable one is easily traced back in a small team, by the times or by the change at the code host, gathers one person's steps over months, and follows the repository to every clone.
 
-- **Where:** each event carries the team that owns the code it concerns, from the owners of the code classes in `.howl/howl.yml` or the repository's `CODEOWNERS`. It needs no link from a person to a team, so nothing personal is stored to make it.
+- **Where:** each event carries the team that owns the code it concerns, from the owners of the code classes in `.howl/howl.yml` or the repository's `CODEOWNERS`. It needs no link from a person to a team, so nothing personal is stored to make it. An owner who is a person is never written as a team: the event takes the next team up, or none.
 - **Which person, only where a rule needs it:** a label that holds within one subject only (a task with its changes, a requirement, a CVE). On one subject the author is "person A" and the reviewer "person B", which is enough to check that the approving account is not the author's. On another subject the same person has another label. The label is a keyed hash of the account and the subject; the key is kept at the organisation, never in the repository. One person cannot be followed across subjects in the ledger.
 - **A name, when one is truly needed** (an incident; an assessor asking who verified a safety-classed change): the organisation resolves it with its key, and every look is recorded.
 - **Small teams:** below a minimum size the organisation sets (for example five people), the team label is that of the larger unit, so a team never means one person.
@@ -206,7 +206,7 @@ Today `howl` still names a person by a pseudonym kept beside the ledger (`people
 - Project rules come on top, for example "high risk needs a human approver". Some rules belong to the core and cannot be switched off ([levels.md](levels.md)).
 - **A broken rule is a hole in the chain, and it stays one.** A step the process missed is a `rule.broken` event, shown clearly as a hole. It is never removed: the team mends it in its own tools, and `howl` records the mend when it sees it, as `rule.mended` naming the break, or `rule.waived` with a reason where a person with the right accepts the deviation. The chain shows the hole and how it was closed. A link below its class's minimum assurance is a hole too, mended when stronger evidence comes (a signed attestation, a second source). A notice goes out when a hole opens; what the team does with it is the team's. Holes are counted per team, rule and code class, never per person.
 - **A rule states its own edges.** Where a rule cannot be met by its plain words, it says what holds instead: "a review a model level above the author, or by a person where the author is at the top level". An event on that edge is the rule held, through its exception, and no finding at all.
-- **The weight of a finding is the rule's and the class's.** The same rule may be a warning in one code class and an error in another; the team or the pack sets it, not the core. Red means an open hole that needs someone, and nothing else: a mended or waived hole is never shown as an error, though it stays in the record.
+- **The weight of a finding is the rule's and the class's.** The same rule of a team or a pack may be a warning in one code class and an error in another; the team or the pack sets it. A rule of the core is an error wherever it applies. Red means an open hole that needs someone, and nothing else: a mended or waived hole is never shown as an error, though it stays in the record.
 
 ## Named agents
 

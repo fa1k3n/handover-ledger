@@ -54,7 +54,7 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
   - **Derived,** a third origin beside observed and claimed: what `howl` worked out from other events, naming the lines and the rule it came from. A finding, never a fact someone saw.
   - **Assurance,** a second axis: as given, corroborated or checked. An event carries its level and what gave it. The word is assurance, not verification.
   - **A chain is as sure as its weakest required link,** named, with the count of links at each level.
-  - **Provenance is first-class:** the source and a reference into it, the source's time beside `howl`'s, how the sender was authenticated, the SHA-256 of the payload as received, and the related events. `howl`'s interpretation is kept apart and can be worked out again.
+  - **Provenance is first-class:** the source and a reference into it, the source's time beside `howl`'s, how the sender was authenticated, the SHA-256 of the payload as kept, each person replaced by their label (the hash of the payload as received stays only with the original, at the organisation), and the related events. `howl`'s interpretation is kept apart and can be worked out again.
   - **A broken rule is a hole in the chain, and it stays one.** The team mends it in its own tools; `howl` records `rule.mended` or `rule.waived`. A link below its class's minimum assurance is a hole too. Holes are counted per team, rule and code class, never per person.
   - **A rule states its own edges,** and an event on an edge is the rule held.
   - **The weight of a finding is the rule's and the class's.** Red means an open hole that needs someone, and nothing else.
