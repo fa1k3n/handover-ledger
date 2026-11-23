@@ -21,6 +21,7 @@ import { HOOK_HEADERS } from "../hook/line.ts";
 import { findProject } from "../howl/project.ts";
 import { LedgerError } from "../ledger/errors.ts";
 import { fixedForm } from "../ledger/fixed.ts";
+import { NotJson, parseJson } from "../ledger/json.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { eventOf } from "./ingest.ts";
 
@@ -45,9 +46,9 @@ export function receive(req: IncomingMessage, res: ServerResponse, write: Write)
   body(req, res, write, MAX_BODY, (bytes) => {
     let value: unknown;
     try {
-      value = JSON.parse(bytes.toString("utf8"));
-    } catch {
-      json(res, 400, { error: "the body is not JSON" });
+      value = parseJson(bytes.toString("utf8"));
+    } catch (e) {
+      json(res, 400, { error: `the body is ${e instanceof NotJson ? e.message : "not JSON"}` });
       return;
     }
     let event: LedgerEvent;
@@ -78,9 +79,9 @@ export function receiveHook(req: IncomingMessage, res: ServerResponse, write: Wr
     // No answer of this endpoint is a JSON object, also not a refusal: plain words only.
     let value: unknown;
     try {
-      value = JSON.parse(bytes.toString("utf8"));
-    } catch {
-      plain(res, 400, "the body is not JSON");
+      value = parseJson(bytes.toString("utf8"));
+    } catch (e) {
+      plain(res, 400, `the body is ${e instanceof NotJson ? e.message : "not JSON"}`);
       return;
     }
     let event: LedgerEvent | null;

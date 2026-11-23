@@ -20,6 +20,7 @@
 // @code_class recording
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { byUnits } from "../read/order.ts";
 import { isReviewComment, type Change, type CheckRun, type ChecksState, type CodeHost, type Comment, type Ref, type Task } from "./port.ts";
 
 /** A comment as a file holds it: with `review`, or with a `body` the adapter tests and drops. */
@@ -79,7 +80,7 @@ export class LocalHost implements CodeHost {
         if (since === null || item.updatedAt >= since) refs.push({ kind, number: item.number, updatedAt: item.updatedAt });
       }
     }
-    return refs.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.number - b.number);
+    return refs.sort((a, b) => byUnits(a.updatedAt, b.updatedAt) || a.number - b.number);
   }
 
   async task(number: number): Promise<Task> {

@@ -61,8 +61,8 @@ usage:
             filter: type=review.*, actor=agent-1, kind=claimed, change=12,
             harness=<name>, revision=<revision>.
             Colour unless NO_COLOR is set. Times
-            in the local time zone (TZ), --utc as stored; --since without
-            an offset is local time
+            in the local time zone (TZ), --utc as stored; --since takes
+            2026-11-01, 2026-11-01 09:55 (local time) or 2026-11-01T08:55:00Z
   show      the timeline of one assignment, from the hand-over to the merge:
             12, task:12 or change:30. A change that is asked for is shown
             alone; the other changes of its task are named in one line

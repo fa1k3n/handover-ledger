@@ -433,9 +433,9 @@ async function observing(command: "observe" | "up", values: { once?: boolean; in
     if (existsSync(cursorPath(found.project))) {
       throw new UsageError(`--since is for the first round only: ${cursorPath(found.project)} already says where to go on`);
     }
-    const text = values.since === "now" ? new Date().toISOString() : /^\d{4}-\d{2}-\d{2}$/.test(values.since) ? `${values.since}T00:00:00Z` : values.since;
-    const time = /^\d{4}-\d{2}-\d{2}T/.test(text) ? Date.parse(text) : Number.NaN;
-    if (Number.isNaN(time)) throw new UsageError(`--since ${values.since}: give a date (2026-11-01), a time in UTC or now`);
+    const { parseWhen, WHEN_FORMS } = await import("../ledger/time.ts");
+    const time = parseWhen(values.since, { date: "utc", now: Date.now() });
+    if (Number.isNaN(time)) throw new UsageError(`--since ${values.since}: ${WHEN_FORMS} or now`);
     start = new Date(time).toISOString();
   }
   const host = await codeHost(found);

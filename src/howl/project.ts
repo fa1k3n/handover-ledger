@@ -44,7 +44,7 @@ export function settingPattern(project: Pick<Project, "taskFromBranch" | "review
   const source = setting === "task_from_branch" ? project.taskFromBranch : project.reviewCommentPattern;
   if (source === undefined) return undefined;
   try {
-    return new RegExp(source);
+    return new RegExp(source, "u");
   } catch (e) {
     throw new LedgerError(`${setting} in .howl/howl.yml is not a regular expression: ${source} (${(e as Error).message})`);
   }

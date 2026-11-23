@@ -193,7 +193,7 @@ export function classify(settings: ClassSettings): ClassReport {
   let pattern: RegExp | undefined;
   if (settings.header !== undefined) {
     try {
-      pattern = new RegExp(settings.header);
+      pattern = new RegExp(settings.header, "u");
     } catch {
       throw new LedgerError(`class_header is not a regular expression: ${settings.header}`);
     }

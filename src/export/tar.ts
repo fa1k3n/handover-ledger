@@ -3,6 +3,7 @@
 // @code_class evidence
 import { gunzipSync, gzipSync } from "node:zlib";
 import { LedgerError } from "../ledger/errors.ts";
+import { byUnits } from "../read/order.ts";
 
 const BLOCK = 512;
 
@@ -28,7 +29,7 @@ function header(name: string, size: number): Buffer {
 /** The files as a tar archive, gzipped when asked. */
 export function writeTar(files: Map<string, Buffer>, gzip = false): Buffer {
   const parts: Buffer[] = [];
-  for (const [name, data] of [...files.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+  for (const [name, data] of [...files.entries()].sort((a, b) => byUnits(a[0], b[0]))) {
     parts.push(header(name, data.length), data, Buffer.alloc((BLOCK - (data.length % BLOCK)) % BLOCK, 0));
   }
   parts.push(Buffer.alloc(BLOCK * 2, 0));

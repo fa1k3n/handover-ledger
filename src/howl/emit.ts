@@ -5,6 +5,8 @@
 import { randomUUID } from "node:crypto";
 import { deliver } from "../inbox/deliver.ts";
 import { LedgerError } from "../ledger/errors.ts";
+import { fixedForm } from "../ledger/fixed.ts";
+import { checkEventDepth, NotJson, parseJson } from "../ledger/json.ts";
 import { eventFaults, type LedgerEvent } from "../ledger/schema.ts";
 import { findActor, findProject } from "./project.ts";
 
@@ -28,9 +30,9 @@ export async function emit(options: EmitOptions, env: Record<string, string | un
   if (options.data !== undefined) {
     let value: unknown;
     try {
-      value = JSON.parse(options.data);
-    } catch {
-      throw new LedgerError("--data is not JSON");
+      value = parseJson(options.data);
+    } catch (e) {
+      throw new LedgerError(`--data is ${e instanceof NotJson ? e.message : "not JSON"}`);
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
       throw new LedgerError("--data must be a JSON object");
@@ -55,5 +57,7 @@ export async function emit(options: EmitOptions, env: Record<string, string | un
   const defined = JSON.parse(JSON.stringify(event)) as unknown;
   const faults = eventFaults(defined);
   if (faults.length > 0) throw new LedgerError(`not a valid event: ${faults.join("; ")}`);
+  // As the writer would refuse it, said here and not by the inbox, a file later.
+  checkEventDepth(fixedForm(defined));
   return (await deliver(project.project, defined as LedgerEvent, env)) ?? "sent";
 }

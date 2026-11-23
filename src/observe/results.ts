@@ -5,6 +5,7 @@
 // names of the checks that failed. What is recorded is each change of that result, worked out from all the runs by
 // their own times, so a change between two rounds is told too. A check is told by its suite and its name.
 // @code_class recording
+import { byUnits } from "../read/order.ts";
 import type { CheckRun } from "./port.ts";
 
 /** The longest name of a check that is kept, in characters. */
@@ -50,7 +51,7 @@ const time = (t: string | undefined): number | undefined => {
 
 /** The ids of two runs, as numbers where they are. */
 function byId(a: string, b: string): number {
-  return /^\d+$/.test(a) && /^\d+$/.test(b) ? Number(a) - Number(b) : a.localeCompare(b);
+  return /^\d+$/.test(a) && /^\d+$/.test(b) ? Number(a) - Number(b) : byUnits(a, b);
 }
 
 function timed(runs: CheckRun[]): Timed[] {

@@ -20,6 +20,7 @@ import {
 import { dirname, join } from "node:path";
 import { LedgerError } from "../ledger/errors.ts";
 import { fixedForm } from "../ledger/fixed.ts";
+import { checkEventDepth, NotJson, parseJson } from "../ledger/json.ts";
 import type { LedgerWriter } from "../ledger/ledger.ts";
 import { ACTIVITY_TYPES, eventFaults, type LedgerEvent } from "../ledger/schema.ts";
 import { isReady } from "./inbox.ts";
@@ -92,9 +93,9 @@ export function ingestPass(places: Places, writer: LedgerWriter, activityDays: n
 function parse(text: string, project: string): LedgerEvent {
   let value: unknown;
   try {
-    value = JSON.parse(text);
-  } catch {
-    throw new LedgerError("the file is not JSON");
+    value = parseJson(text);
+  } catch (e) {
+    throw new LedgerError(`the file is ${e instanceof NotJson ? e.message : "not JSON"}`);
   }
   return eventOf(value, project);
 }
@@ -108,8 +109,8 @@ export function eventOf(value: unknown, project: string): LedgerEvent {
     throw new LedgerError(`not an event of this project: project is ${JSON.stringify(event.project)}, not ${JSON.stringify(project)}`);
   }
   if (event.type === "ledger.created") throw new LedgerError("ledger.created is written by the ledger itself");
-  // Refuses an event with no fixed form, before anything is written.
-  fixedForm(event);
+  // Refuses an event with no fixed form, and one the writer would not write for its depth, before anything is written.
+  checkEventDepth(fixedForm(event));
   return event;
 }
 

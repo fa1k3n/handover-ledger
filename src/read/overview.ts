@@ -6,7 +6,7 @@ import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, namelessHead } from "./acting.ts";
 import { accountsGone, assignee, giver, givings } from "./assignee.ts";
 import { isReview, observed } from "./observed.ts";
-import { byTime } from "./order.ts";
+import { byTime, byUnits } from "./order.ts";
 import { rounds as roundsOf } from "./rounds.ts";
 
 const DAY = 24 * 3600_000;
@@ -216,7 +216,7 @@ export function keyFigures(events: LedgerEvent[], now: number): KeyFigures {
   );
   return {
     configChanges,
-    ...(hasAgent ? { unattributed: { count: missing.length, changes: [...new Set(missing.map((e) => e.change!))].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b)) } } : {}),
+    ...(hasAgent ? { unattributed: { count: missing.length, changes: [...new Set(missing.map((e) => e.change!))].sort((a, b) => Number(a) - Number(b) || byUnits(a, b)) } } : {}),
     open: [...state.values()].filter((s) => s === "open").length,
     merged: rounds.length,
     leadTimeMedianMs: median(leadTimes),
@@ -243,5 +243,5 @@ function requirementsNamed(mergedAt: Map<string, string>, traced: Map<string, bo
     else if (seen) named++;
     else without.push(change);
   }
-  return { merged: mergedAt.size, named, without: without.sort((a, b) => Number(a) - Number(b) || a.localeCompare(b)), unrecorded };
+  return { merged: mergedAt.size, named, without: without.sort((a, b) => Number(a) - Number(b) || byUnits(a, b)), unrecorded };
 }

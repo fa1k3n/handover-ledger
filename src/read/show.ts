@@ -24,7 +24,7 @@ import type { LedgerEvent } from "../ledger/schema.ts";
 import { actingAgents, type Acting } from "./acting.ts";
 import { accountsGone, assignee, giver, givings } from "./assignee.ts";
 import { claimOfHost, isReview, observed } from "./observed.ts";
-import { byTime } from "./order.ts";
+import { byTime, byUnits } from "./order.ts";
 import { waitsFor } from "./wait.ts";
 import { agentTimeline, movesAgent, type AgentState } from "./agent.ts";
 import { reviewIdOf, roundText, rounds, type Round } from "./rounds.ts";
@@ -817,7 +817,7 @@ export function render(shown: Shown, options: { utc?: boolean } = {}): string {
     out.push(`  session ${s.session}  claimed  ${who(s.actor)}${s.role ? `  role ${s.role}` : ""}${s.harness ? `  harness ${s.harness.name} ${s.harness.revision}` : ""}  ${span}${also}`);
     if (s.activity === "kept") {
       const tools = Object.entries(s.tools)
-        .sort(([a], [b]) => a.localeCompare(b))
+        .sort(([a], [b]) => byUnits(a, b))
         .map(([tool, n]) => `${tool} ${n}`)
         .join(", ");
       out.push(`    tool calls: ${tools}`);
