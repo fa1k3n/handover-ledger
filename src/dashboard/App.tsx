@@ -1,6 +1,6 @@
 // The dashboard page: the team right now and the event stream, read-only over howl serve.
 // @code_class reading
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Handover, KeyFigures } from "../read/overview.ts";
 import type { AgentRow, AgentState } from "../read/state.ts";
 import { concerns, detail, duration } from "../read/words.ts";
@@ -8,7 +8,7 @@ import { waitsForPerson } from "../read/wait.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, needsPersonItems, waitFilter, waitRowKeys, statusMark, markText, nameTaken, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
+import { answerWanted, decodedFields, dialogHeading, partIdentity, utcTime, partKept, partSource, partTime, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, needsPersonItems, waitFilter, waitRowKeys, statusMark, markText, nameTaken, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -814,6 +814,10 @@ function Stream({ agents, ledger, onError, project, served, unwritten }: { agent
           item={picked}
           beside={neighbours(items, itemKey(picked))}
           onStep={(key) => setPicked(items.find((i) => itemKey(i) === key) ?? picked)}
+          onOpenLine={(of, n) => {
+            // #191: a related event may be outside the list: it is read from the ledger.
+            api.line(of, n).then((a) => setPicked(a.item as Item), onError);
+          }}
           onNarrow={(field, value) => {
             setPicked(null);
             narrow(field, value);
@@ -899,12 +903,14 @@ function EventDialog({
   item,
   beside,
   onStep,
+  onOpenLine,
   onNarrow,
   onClose,
 }: {
   item: Item;
   beside: { newer: string | null; older: string | null };
   onStep: (key: string) => void;
+  onOpenLine: (project: string | undefined, n: number) => void;
   onNarrow: (field: "project" | "repo", value: string) => void;
   onClose: () => void;
 }) {
@@ -918,6 +924,25 @@ function EventDialog({
     close.current?.focus();
   }, []);
   useEffect(() => setCopied(false), [item]);
+  // #191: the line's provenance, read once for each event shown: a tool call is not a line of the ledger.
+  const [prov, setProv] = useState<{ key: string; answer?: Awaited<ReturnType<typeof api.line>>; error?: string } | null>(null);
+  useEffect(() => {
+    if (item.from !== "ledger" || item.n === undefined) {
+      setProv(null);
+      return;
+    }
+    const key = itemKey(item);
+    let live = true;
+    setProv({ key });
+    api.line(item.project, item.n).then(
+      (answer) => live && setProv({ key, answer }),
+      (e: unknown) => live && setProv({ key, error: (e as Error).message }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [item]);
+  const answer = prov !== null && prov.key === itemKey(item) ? prov.answer : undefined;
   // The arrow keys are heard on the window, wherever the focus is inside the dialog.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -968,32 +993,58 @@ function EventDialog({
           </button>
         </div>
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto md:grid-cols-2">
-          <section aria-label={texts.decoded.sub} className="flex min-w-0 flex-col gap-2.5 px-5 py-[18px]">
-            <span className="text-[13px] text-mute">{texts.decoded.sub}</span>
-            <dl className="m-0 grid grid-cols-[minmax(110px,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[13px]">
-              {decodedFields(item).map((f) => {
-                const by = narrowOf(f, item);
-                return (
-                  <div key={f.k} className="contents">
-                    <dt className="text-mute">{f.k}</dt>
-                    <dd className="m-0 font-mono [overflow-wrap:anywhere]">
-                      {f.v}
-                      {by !== null && (
-                        <button
-                          type="button"
-                          onClick={() => onNarrow(by.field, by.value)}
-                          aria-label={texts.stream.narrow(by.field, by.value)}
-                          className="ml-3 cursor-pointer border-0 bg-transparent p-0 font-sans text-[13px] text-ink underline decoration-pale underline-offset-2"
-                        >
-                          {texts.dialog.only}
-                        </button>
-                      )}
-                    </dd>
-                  </div>
-                );
-              })}
-            </dl>
-          </section>
+          <div className="flex min-w-0 flex-col gap-4 px-5 py-[18px]">
+            <span className="text-[13px] text-mute">{texts.provenance.heading}</span>
+            {item.from === "ledger" && prov?.error !== undefined && <p className="m-0 text-[13px] text-error-ink">{texts.provenance.failed(prov.error)}</p>}
+            {item.from === "ledger" && answer === undefined && prov?.error === undefined && <p className="m-0 text-[13px] text-mute">{texts.provenance.loading}</p>}
+            <Part id="p-source" title={texts.provenance.parts.source}>
+              <Facts rows={sourceRows(item)} />
+            </Part>
+            <Part id="p-time" title={texts.provenance.parts.time}>
+              <Facts rows={timeRows(item)} />
+            </Part>
+            <Part id="p-identity" title={texts.provenance.parts.identity}>
+              <IdentityPart item={item} answer={answer} />
+            </Part>
+            <Part id="p-integrity" title={texts.provenance.parts.integrity}>
+              <IntegrityPart item={item} answer={answer} />
+            </Part>
+            <Part id="p-kept" title={texts.provenance.parts.kept}>
+              <KeptPart item={item} />
+            </Part>
+            <Part id="p-related" title={texts.provenance.parts.related}>
+              <RelatedPart item={item} answer={answer} onOpen={(n) => onOpenLine(item.project, n)} />
+            </Part>
+            <section aria-labelledby="p-reading" className="flex flex-col gap-2.5 rounded-lg border-2 border-dashed border-pale px-4 py-3">
+              <h3 id="p-reading" className="m-0 text-sm font-semibold">
+                {texts.provenance.parts.reading}
+              </h3>
+              <p className="m-0 text-[13px] text-mute">{texts.provenance.reading}</p>
+              <dl className="m-0 grid grid-cols-[minmax(110px,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[13px]">
+                {decodedFields(item).map((f) => {
+                  const by = narrowOf(f, item);
+                  return (
+                    <div key={f.k} className="contents">
+                      <dt className="text-mute">{f.k}</dt>
+                      <dd className="m-0 font-mono [overflow-wrap:anywhere]">
+                        {f.v}
+                        {by !== null && (
+                          <button
+                            type="button"
+                            onClick={() => onNarrow(by.field, by.value)}
+                            aria-label={texts.stream.narrow(by.field, by.value)}
+                            className="ml-3 cursor-pointer border-0 bg-transparent p-0 font-sans text-[13px] text-ink underline decoration-pale underline-offset-2"
+                          >
+                            {texts.dialog.only}
+                          </button>
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </section>
+          </div>
           <section aria-labelledby="raw-h" className="flex min-w-0 flex-col gap-2.5 bg-ink px-5 py-[18px] text-gray-200">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <h3 id="raw-h" className="m-0 text-base font-semibold text-white">
@@ -1017,5 +1068,139 @@ function EventDialog({
         </div>
       </div>
     </dialog>
+  );
+}
+
+type LineAnswer = Awaited<ReturnType<typeof api.line>>;
+
+/** #191: one numbered part of the event dialog. */
+function Part({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-1.5">
+      <h3 id={id} className="m-0 text-sm font-semibold">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+/** #191: the facts of a part, a name and a value each. */
+function Facts({ rows }: { rows: { k: string; v: string }[] }) {
+  return (
+    <dl className="m-0 grid grid-cols-[minmax(110px,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 text-[13px]">
+      {rows.map((r) => (
+        <div key={r.k} className="contents">
+          <dt className="text-mute">{r.k}</dt>
+          <dd className="m-0 font-mono [overflow-wrap:anywhere]">{r.v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function sourceRows(item: Item): { k: string; v: string }[] {
+  const s = partSource(item);
+  const t = texts.provenance.source;
+  return [{ k: t.adapter, v: s.adapter }, { k: t.kind, v: s.kind }, ...s.references.map((r) => ({ k: `${t.reference}: ${r.k}`, v: r.v }))];
+}
+
+function timeRows(item: Item): { k: string; v: string }[] {
+  const t = partTime(item);
+  return [
+    { k: texts.provenance.time.stated, v: `${t.stated}, ${t.by}` },
+    { k: texts.provenance.time.received, v: t.received },
+  ];
+}
+
+function IdentityPart({ item, answer }: { item: Item; answer: LineAnswer | undefined }) {
+  const t = texts.provenance.identity;
+  // While the line is read, its signature is not known yet: nothing is said of it.
+  const waiting = item.from === "ledger" && answer === undefined;
+  const id = partIdentity(item, item.from === "ledger" ? (answer?.signature ?? null) : undefined);
+  return (
+    <>
+      <Facts rows={[{ k: t.actor, v: id.actor }, ...(waiting ? [] : [{ k: t.signature, v: id.signature }])]} />
+      {id.note !== null && <p className="m-0 text-[13px] text-mute">{id.note}</p>}
+      {!waiting && id.limit !== null && <p className="m-0 text-[13px] text-mute">{id.limit}</p>}
+    </>
+  );
+}
+
+function IntegrityPart({ item, answer }: { item: Item; answer: LineAnswer | undefined }) {
+  const t = texts.provenance.integrity;
+  if (item.from !== "ledger") return <p className="m-0 text-[13px] text-mute">{t.tool}</p>;
+  const rows = [
+    { k: t.line, v: String(item.n) },
+    { k: t.prev, v: item.prev ?? t.firstLine },
+    { k: t.hash, v: item.hash ?? "" },
+  ];
+  if (answer !== undefined) {
+    const c = answer.checkpoint;
+    rows.push({ k: t.chain, v: answer.intact ? t.intact : t.broken(answer.broken ?? 0) });
+    rows.push({ k: t.checkpoint, v: c === null ? t.none : c.holds ? t.covered(utcTime(c.time), c.lines, c.head.slice(0, 12)) : t.notHeld(utcTime(c.time), c.lines) });
+  }
+  return (
+    <>
+      <Facts rows={rows} />
+      {answer !== undefined && <p className="m-0 text-[13px] text-mute">{t.where}</p>}
+    </>
+  );
+}
+
+function KeptPart({ item }: { item: Item }) {
+  const k = partKept(item);
+  const t = texts.provenance.kept;
+  return (
+    <>
+      <p className="m-0 text-[13px]">{k.note}</p>
+      {k.data === null ? (
+        <p className="m-0 text-[13px] text-mute">{t.noData}</p>
+      ) : (
+        <>
+          <span className="text-[13px] text-mute">{t.data}</span>
+          <pre className="m-0 overflow-auto rounded border border-line bg-[#f7f8fa] p-2 font-mono text-xs">{k.data}</pre>
+        </>
+      )}
+    </>
+  );
+}
+
+function RelatedPart({ item, answer, onOpen }: { item: Item; answer: LineAnswer | undefined; onOpen: (n: number) => void }) {
+  const t = texts.provenance.related;
+  if (item.from !== "ledger") return <p className="m-0 text-[13px] text-mute">{t.tool}</p>;
+  if (answer === undefined) return null;
+  if (item.event.task === undefined && item.event.change === undefined) return <p className="m-0 text-[13px] text-mute">{t.noSubject}</p>;
+  const r = answer.related;
+  if (r.before.length === 0 && r.after.length === 0) return <p className="m-0 text-[13px] text-mute">{t.none}</p>;
+  const list = (title: string, rows: typeof r.before, more: number, moreFirst: boolean) =>
+    rows.length === 0 ? null : (
+      <div className="flex flex-col gap-1">
+        <span className="text-[13px] text-mute">{title}</span>
+        {moreFirst && more > 0 && <span className="text-[13px] text-mute">{t.more(more)}</span>}
+        <ul className="m-0 flex list-none flex-col gap-1 p-0">
+          {rows.map((e) => (
+            <li key={e.n}>
+              <button
+                type="button"
+                onClick={() => onOpen(e.n)}
+                className="flex min-h-9 w-full cursor-pointer flex-wrap gap-x-3 rounded-lg border border-pale bg-white px-3 py-1 text-left font-sans text-[13px] text-ink"
+              >
+                <span className="font-semibold">{t.open(e.n)}</span>
+                <span className="font-mono">{e.type}</span>
+                {e.actor !== undefined && <span>{e.actor}</span>}
+                <span className="text-mute">{whenShort(e.time, answer.now)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {!moreFirst && more > 0 && <span className="text-[13px] text-mute">{t.more(more)}</span>}
+      </div>
+    );
+  return (
+    <>
+      {list(t.before, r.before, r.beforeMore, true)}
+      {list(t.after, r.after, r.afterMore, false)}
+    </>
   );
 }

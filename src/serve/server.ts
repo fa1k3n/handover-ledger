@@ -21,6 +21,7 @@ import { actingAgents } from "../read/acting.ts";
 import { Kept } from "./kept.ts";
 import { projectsWriting, writingOf } from "../read/writing.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
+import { lineProvenance } from "../read/line.ts";
 import { parseAsked, show } from "../read/show.ts";
 import { agentStates } from "../read/state.ts";
 import { readFilters, wantsActivity, type Failed } from "../read/filter.ts";
@@ -271,6 +272,19 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
         return;
       }
       json(res, 200, shown);
+      return;
+    }
+    case "/api/line": {
+      // #191: one line's provenance, for the event dialog. A whole number, never a path; line 0 is not there.
+      const asked = url.searchParams.get("line") ?? "";
+      if (!/^(0|[1-9][0-9]{0,15})$/.test(asked)) throw new LedgerError("give line: the number of a line of the ledger");
+      const n = Number(asked);
+      const found = lineProvenance(ledger, n, ledgerVerdict(ledger), options.ledger === undefined ? project.name : undefined);
+      if (found === null) {
+        json(res, 404, { error: `the ledger has no line ${n} that howl can read` });
+        return;
+      }
+      json(res, 200, { now: presentTime(), ...found });
       return;
     }
     case "/api/ledger": {

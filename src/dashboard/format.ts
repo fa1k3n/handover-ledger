@@ -7,6 +7,8 @@ import type { KeyFigures } from "../read/overview.ts";
 import { concerns, duration } from "../read/words.ts";
 import type { Claim, Head, Session, Summary } from "../read/show.ts";
 import type { AgentRow } from "../read/state.ts";
+import type { LedgerEvent } from "../ledger/schema.ts";
+import type { LineSignature } from "../read/line.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
 import { writingLine, type Writing } from "../read/writing-text.ts";
@@ -561,4 +563,74 @@ export function waitRowKeys(items: Item[], rows: AgentRow[], project: string | n
     if (found) keys.add(itemKey(found));
   }
   return keys;
+}
+
+/**
+ * #191: the adapters of a session's hook: run on the machine (`src/hook/hook.ts`)
+ * or received over HTTP by `howl up` (`src/inbox/receive.ts`).
+ */
+const HOOK_ADAPTERS = new Set(["claude-code-hook", "claude-code-http"]);
+
+/** #191: where an event comes from: a session's hook, a team's tool, another claim, howl itself, or a kind the page does not know. */
+export type Origin = "hook" | "host" | "claim" | "howl" | "unknown";
+
+export function originOf(e: LedgerEvent): Origin {
+  const kind = e.source.kind as string;
+  if (kind === "claimed") return HOOK_ADAPTERS.has(e.source.adapter) ? "hook" : "claim";
+  if (kind === "observed") return e.source.adapter === "howl" ? "howl" : "host";
+  return "unknown";
+}
+
+/** #191, part 1: the adapter, the kind, and the references the event holds into its source. */
+export function partSource(item: Item): { adapter: string; kind: string; references: { k: string; v: string }[] } {
+  const e = item.event;
+  const t = texts.provenance.source;
+  const kind = e.source.kind as string;
+  const refs: [string, string | undefined][] = [
+    [t.id, e.id],
+    [t.session, e.session],
+    [t.repo, e.repo],
+    [t.change, e.change],
+    [t.head, e.sha],
+    [t.branch, e.branch],
+    [t.task, e.task],
+  ];
+  return {
+    adapter: e.source.adapter,
+    kind: t.kinds[kind] ?? t.unknownKind(kind),
+    references: refs.filter((r): r is [string, string] => r[1] !== undefined).map(([k, v]) => ({ k, v })),
+  };
+}
+
+/** #191, part 2: the time the event states, whose clock that is, and the time howl received it, which no piece records yet. */
+export function partTime(item: Item, timeZone?: string): { stated: string; by: string; received: string } {
+  const e = item.event;
+  return {
+    stated: `${localTime(e.time, timeZone)} local · ${utcTime(e.time)}`,
+    by: texts.provenance.time.by[originOf(e)],
+    received: texts.provenance.time.notRecorded,
+  };
+}
+
+/**
+ * #191, part 3: the actor, and the signature's result as `/api/line` gives it:
+ * null when the line is not signed, undefined for a tool call, which is outside
+ * the chain. A valid signature says no more than that it holds for the key
+ * issued in this ledger: the issuer key is not tied to one kept apart.
+ */
+export function partIdentity(item: Item, signature: LineSignature | null | undefined): { actor: string; signature: string; limit: string | null; note: string | null } {
+  const e = item.event;
+  const t = texts.provenance.identity;
+  const actor = e.actor ? `${e.actor.id} (${e.actor.kind === "person" ? "person, pseudonym" : e.actor.kind})` : t.noActor;
+  const note = e.source.kind === "observed" && originOf(e) === "host" ? t.observed : null;
+  if (item.from !== "ledger" || signature === undefined) return { actor, signature: t.tool, limit: null, note };
+  if (signature === null) return { actor, signature: t.notSigned, limit: null, note };
+  return { actor, signature: signature.ok ? t.valid(signature.key.slice(0, 12)) : t.invalid(signature.reason ?? "unknown"), limit: t.limit, note };
+}
+
+/** #191, part 5: what was dropped or not kept, by where the event comes from; and its data as kept, or null when it holds none. */
+export function partKept(item: Item): { note: string; data: string | null } {
+  const e = item.event;
+  const data = e.data !== undefined && Object.keys(e.data).length > 0 ? JSON.stringify(e.data, null, 2) : null;
+  return { note: texts.provenance.kept[originOf(e)], data };
 }
