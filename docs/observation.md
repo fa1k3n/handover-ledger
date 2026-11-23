@@ -6,7 +6,7 @@ How `howl` observes: its sources, the hooks, the readers, and what each keeps an
 
 The levels ([levels.md](levels.md)) are the team's: how much its agents may do. `howl` records at every level, and checks the work against the level declared. A team can let its agents do nearly everything and still see what they do during an assignment. That is what no code host shows.
 
-It is also the cheapest way to try the platform: nothing in the team's flow changes.
+Trying `howl` changes nothing in the team's flow.
 
 ## Two sources of events
 

@@ -6,16 +6,16 @@ A team gets used to agents one level at a time. The process and its trace chain 
 
 A team declares a level per code class, and a person approves it; the approval is recorded in the ledger. The team's own tools do the work of the level. `howl` does not run a level: it checks that the observed work stays within the declared one. A step outside it is a hole, as any broken rule.
 
-`howl` only records, at every level, so recording names no level.
+`howl` records and checks at every level, so recording names no level.
 
 Each level is a set of conditions on observed events:
 
 | Level | Who may author | Who must verify | Who merges | Minimum assurance of each link |
 |---|---|---|---|---|
 | 0 No agents | People, with any AI tool declared on each change by its author | A person | People | Set by the code class (#182) |
-| 1 Review | People only | A person; an agent may add a review | People | Set by the code class (#182) |
-| 2 Small jobs | People, and agents within the paths and size the class allows | A person, for every agent's change | People | Set by the code class (#182) |
-| 3 Agent team | People and agents | Agents review each other; a person where a rule names one | The team's own program, on the conditions of the table; people take the exceptions | Set by the code class (#182) |
+| 1 Review | People only, with any AI tool declared, as at level 0 | A person; an agent may add a review | People | Set by the code class (#182) |
+| 2 Small jobs | People (AI tool declared), and agents within the paths and size the class allows | A person, for every agent's change | People | Set by the code class (#182) |
+| 3 Agent team | People (AI tool declared) and agents | Agents review each other; a person where a rule names one | The team's own program, on the conditions of the table; people take the exceptions | Set by the code class (#182) |
 
 An agent's change in a class declared at level 1 is then a hole.
 
