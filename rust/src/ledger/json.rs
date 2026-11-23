@@ -110,6 +110,10 @@ fn escape(bytes: &[u8], at: usize) -> Option<u32> {
 }
 
 /// serde_json, with its own limit of depth lifted: `scan` has bounded it already, at one more than serde_json's own.
+///
+/// The signed count of `scan` cannot let serde_json go deeper than 128: a `]` or `}` too many lowers the count only
+/// after the first value has ended or where serde_json fails at once, so the extra `[` or `{` it lets past are never
+/// read. Until serde_json fails, it agrees with `scan` on what is inside a string.
 fn read(text: &str) -> Result<Value, JsonError> {
     let mut de = serde_json::Deserializer::from_str(text);
     de.disable_recursion_limit();
