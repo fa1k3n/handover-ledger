@@ -67,10 +67,10 @@ pub fn named(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-/// A text that is not empty, with whether it held a lone surrogate.
-fn text_of(value: Option<&Json>) -> Option<(&str, bool)> {
+/// A text that is not empty, with its second reading when it holds a lone surrogate.
+fn text_of(value: Option<&Json>) -> Option<(&str, Option<&str>)> {
     match value {
-        Some(Json::Text(text, lone)) if !text.is_empty() => Some((text, *lone)),
+        Some(Json::Text(text, second)) if !text.is_empty() => Some((text, second.as_deref())),
         _ => None,
     }
 }
@@ -78,8 +78,8 @@ fn text_of(value: Option<&Json>) -> Option<(&str, bool)> {
 /// A text that goes into the event: a lone surrogate in it means no event, as the fixed form refuses it.
 fn kept(value: Option<&Json>) -> Result<Option<String>, Nothing> {
     match text_of(value) {
-        Some((_, true)) => Err(Nothing),
-        Some((text, false)) => Ok(Some(text.to_string())),
+        Some((_, Some(_))) => Err(Nothing),
+        Some((text, None)) => Ok(Some(text.to_string())),
         None => Ok(None),
     }
 }
@@ -247,22 +247,30 @@ fn target(tool: &str, input: &Members, root: &str) -> Result<Option<String>, Not
     let Some((path, lone)) = path else {
         return Ok(None);
     };
+    let target = kept_path(path, root);
+    // A lone surrogate in the part that is kept has no fixed form: no event. In a part that is left out (before a `..`,
+    // or in the root) it changes nothing. The two readings of the path differ only where the surrogate stands.
+    if let Some(second) = lone {
+        if kept_path(second, root) != target {
+            return Err(Nothing);
+        }
+    }
+    Ok(target)
+}
+
+/// The part of an absolute path within the root that is kept as target: `.` for the root itself.
+fn kept_path(path: &str, root: &str) -> Option<String> {
     if !is_absolute(path) {
-        return Ok(None);
+        return None;
     }
     let within = relative(root, path);
-    let target = if within.is_empty() {
-        ".".to_string()
+    if within.is_empty() {
+        Some(".".to_string())
     } else if within.starts_with("..") || is_absolute(&within) {
-        return Ok(None);
+        None
     } else {
-        within
-    };
-    // The path would be kept with its lone surrogate, which has no fixed form.
-    if lone {
-        return Err(Nothing);
+        Some(within)
     }
-    Ok(Some(target))
 }
 
 fn effort(value: Option<&Json>) -> Result<Option<String>, Nothing> {

@@ -8,8 +8,9 @@
 /// A value of the input, as far as the hook looks at it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Json {
-    /// A text, and whether it held a `\u` escape of a lone surrogate, which stands as U+FFFD in the text.
-    Text(String, bool),
+    /// A text, with U+FFFD in place of each `\u` escape of a lone surrogate. When it holds one, the same text again
+    /// with U+FFFF in its place: what differs between the two is where a lone surrogate stands.
+    Text(String, Option<String>),
     /// An object near the top, its members in order.
     Object(Members),
     /// Anything else: a number, a literal, an array, an object too deep to be used, a text in one of those.
@@ -25,6 +26,15 @@ impl Members {
     pub fn get(&self, key: &str) -> Option<&Json> {
         self.0.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v)
     }
+}
+
+/// `text` with U+FFFF in place of the U+FFFD that starts at each of `places`: both are three bytes in UTF-8.
+fn second_reading(text: &str, places: &[usize]) -> String {
+    let mut bytes = text.as_bytes().to_vec();
+    for at in places {
+        bytes[at + 2] = 0xbf;
+    }
+    String::from_utf8(bytes).expect("U+FFFF in place of U+FFFD")
 }
 
 /// An array or an object being read.
@@ -97,11 +107,12 @@ impl Reader<'_> {
         u32::from_str_radix(hex, 16).ok()
     }
 
-    /// A text from its opening quote; built only when `keep`, with whether it held a lone surrogate.
-    fn string(&mut self, keep: bool) -> Option<Option<(String, bool)>> {
+    /// A text from its opening quote; built only when `keep`, with its second reading when it holds a lone surrogate.
+    fn string(&mut self, keep: bool) -> Option<Option<(String, Option<String>)>> {
         self.eat(b'"')?;
         let mut out = String::new();
-        let mut lone = false;
+        // Where in `out` each U+FFFD of a lone surrogate starts.
+        let mut lone: Vec<usize> = Vec::new();
         let mut run = self.at;
         loop {
             let byte = self.peek()?;
@@ -111,7 +122,10 @@ impl Reader<'_> {
                         out.push_str(&self.text[run..self.at]);
                     }
                     self.at += 1;
-                    return Some(keep.then_some((out, lone)));
+                    return Some(keep.then(|| {
+                        let second = (!lone.is_empty()).then(|| second_reading(&out, &lone));
+                        (out, second)
+                    }));
                 }
                 0..=0x1f => return None,
                 b'\\' => {
@@ -132,7 +146,11 @@ impl Reader<'_> {
                         b't' => '\t',
                         b'u' => {
                             let unit = self.hex4()?;
-                            self.unit(unit, &mut lone)
+                            let (c, alone) = self.unit(unit);
+                            if alone {
+                                lone.push(out.len());
+                            }
+                            c
                         }
                         _ => return None,
                     };
@@ -146,8 +164,9 @@ impl Reader<'_> {
         }
     }
 
-    /// The character of a `\u` escape, with the low half of a pair when one follows; U+FFFD for a lone half.
-    fn unit(&mut self, unit: u32, lone: &mut bool) -> char {
+    /// The character of a `\u` escape, with the low half of a pair when one follows; U+FFFD for a lone half, and
+    /// whether it is one.
+    fn unit(&mut self, unit: u32) -> (char, bool) {
         let escape_follows = self.bytes.get(self.at..self.at + 2) == Some(b"\\u");
         if (0xd800..0xdc00).contains(&unit) && escape_follows {
             let back = self.at;
@@ -155,15 +174,15 @@ impl Reader<'_> {
             match self.hex4() {
                 Some(low) if (0xdc00..0xe000).contains(&low) => {
                     let c = 0x10000 + ((unit - 0xd800) << 10) + (low - 0xdc00);
-                    return char::from_u32(c).unwrap_or('\u{fffd}');
+                    return (char::from_u32(c).unwrap_or('\u{fffd}'), false);
                 }
                 _ => self.at = back,
             }
         }
-        char::from_u32(unit).unwrap_or_else(|| {
-            *lone = true;
-            '\u{fffd}'
-        })
+        match char::from_u32(unit) {
+            Some(c) => (c, false),
+            None => ('\u{fffd}', true),
+        }
     }
 
     /// After `{` and the blanks: the key of a member and its colon.
