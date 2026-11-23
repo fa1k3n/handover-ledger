@@ -10,12 +10,12 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **Several parts:** core, adapters, CLI, dashboard, VS Code extension. (2026-11-12)
 - **Open source with consulting** for the integration at clients. (2026-11-12)
 - **Levels of autonomy** as the way in for a team, combined with traceability so that it fits ISO and similar standards. (2026-11-12)
-- **Helpers are short-lived and start cold; orchestration is deterministic code; no hidden agent memory.** (2026-11-12)
-- **Named agents:** identity is lasting, memory is not; role, model and effort belong to the assignment. (2026-11-12)
+- **Helpers are short-lived and start cold; orchestration is deterministic code; no hidden agent memory.** (2026-11-12) Its orchestration is replaced 2026-11-22 by "howl records and checks, and never steers", at the end of this list: orchestration is the team's own tools'.
+- **Named agents:** identity is lasting, memory is not; role, model and effort belong to the assignment. (2026-11-12) Its steering part, a dispatcher that sets role, model and effort, is replaced 2026-11-22 by "howl records and checks, and never steers", at the end of this list. The names, the identity and what is recorded stand.
 - **Safe defaults:** agents never merge, high risk needs a person. (2026-11-12)
 - **Wording:** "supports certification" or "audit-ready", never "ISO certified". (2026-11-12)
 - **Languages:** the engine, the CLI, the dashboard and the VS Code extension are built in TypeScript. Whatever a development team itself programs (checks, adapters to in-house tools, scripts in `.howl/`) is Python, and a shell script shall work as well: embedded developers do not know TypeScript. (2026-11-13) Replaced 2026-11-17 by "The engine and the command line are Rust", at the end of this list.
-- **Observation mode first:** `howl` is tried beside a team whose agents already work, recording only, for what it shows of the agents' work ([observation.md](observation.md)). (2026-11-13)
+- **Observation mode first:** `howl` is tried beside a team whose agents already work, recording only, for what it shows of the agents' work ([observation.md](observation.md)). (2026-11-13) Its mode, and only that, is replaced 2026-11-23: observation is no longer a mode, it is all `howl` does (#181). Trying `howl` beside agents that already work stands.
 - **The core records what happens, the packs say what is demanded.** The core knows no standard. (2026-11-13)
 - **An event does not know its place in a ledger:** `prev` and the hash of the event belong to the line. (2026-11-13)
 - **Agents are measured one by one, people only as a team.** Only an agent's session is recorded; a person is named by a pseudonym kept beside the ledger. (2026-11-13)
@@ -49,18 +49,19 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
   - **The pieces,** one issue each, in this order, each naming the ones before it: 1 the skeleton (#137); 2 TypeScript says what it means (#138); 3 fixed form and hashes (#139), the schema and `howl verify` (#140); 4 `howl hook` to the inbox (#141), delivery, signing and `howl emit` (#142); 5 the writer and `howl ingest` (#143); 6 `howl key` and `howl keyd` (#144), `howl anchor` and checkpoints (#145); 7 `howl classes` and `howl trace` (#146), `howl watch` and the filter (#147), the agent folds and `howl status` (#148), `howl show` (#149), `howl export` and `verify --bundle` (#150); 8 the observer's parts (#151), `howl observe` (#152), the GitHub adapter (#153); 9 the page asks the server for its texts, in TypeScript (#154), `howl serve` with the page inside the executable (#155), `howl up` (#156); 10 the cut (#157); 11 the owner's machine moves to the binary (#158); 12 the release, static executables for Linux, then packages (#159; this replaces #98).
   - **#146 can be built beside #141 to #145:** it needs only the settings reader and git.
 - **A pause on the readers.** The readers (`src/read`) move in the second half. Open issues that change them (#42, #43, #52, #53, #93, #95) either go in before that starts or wait for the cut. The owner says which, in #135. (2026-11-17)
+- **howl records and checks, and never steers.** It gives out no task, starts or runs no agent, sets no role, model or effort, and merges nothing. What a team's own tools did is recorded and checked against the rules and the levels; a step that breaks a rule is a broken rule in the ledger. This replaces the dispatcher, the runner and the merging program of 2026-11-12 and of the order of the work. (2026-11-22)
 
 ## Proposed, not yet answered
 
 - The level is set per code class, not per company.
-- A level 0 that only records.
-- Shadow mode before every step up, and an automatic step down.
+- A level 0 that only records. Answered: recording names no level, as `howl` records at every level; level 0 is "No agents" ("howl records and checks, and never steers", 2026-11-22, and its amendment of 2026-11-23 in #181).
+- Shadow mode before every step up, and an automatic step down. Answered: shadow mode says which changes would have met the next level's conditions; a step down is a broken rule and a notice, and stopping a merge is the code host's or the team's own tool's ("howl records and checks, and never steers", 2026-11-22, and its amendment of 2026-11-23 in #181).
 - "Safety-classed code needs a human verifier" belongs to the core and cannot be switched off.
-- No reviewer of our own at level 1: govern and record any reviewer.
+- No reviewer of our own at level 1: govern and record any reviewer. Answered: no reviewer of our own; `howl` records any reviewer and checks the rules around it ("howl records and checks, and never steers", 2026-11-22, and its amendment of 2026-11-23 in #181).
 - Events are observed by adapters and not sent by the agents themselves.
 - Requirements stay in the team's tool; the platform only links.
 - The boundary to what a team programs is a protocol between processes (JSON in, JSON out), not an API inside the engine; the event schema is JSON Schema, from which both the TypeScript types and a Python package are generated; the Python package has no dependencies and runs on old Python versions; `howl` is delivered so that a developer's machine needs no Node; the Rust build is the answer ("The engine and the command line are Rust", 2026-11-17). (2026-11-13)
-- Commissioning ([commissioning.md](commissioning.md)): one instance per R&D organisation with the project as the boundary for rules and evidence; the repository declares in `.howl/` and the instance decides; discovery only proposes an enrolment; ownership lies on paths, never on a binding of team to repository; a repository belongs to one project; an agent is an identity, a runner and a computed entitlement with a short-lived key per assignment. (2026-11-13)
+- Commissioning ([commissioning.md](commissioning.md)): one instance per R&D organisation with the project as the boundary for rules and evidence; the repository declares in `.howl/` and the instance decides; discovery only proposes an enrolment; ownership lies on paths, never on a binding of team to repository; a repository belongs to one project; an agent is an identity, a runner and a computed entitlement with a short-lived key per assignment. (2026-11-13) The runner is answered: it goes, and an agent is an identity and an entitlement, checked, not granted ("howl records and checks, and never steers", 2026-11-22, and its amendment of 2026-11-23 in #181).
 - **The business model: an open core, standards packs on a yearly licence, consulting.** The core (ledger, hooks, adapters, dashboard, `howl verify` and `howl export`) is open and fully useful alone; it builds trust. The standards packs (control mappings, rules, export templates and a tool qualification kit per version, per ISO 26262-8) are sold as yearly licences that keep them current as standards, editions and laws change. Consulting takes a client up the levels. Conditions (2026-11-13):
   - **Evidence is never locked by a licence.** Without a licence a pack stops being updated; everything already recorded or exported stays verifiable for ever, and the client keeps the pack version it paid for. An audit can come years after the code was written.
   - **No text of a standard** in a pack: clause numbers, our own interpretation, rules and templates only. The interpretation is what is worth paying for.
@@ -82,20 +83,21 @@ Written 2026-11-12 from the first discussions. Newest decisions are added at the
 - **A separate test author** as a role of its own, or tests written by the one who builds.
 - **The name of the configuration:** a `.howl/` folder in the repository is the suggestion, with `howl.yml` in it.
 - **From the target picture** ([target.md](target.md)): which rule pack comes first; OSCAL and CEL, or simpler forms; how much of the handling of vulnerabilities belongs to the core; where the agents' manifests live.
+- **CVE flows, as a module beside the standards packs.** The core keeps only two things: a vulnerability is a kind of task, and the moment it became known is an event. The rest is a module: feed readers and an SBOM matcher as adapters, the assessment (affected or not, with a reason), and the clocks. Unlike a standards pack it cannot be a version updated now and then: the CVE sources change every day. The team's own automation, never `howl`'s, compares them with the SBOM every night and tags each match for triage at the tracker; `howl` observes that tag, and the tag is the moment the CVE became known. `howl` records when the CVE was published beside when it became known, and writes nothing to the tracker. Its clocks, in the owner's words: 24 hours from known to the analysis of whether a product is affected, and 14 days for a critical one from known to the fix in place. Each clock runs in the dashboard as a countdown, and a notice goes out before it ends; `howl` neither decides nor reports. Open: whether the clocks are the team's own settings or a pack's, and how a closed network gets the feeds (a mirror). (2026-11-22)
 
 ## The order of the work
 
 0. Before code: check the clause numbers of the control mapping and show it to two or three safety managers or an assessor; ask every team the five questions.
 1. The event schema, the hash chain, `howl verify` and the local file adapter, which is also the test environment. Then the split of event and line, and `howl hook` with the inbox ([observation.md](observation.md), steps 1 and 2).
-2. An adapter that reads merge and pull requests. This is level 0.
-3. Level 1: a runner for a reviewer, the rules around it, the share of dismissed findings.
+2. An adapter that reads merge and pull requests: what every level needs.
+3. Level 1: the rules around any reviewer and the share of dismissed findings, with no runner.
 4. The evidence export and the control mapping for one safety standard.
 5. The requirements port: tables in the repository first, then one requirements tool.
-6. Level 2: the tracker adapter, the dispatcher, named agents.
-7. Level 3: conditional merge, with shadow mode first.
+6. Level 2: the tracker, read as a port, and the checks of level 2.
+7. Level 3: the check of a merge made on conditions, with the figures of shadow mode.
 8. A first dashboard came forward on 2026-11-13 (see Decided); the rest of it and the VS Code extension when someone asks for them. An init command and documentation along the way.
 
-The order in the first discussion was: core with ledger and two adapters, dashboard, documentation and init command, Jira adapter, control mapping. It was changed because levels 0 and 1 need only the ledger, a reader of merge requests and a runner, and because the control mapping decides what the ledger has to hold.
+The order in the first discussion was: core with ledger and two adapters, dashboard, documentation and init command, Jira adapter, control mapping. It was changed because levels 0 and 1 then needed only the ledger, a reader of merge requests and a runner (the runner went on 2026-11-22), and because the control mapping decides what the ledger has to hold.
 
 ## Before going public
 

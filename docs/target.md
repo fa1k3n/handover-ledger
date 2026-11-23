@@ -1,6 +1,6 @@
 # Target picture
 
-**Not planned.** This is where the platform may go, written down so that today's choices do not close the way. Nothing here is built or decided unless [decisions.md](decisions.md) says so. The first thing to build is the observation mode ([observation.md](observation.md)).
+**Not planned.** This is where the platform may go, written down so that today's choices do not close the way. Nothing here is built or decided unless [decisions.md](decisions.md) says so. What `howl` does is record and check, never steer; how it observes is in [observation.md](observation.md).
 
 ## The basic principle
 
@@ -11,6 +11,14 @@ Where something belongs:
 - Does it record what happened? The core.
 - Does it fetch data from another system? An adapter.
 - Does it say what a standard or a law demands? A rule pack.
+
+## Seeing the work as it happens
+
+This stays, with `howl` recording and checking only:
+
+- The agents' work is seen as it happens, across projects, repositories and machines, build hosts too.
+- Each machine's hook sends its events live to the server of the organisation, which is witness, index and dashboard, as decided 2026-11-13 ([decisions.md](decisions.md)).
+- `howl` may send a notice out, a broken rule or a session waiting for a person, for a person or a team's own tool to act on. Acting on it is never `howl`'s.
 
 ## Rule packs
 

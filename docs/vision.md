@@ -18,14 +18,16 @@ Development of embedded and other software under functional safety and security 
 
 A platform, configured to the team's own environment, with three things that belong together:
 
-1. **Levels of autonomy.** A team starts with agents that only review code people write, then lets a few agents do small jobs with a person reviewing each merge request, and ends where agents do nearly everything and people decide what is built. See [levels.md](levels.md).
+1. **Levels of autonomy, as rules the ledger checks.** A team starts with no agents, then agents that only review code people write, then lets a few agents do small jobs with a person reviewing each merge request, and ends where agents do nearly everything and people decide what is built. The team declares its level per code class and its own tools do the work; the ledger checks that what happened stays within the level. See [levels.md](levels.md).
 2. **One process, one trace chain.** The steps and the chain requirement → change → test → verification → review → release are the same at every level. The level only changes who performs each step. See [traceability.md](traceability.md).
 3. **A ledger.** Every handover between team members, human or agent, is recorded in a tamper-evident log that can be exported as evidence per control of a standard. See [architecture.md](architecture.md) and [standards.md](standards.md).
 
+It also shows the agents' work as it happens, across projects, repositories and machines, build hosts too. Each machine's hook sends its events live to the server of the organisation, which is witness, index and dashboard ([decisions.md](decisions.md), 2026-11-13). `howl` may send a notice out, such as a broken rule or a session waiting for a person, for a person or a team's own tool to act on. Acting on it is never `howl`'s.
+
 ## What it is not
 
-- Not another orchestrator. Code hosts and trackers are building orchestration of agents themselves, and it is becoming a commodity. The platform steers and records whichever agents and tools the team uses.
-- Not a review bot. That field is crowded. At the first level the platform governs and records any reviewer.
+- Not another orchestrator. Code hosts and trackers are building orchestration of agents themselves, and it is becoming a commodity. The platform records whichever agents and tools the team uses, and steers none.
+- Not a review bot. That field is crowded. At the first level the platform records any reviewer and checks the rules around it.
 - Not a requirements tool. Requirements stay in the team's own tool and are read through a port.
 - Not certified, and it cannot be. It supports the team's own certification. Say "supports ISO 26262 / ISO/IEC 27001 certification" or "audit-ready", never "ISO certified".
 
