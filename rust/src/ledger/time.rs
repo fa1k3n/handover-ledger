@@ -45,7 +45,7 @@ fn event_time(text: &str) -> Option<[u32; 6]> {
 
 /// Whether the day is on the calendar: no 30 February, no 29 February but in a leap year, no month 13.
 pub(crate) fn is_day(year: u32, month: u32, day: u32) -> bool {
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
     let days = [
         31,
         if leap { 29 } else { 28 },
