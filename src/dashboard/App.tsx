@@ -7,7 +7,7 @@ import { concerns, detail, duration } from "../read/words.ts";
 import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
-import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, standsOut, stepText, STREAM_START, takenBackText, streamColumns, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
+import { answerWanted, decodedFields, dialogHeading, indentStored, lineToCopy, narrowOf, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, statusMark, markText, nameTaken, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -115,7 +115,7 @@ export function App() {
         ) : view === "change" ? (
           <ChangeView what={route.what ?? null} project={project} onError={fail} />
         ) : (
-          <Stream onError={fail} project={project} served={projects?.projects.length ?? 1} unwritten={unwritten.filter((u) => !u.written).map((u) => u.project)} />
+          <Stream ledger={ledger} onError={fail} project={project} served={projects?.projects.length ?? 1} unwritten={unwritten.filter((u) => !u.written).map((u) => u.project)} />
         )}
       </main>
     </div>
@@ -448,14 +448,12 @@ function AgentLine({ row, now }: { row: AgentRow; now: number }) {
   );
 }
 
-const ROW_TINT = { warn: "bg-warn-pale", error: "bg-error-pale" };
-
 /**
  * The event log (#79): every project the server serves in one list, narrowed by
  * the filter. `project` is the one picked in the menu: only for the link of a
  * row that names no project of its own.
  */
-function Stream({ onError, project, served, unwritten }: { onError: (e: unknown) => void; project: string; served: number; unwritten: string[] }) {
+function Stream({ ledger, onError, project, served, unwritten }: { ledger: api.LedgerState | null; onError: (e: unknown) => void; project: string; served: number; unwritten: string[] }) {
   const [paused, setPaused] = useState(false);
   // #89: the tool calls are asked for with the box ticked; the filter line starts empty and holds what the reader wrote.
   const [tools, setTools] = useState<boolean>(STREAM_START.tools);
@@ -467,6 +465,33 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
   // #110: the event open in the dialog, kept as it was picked: the list moves on under it.
   const [picked, setPicked] = useState<Item | null>(null);
   const filterLine = useRef<HTMLInputElement>(null);
+  // #189: saved filters live in this browser; a browser that refuses storage still has the built-in ones.
+  const [saved, setSaved] = useState<SavedFilter[]>(() => {
+    try {
+      return readSavedFilters(localStorage.getItem(SAVED_FILTERS_KEY));
+    } catch {
+      return [];
+    }
+  });
+  const [storageRefused, setStorageRefused] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // The expression last applied: the pressed button follows it, not the box.
+  const [applied, setApplied] = useState<string>(STREAM_START.filter);
+  const keep = (next: SavedFilter[]) => {
+    setSaved(next);
+    try {
+      localStorage.setItem(SAVED_FILTERS_KEY, writeSavedFilters(next));
+      setStorageRefused(false);
+    } catch {
+      setStorageRefused(true);
+    }
+  };
+  const applyFilter = (expression: string) => {
+    setDraft(expression);
+    setFilters(filterTexts(expression));
+    setApplied(expression);
+  };
 
   // #93: the question the page holds now. An answer to an older one is dropped.
   const now = useRef<Question>({ filters, tools });
@@ -525,11 +550,41 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
           </label>
         </div>
 
+        <div role="group" aria-label={texts.stream.filtersLabel} className="flex flex-wrap items-center gap-2">
+          {[...builtInFilters(), ...saved].map((f, i) => {
+            const isSaved = i >= builtInFilters().length;
+            const on = applied === f.expression;
+            return (
+              <span key={`${i}:${f.name}`} className="flex items-center">
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => applyFilter(f.expression)}
+                  className={`${button} border ${isSaved ? "rounded-r-none" : ""} ${on ? "border-ink bg-ink text-white" : "border-pale bg-white text-ink"}`}
+                >
+                  {f.name}
+                </button>
+                {isSaved && (
+                  <button
+                    type="button"
+                    aria-label={texts.stream.removeSaved(f.name)}
+                    onClick={() => keep(saved.filter((_, j) => j !== i - builtInFilters().length))}
+                    className={`${button} rounded-l-none border border-l-0 border-pale bg-white px-3 text-ink`}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            );
+          })}
+        </div>
+
         <form
           className="flex flex-wrap items-end gap-2.5 rounded-xl border border-line bg-white px-4 py-3.5"
           onSubmit={(e) => {
             e.preventDefault();
             setFilters(filterTexts(draft));
+            setApplied(draft);
           }}
         >
           <label className="flex flex-[1_1_420px] flex-col gap-1 text-[13px] text-mute">
@@ -554,11 +609,51 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
               // The line only: the box stays as the reader set it.
               setDraft("");
               setFilters([]);
+              setApplied("");
             }}
             className={`${button} border border-pale bg-white text-ink`}
           >
             {texts.stream.clear}
           </button>
+          <input
+            type="text"
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            aria-label={texts.stream.saveName}
+            placeholder={texts.stream.saveName}
+            className="min-h-11 rounded-lg border-[1.5px] border-pale bg-white px-3 text-sm text-ink"
+          />
+          <button
+            type="button"
+            disabled={saveName.trim() === "" || draft.trim() === ""}
+            onClick={() => {
+              const name = saveName.trim();
+              const expression = draft.trim();
+              if (nameTaken(name, saved)) return setSaveError(texts.stream.nameTaken);
+              // The server's filter tries the expression first; its reason is shown.
+              api.events(filterTexts(expression), false, 1).then(
+                () => {
+                  keep([...saved.filter((f) => f.name !== name), { name, expression }]);
+                  setSaveName("");
+                  setSaveError(null);
+                },
+                (e: Error) => setSaveError(e.message),
+              );
+            }}
+            className={`${button} border border-pale bg-white text-ink disabled:cursor-default disabled:opacity-50`}
+          >
+            {texts.stream.save}
+          </button>
+          {saveError !== null && (
+            <span className="basis-full text-[13px] text-error-ink" role="alert">
+              {saveError}
+            </span>
+          )}
+          {storageRefused && (
+            <span className="basis-full text-[13px] text-warn-ink" role="status">
+              {texts.stream.storageRefused}
+            </span>
+          )}
           <span className={`basis-full text-[13px] ${filterError ? "text-error-ink" : "text-mute"}`} role={filterError ? "alert" : undefined}>
             {filterError ?? texts.stream.filterHint}
           </span>
@@ -574,14 +669,15 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
             <table className="w-full min-w-[960px] border-collapse font-mono text-[13px]">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-[#f7f8fa] text-left font-sans text-xs tracking-wider text-mute uppercase">
+                  <th scope="col" className={th}>{texts.stream.cols.status}</th>
                   {cols.project && <th scope="col" className={th}>{texts.stream.cols.project}</th>}
                   {cols.repo && <th scope="col" className={th}>{texts.stream.cols.repo}</th>}
                   <th scope="col" className={th}>{texts.stream.cols.line}</th>
                   <th scope="col" className={th}>{texts.stream.cols.time}</th>
                   <th scope="col" className={th}>{texts.stream.cols.actor}</th>
                   <th scope="col" className={th}>{texts.stream.cols.type}</th>
-                  <th scope="col" className={th}>{texts.stream.cols.concerns}</th>
-                  <th scope="col" className={th}>{texts.stream.cols.source}</th>
+                  <th scope="col" className={th}>{texts.stream.cols.subject}</th>
+                  <th scope="col" className={th}>{texts.stream.cols.establishedBy}</th>
                   <th scope="col" className={th}>{texts.stream.cols.detail}</th>
                 </tr>
               </thead>
@@ -590,8 +686,10 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
                   const isPicked = picked !== null && itemKey(item) === itemKey(picked);
                   // The change and the task of a row are those of its own project.
                   const of = item.project ?? project;
-                  const tint = standsOut(item);
-                  const bg = isPicked ? "bg-picked font-medium outline-[1.5px] -outline-offset-[1.5px] outline-ink outline" : tint ? ROW_TINT[tint] : item.from === "activity" ? "bg-[#fafbfc] text-mute" : "bg-white";
+                  const origin = establishedBy(item.event.source.kind);
+                  const mark = statusMark(item);
+                  // #189: status is a mark, not a fill; the selected row has an outline.
+                  const bg = `${isPicked ? "bg-picked font-medium outline-[1.5px] -outline-offset-[1.5px] outline-ink outline" : item.from === "activity" ? "bg-[#fafbfc] text-mute" : "bg-white"}${origin.claimed ? " italic" : ""}`;
                   const label = item.from === "ledger" ? String(item.n) : "·";
                   return (
                     <tr
@@ -602,6 +700,10 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
                       }}
                       className={`cursor-pointer border-t border-line hover:bg-picked ${bg}`}
                     >
+                      <td className="px-3 py-2 text-center font-sans font-semibold" title={markText(mark) || undefined}>
+                        <span aria-hidden="true">{mark}</span>
+                        <span className="sr-only">{markText(mark)}</span>
+                      </td>
                       {cols.project && (
                         <td className="px-3 py-2 whitespace-nowrap">
                           {item.project !== undefined ? `${item.project}${unwritten.includes(item.project) ? texts.unwritten : ""}` : "–"}
@@ -647,7 +749,15 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
                           concerns(item.event)
                         )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-mute">{item.event.source.kind}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <span
+                          title={texts.stream.origin[origin.code]}
+                          className={`mr-2 inline-block rounded border-[1.5px] border-ink px-1.5 py-0.5 font-sans text-[11px] font-semibold tracking-wider ${origin.code === "SOURCE" ? "bg-ink text-white" : "bg-white text-ink"} ${origin.code === "UNKNOWN" ? "border-dashed" : ""}`}
+                        >
+                          <span aria-hidden="true">{origin.mark}</span> {origin.code}
+                        </span>
+                        <span className="text-mute">{item.event.source.adapter}</span>
+                      </td>
                       <td className="px-3 py-2 font-sans">{detail(item.event)}</td>
                     </tr>
                   );
@@ -655,8 +765,14 @@ function Stream({ onError, project, served, unwritten }: { onError: (e: unknown)
               </tbody>
             </table>
           </div>
-          <div className="border-t border-line px-4 py-2.5 text-[13px] text-mute">
-            {items.length === 0 ? texts.stream.empty : texts.stream.count(items.length)}
+          {items.length === 0 && <div className="border-t border-line px-4 py-2.5 text-[13px] text-mute">{texts.stream.empty}</div>}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line bg-[#f7f8fa] px-4 py-2.5 font-sans text-[13px] text-mute">
+            <span className={ledger !== null && !ledger.ok ? "font-medium text-error-ink" : ""}>
+              {ledger === null ? texts.stream.bar.unknown : ledger.ok ? texts.stream.bar.verified(ledger.lines) : texts.stream.bar.broken(ledger.line)}
+            </span>
+            <span>{texts.stream.bar.displayed(items.length)}</span>
+            <span>{tools ? texts.stream.bar.withTools : texts.stream.bar.evidenceOnly}</span>
+            <span>{texts.stream.bar.people}</span>
           </div>
         </div>
       </section>
