@@ -2,7 +2,8 @@
 // @code_class tests
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { builtInFilters, establishedBy, readSavedFilters, statusMark, writeSavedFilters } from "../src/dashboard/format.ts";
+import { builtInFilters, establishedBy, markText, nameTaken, readSavedFilters, statusMark, writeSavedFilters } from "../src/dashboard/format.ts";
+import { texts } from "../src/dashboard/texts.ts";
 import type { Item } from "../src/serve/server.ts";
 
 const item = (type: string, data?: Record<string, unknown>): Item =>
@@ -50,4 +51,26 @@ test("#189: a broken stored value is ignored, and so is none", () => {
   assert.deepEqual(readSavedFilters("not json"), []);
   assert.deepEqual(readSavedFilters('{"name":"x"}'), []);
   assert.deepEqual(readSavedFilters('[{"name":1,"expression":"x"},{"name":"ok","expression":"y"},null,"s"]'), [{ name: "ok", expression: "y" }]);
+});
+
+test("#189: each status mark has one text for a screen reader", () => {
+  assert.equal(markText("◷"), "Waits for a person");
+  assert.equal(markText("!"), "Checks failed");
+  assert.equal(markText("✓"), "Merged");
+  assert.equal(markText(""), "");
+});
+
+test("#189: the status bar counts what the list shows and compares it with nothing", () => {
+  assert.equal(texts.stream.bar.displayed(3), "displayed 3");
+  assert.equal("count" in texts.stream, false);
+});
+
+test("#189: a saved filter may not take the name of a built-in one", () => {
+  assert.equal(nameTaken("Claimed only", []), true);
+  assert.equal(nameTaken(" Everything ", []), true);
+  assert.equal(nameTaken("Mine", []), false);
+});
+
+test("#189: Waits for a person leaves out a wait for instructions", () => {
+  assert.match(builtInFilters()[1].expression, /waits_for/);
 });
