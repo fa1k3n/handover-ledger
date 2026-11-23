@@ -139,7 +139,10 @@ fn compile(schema: &Value, root: &Value, path: &str, depth: usize) -> Result<Nod
     if depth > 64 {
         return Err(format!("{path}: the schema refers to itself"));
     }
-    let mut node = Node { path: path.to_string(), ..Node::default() };
+    let mut node = Node {
+        path: path.to_string(),
+        ..Node::default()
+    };
     let members = match schema {
         Value::Bool(b) => {
             node.always = Some(*b);
@@ -150,12 +153,17 @@ fn compile(schema: &Value, root: &Value, path: &str, depth: usize) -> Result<Nod
     };
     for key in members.keys() {
         if !KNOWN.contains(&key.as_str()) {
-            return Err(format!("{path}: the schema has a keyword the check does not know: {key}"));
+            return Err(format!(
+                "{path}: the schema has a keyword the check does not know: {key}"
+            ));
         }
     }
-    let sub = |name: &str, value: &Value| compile(value, root, &format!("{path}/{name}"), depth + 1);
+    let sub =
+        |name: &str, value: &Value| compile(value, root, &format!("{path}/{name}"), depth + 1);
     if let Some(defs) = members.get("$defs") {
-        let defs = defs.as_object().ok_or(format!("{path}: $defs is not an object"))?;
+        let defs = defs
+            .as_object()
+            .ok_or(format!("{path}: $defs is not an object"))?;
         for (name, def) in defs {
             sub(&format!("$defs/{name}"), def)?;
         }
@@ -164,7 +172,9 @@ fn compile(schema: &Value, root: &Value, path: &str, depth: usize) -> Result<Nod
         let target = reference.as_str().and_then(|r| r.strip_prefix("#/$defs/"));
         let found = target.and_then(|name| root.get("$defs")?.get(name));
         let Some(found) = found else {
-            return Err(format!("{path}: the check knows only a $ref to #/$defs/…, not {reference}"));
+            return Err(format!(
+                "{path}: the check knows only a $ref to #/$defs/…, not {reference}"
+            ));
         };
         let at = reference.as_str().unwrap_or_default();
         node.reference = Some(Box::new(compile(found, root, at, depth + 1)?));
@@ -184,7 +194,12 @@ fn compile(schema: &Value, root: &Value, path: &str, depth: usize) -> Result<Nod
     }
     node.constant = members.get("const").cloned();
     if let Some(allowed) = members.get("enum") {
-        node.allowed = Some(allowed.as_array().ok_or(format!("{path}: enum is not a list"))?.clone());
+        node.allowed = Some(
+            allowed
+                .as_array()
+                .ok_or(format!("{path}: enum is not a list"))?
+                .clone(),
+        );
     }
     if let Some(not) = members.get("not") {
         node.not = Some(Box::new(sub("not", not)?));
@@ -196,31 +211,44 @@ fn compile(schema: &Value, root: &Value, path: &str, depth: usize) -> Result<Nod
         node.then = Some(Box::new(sub("then", then)?));
     }
     let length = |name: &str| -> Result<Option<u64>, String> {
-        members.get(name).map(|n| n.as_u64().ok_or(format!("{path}: {name} is not a count"))).transpose()
+        members
+            .get(name)
+            .map(|n| n.as_u64().ok_or(format!("{path}: {name} is not a count")))
+            .transpose()
     };
     node.max_length = length("maxLength")?;
     node.min_length = length("minLength")?;
     if let Some(pattern) = members.get("pattern") {
-        let source = pattern.as_str().ok_or(format!("{path}: pattern is not a string"))?;
+        let source = pattern
+            .as_str()
+            .ok_or(format!("{path}: pattern is not a string"))?;
         let compiled = Pattern::new(source).map_err(|e| format!("{path}: {e}"))?;
         node.pattern = Some((source.to_string(), compiled));
     }
     if let Some(required) = members.get("required") {
-        node.required = names(required).ok_or(format!("{path}: required is not a list of names"))?;
+        node.required =
+            names(required).ok_or(format!("{path}: required is not a list of names"))?;
     }
     if let Some(additional) = members.get("additionalProperties") {
         node.additional = Some(Box::new(sub("additionalProperties", additional)?));
     }
     if let Some(properties) = members.get("properties") {
-        let properties = properties.as_object().ok_or(format!("{path}: properties is not an object"))?;
+        let properties = properties
+            .as_object()
+            .ok_or(format!("{path}: properties is not an object"))?;
         for (name, property) in properties {
-            node.properties.push((name.clone(), sub(&format!("properties/{name}"), property)?));
+            node.properties
+                .push((name.clone(), sub(&format!("properties/{name}"), property)?));
         }
     }
     if let Some(dependent) = members.get("dependentRequired") {
-        let dependent = dependent.as_object().ok_or(format!("{path}: dependentRequired is not an object"))?;
+        let dependent = dependent
+            .as_object()
+            .ok_or(format!("{path}: dependentRequired is not an object"))?;
         for (name, list) in dependent {
-            let list = names(list).ok_or(format!("{path}: dependentRequired is not of lists of names"))?;
+            let list = names(list).ok_or(format!(
+                "{path}: dependentRequired is not of lists of names"
+            ))?;
             node.dependent.push((name.clone(), list));
         }
     }
@@ -228,14 +256,22 @@ fn compile(schema: &Value, root: &Value, path: &str, depth: usize) -> Result<Nod
 }
 
 fn names(list: &Value) -> Option<Vec<String>> {
-    list.as_array()?.iter().map(|n| n.as_str().map(String::from)).collect()
+    list.as_array()?
+        .iter()
+        .map(|n| n.as_str().map(String::from))
+        .collect()
 }
 
 /// Checks `value` against `node`, adding each fault to `found` in ajv's order. `at` is the place of the value.
 fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<String>) {
     // `where` as src/ledger/schema.ts makes it from ajv's instancePath: its parts, escaped, joined by dots. Made only
     // when a fault is said.
-    let place = || at.iter().map(|p| p.replace('~', "~0").replace('/', "~1")).collect::<Vec<_>>().join(".");
+    let place = || {
+        at.iter()
+            .map(|p| p.replace('~', "~0").replace('/', "~1"))
+            .collect::<Vec<_>>()
+            .join(".")
+    };
     let named = || {
         let place = place();
         if place.is_empty() {
@@ -246,7 +282,12 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
     };
     let field = |name: &str| {
         let place = place();
-        [place.as_str(), name].iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(".")
+        [place.as_str(), name]
+            .iter()
+            .filter(|p| !p.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(".")
     };
     match node.always {
         Some(true) => return,
@@ -308,12 +349,18 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
         let length = text.chars().count() as u64;
         if let Some(max) = node.max_length {
             if length > max {
-                found.push(format!("{}: must NOT have more than {max} characters", named()));
+                found.push(format!(
+                    "{}: must NOT have more than {max} characters",
+                    named()
+                ));
             }
         }
         if let Some(min) = node.min_length {
             if length < min {
-                found.push(format!("{}: must NOT have fewer than {min} characters", named()));
+                found.push(format!(
+                    "{}: must NOT have fewer than {min} characters",
+                    named()
+                ));
             }
         }
         if let Some((source, pattern)) = &node.pattern {
@@ -360,11 +407,18 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
             if !members.contains_key(name) {
                 continue;
             }
-            let word = if needs.len() == 1 { "property" } else { "properties" };
+            let word = if needs.len() == 1 {
+                "property"
+            } else {
+                "properties"
+            };
             for need in needs {
                 if !members.contains_key(need) {
                     let list = needs.join(", ");
-                    found.push(format!("{}: must have {word} {list} when property {name} is present", named()));
+                    found.push(format!(
+                        "{}: must have {word} {list} when property {name} is present",
+                        named()
+                    ));
                 }
             }
         }
@@ -384,11 +438,19 @@ fn holds(node: &Node, value: &Value) -> bool {
 /// in the order they came.
 fn js_keys(members: &Map<String, Value>) -> Vec<&String> {
     let index = |key: &str| -> Option<u32> {
-        let canonical = key == "0" || (!key.starts_with('0') && key.bytes().all(|b| b.is_ascii_digit()));
-        let n: u32 = if canonical && !key.is_empty() { key.parse().ok()? } else { return None };
+        let canonical =
+            key == "0" || (!key.starts_with('0') && key.bytes().all(|b| b.is_ascii_digit()));
+        let n: u32 = if canonical && !key.is_empty() {
+            key.parse().ok()?
+        } else {
+            return None;
+        };
         (n < u32::MAX).then_some(n)
     };
-    let mut indices: Vec<(u32, &String)> = members.keys().filter_map(|k| Some((index(k)?, k))).collect();
+    let mut indices: Vec<(u32, &String)> = members
+        .keys()
+        .filter_map(|k| Some((index(k)?, k)))
+        .collect();
     indices.sort_by_key(|&(n, _)| n);
     let rest = members.keys().filter(|k| index(k).is_none());
     indices.into_iter().map(|(_, k)| k).chain(rest).collect()
@@ -398,9 +460,13 @@ fn js_keys(members: &Map<String, Value>) -> Vec<&String> {
 fn js_equal(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64(),
-        (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(x, y)| js_equal(x, y)),
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(x, y)| js_equal(x, y))
+        }
         (Value::Object(x), Value::Object(y)) => {
-            x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| js_equal(v, w)))
+            x.len() == y.len()
+                && x.iter()
+                    .all(|(k, v)| y.get(k).is_some_and(|w| js_equal(v, w)))
         }
         _ => a == b,
     }
@@ -427,7 +493,8 @@ fn line_schema() -> &'static Schema {
 
 fn embedded(text: &str) -> Schema {
     let value: Value = serde_json::from_str(text).expect("the embedded schema is JSON");
-    Schema::compile(&value).expect("the embedded schema has only keywords the check knows: its test says so")
+    Schema::compile(&value)
+        .expect("the embedded schema has only keywords the check knows: its test says so")
 }
 
 /// What is wrong with a value as an event, one entry per fault. Empty when it is valid.

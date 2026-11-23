@@ -18,9 +18,18 @@ use std::path::Path;
 pub enum Verdict {
     /// Every line holds. `events` holds the events of the lines in order when `verify` gave it; `verify_each` hands
     /// them over one by one instead and leaves it empty.
-    Holds { lines: usize, head: String, trial: bool, events: Vec<Value> },
+    Holds {
+        lines: usize,
+        head: String,
+        trial: bool,
+        events: Vec<Value>,
+    },
     /// Line `line` does not hold, after `lines` that do.
-    Fails { lines: usize, line: usize, faults: Vec<String> },
+    Fails {
+        lines: usize,
+        line: usize,
+        faults: Vec<String>,
+    },
 }
 
 /// Checks the ledger at `path`, keeping its events. Err is a file that cannot be read, in Node's words.
@@ -28,7 +37,14 @@ pub fn verify(path: &Path) -> Result<Verdict, String> {
     let mut events = Vec::new();
     let verdict = verify_each(path, |_, event| events.push(event.clone()))?;
     Ok(match verdict {
-        Verdict::Holds { lines, head, trial, .. } => Verdict::Holds { lines, head, trial, events },
+        Verdict::Holds {
+            lines, head, trial, ..
+        } => Verdict::Holds {
+            lines,
+            head,
+            trial,
+            events,
+        },
         fails => fails,
     })
 }
@@ -62,7 +78,11 @@ pub fn verify_each(path: &Path, mut each: impl FnMut(usize, &Value)) -> Result<V
             let expected = head.replace(hash_line(line));
             let faults = check(line, lines, expected.as_deref(), &mut trial, &mut each);
             if !faults.is_empty() {
-                return Ok(Verdict::Fails { lines: lines - 1, line: lines, faults });
+                return Ok(Verdict::Fails {
+                    lines: lines - 1,
+                    line: lines,
+                    faults,
+                });
             }
             pending.clear();
             from = end + 1;
@@ -71,14 +91,27 @@ pub fn verify_each(path: &Path, mut each: impl FnMut(usize, &Value)) -> Result<V
     }
     if !pending.is_empty() {
         let faults = vec!["the line is cut off: it does not end with a line break".to_string()];
-        return Ok(Verdict::Fails { lines, line: lines + 1, faults });
+        return Ok(Verdict::Fails {
+            lines,
+            line: lines + 1,
+            faults,
+        });
     }
     match head {
         None => {
             let faults = vec!["the ledger is empty: it has no first line".to_string()];
-            Ok(Verdict::Fails { lines: 0, line: 1, faults })
+            Ok(Verdict::Fails {
+                lines: 0,
+                line: 1,
+                faults,
+            })
         }
-        Some(head) => Ok(Verdict::Holds { lines, head, trial, events: Vec::new() }),
+        Some(head) => Ok(Verdict::Holds {
+            lines,
+            head,
+            trial,
+            events: Vec::new(),
+        }),
     }
 }
 
@@ -105,20 +138,30 @@ fn check(
     };
 
     // 2. The line schema. Without it the other checks have nothing to stand on.
-    let mut faults: Vec<String> = line_faults(&value).into_iter().map(|f| format!("line: {f}")).collect();
+    let mut faults: Vec<String> = line_faults(&value)
+        .into_iter()
+        .map(|f| format!("line: {f}"))
+        .collect();
     if !faults.is_empty() {
         return faults;
     }
     let event = &value["event"];
 
     // 3. The event schema, and the rules of the first line.
-    faults.extend(event_faults(event).into_iter().map(|f| format!("event: {f}")));
+    faults.extend(
+        event_faults(event)
+            .into_iter()
+            .map(|f| format!("event: {f}")),
+    );
     let created = event.get("type").and_then(Value::as_str) == Some("ledger.created");
     if n == 1 {
         if !created {
             faults.push("event: type: the first line must be ledger.created".to_string());
         }
-        let mode = event.get("data").filter(|d| d.is_object()).and_then(|d| d.get("mode"));
+        let mode = event
+            .get("data")
+            .filter(|d| d.is_object())
+            .and_then(|d| d.get("mode"));
         *trial = mode.and_then(Value::as_str) == Some("trial");
     } else if created {
         faults.push("event: type: only the first line can be ledger.created".to_string());

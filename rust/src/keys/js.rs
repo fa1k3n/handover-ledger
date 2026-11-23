@@ -9,7 +9,8 @@ pub fn same(a: Option<&Value>, b: Option<&Value>) -> bool {
     match (a, b) {
         (None, None) => true,
         (Some(Value::Number(x)), Some(Value::Number(y))) => x.as_f64() == y.as_f64(),
-        (Some(Value::Object(_) | Value::Array(_)), _) | (_, Some(Value::Object(_) | Value::Array(_))) => false,
+        (Some(Value::Object(_) | Value::Array(_)), _)
+        | (_, Some(Value::Object(_) | Value::Array(_))) => false,
         (Some(x), Some(y)) => x == y,
         _ => false,
     }
@@ -35,12 +36,20 @@ pub fn js_string(value: Option<&Value>) -> String {
         Some(Value::Bool(b)) => b.to_string(),
         Some(Value::Number(n)) => {
             let mut buffer = ryu_js::Buffer::new();
-            buffer.format_finite(n.as_f64().unwrap_or_default()).to_string()
+            buffer
+                .format_finite(n.as_f64().unwrap_or_default())
+                .to_string()
         }
         Some(Value::String(s)) => s.clone(),
         Some(Value::Array(items)) => items
             .iter()
-            .map(|item| if item.is_null() { String::new() } else { js_string(Some(item)) })
+            .map(|item| {
+                if item.is_null() {
+                    String::new()
+                } else {
+                    js_string(Some(item))
+                }
+            })
             .collect::<Vec<_>>()
             .join(","),
         Some(Value::Object(_)) => "[object Object]".to_string(),

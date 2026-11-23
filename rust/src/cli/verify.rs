@@ -10,20 +10,37 @@ use std::ffi::OsString;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-const OPTIONS: [&str; 6] = ["project", "ledger", "issuer", "checkpoint", "signers", "bundle"];
+const OPTIONS: [&str; 6] = [
+    "project",
+    "ledger",
+    "issuer",
+    "checkpoint",
+    "signers",
+    "bundle",
+];
 
 /// Runs `howl verify` with its arguments (after `verify`); `fallback` takes what is not built here, as `verify --bundle`.
 pub fn run(args: &[OsString], fallback: impl FnOnce(&str) -> i32) -> i32 {
-    let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let args: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let parsed = match parse_args(&args, &OPTIONS) {
         Ok(parsed) => parsed,
         Err(message) => return usage(&message),
     };
     if !parsed.positionals.is_empty() {
-        return usage(&format!("too many arguments: {}", parsed.positionals.join(" ")));
+        return usage(&format!(
+            "too many arguments: {}",
+            parsed.positionals.join(" ")
+        ));
     }
     let later = ["checkpoint", "signers", "bundle"];
-    if let Some((name, _)) = parsed.values.iter().find(|(name, _)| later.contains(&name.as_str())) {
+    if let Some((name, _)) = parsed
+        .values
+        .iter()
+        .find(|(name, _)| later.contains(&name.as_str()))
+    {
         return fallback(&format!("verify --{name}"));
     }
     let path = match (parsed.value("ledger"), parsed.value("project")) {
@@ -45,13 +62,23 @@ pub fn run(args: &[OsString], fallback: impl FnOnce(&str) -> i32) -> i32 {
     // A closed standard output is not an error of howl's.
     let _ = writeln!(out, "{path}");
     let (lines, head, trial) = match verdict {
-        Verdict::Fails { lines, line, faults } => {
+        Verdict::Fails {
+            lines,
+            line,
+            faults,
+        } => {
             let _ = writeln!(out, "line {line}: {}", faults.join("; "));
-            let _ = writeln!(out, "failed at line {line}, after {} that hold", count(lines, "line"));
+            let _ = writeln!(
+                out,
+                "failed at line {line}, after {} that hold",
+                count(lines, "line")
+            );
             let _ = out.flush();
             return 1;
         }
-        Verdict::Holds { lines, head, trial, .. } => (lines, head, trial),
+        Verdict::Holds {
+            lines, head, trial, ..
+        } => (lines, head, trial),
     };
     let _ = writeln!(out, "ok: {} checked, head {head}", count(lines, "line"));
     if trial {
@@ -63,8 +90,15 @@ pub fn run(args: &[OsString], fallback: impl FnOnce(&str) -> i32) -> i32 {
     }
     // #23: the signed claims, held to the keys issued for them.
     let check = signatures.finish();
-    let by = check.issuer.map(|i| format!(", issuer {i}")).unwrap_or_default();
-    let _ = writeln!(out, "signatures: {} signed, {} unsigned claimed{by}", check.signed, check.unsigned);
+    let by = check
+        .issuer
+        .map(|i| format!(", issuer {i}"))
+        .unwrap_or_default();
+    let _ = writeln!(
+        out,
+        "signatures: {} signed, {} unsigned claimed{by}",
+        check.signed, check.unsigned
+    );
     for (line, reason) in &check.faults {
         let _ = writeln!(out, "line {line}: {reason}");
     }

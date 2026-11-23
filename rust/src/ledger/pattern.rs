@@ -15,23 +15,35 @@ pub struct Pattern {
 #[derive(Debug, Clone)]
 enum Node {
     Char(char),
-    Class { ranges: Vec<(char, char)>, negated: bool },
+    Class {
+        ranges: Vec<(char, char)>,
+        negated: bool,
+    },
     Start,
     End,
     Group(Vec<Vec<Node>>),
-    Repeat { node: Box<Node>, min: u32, max: Option<u32> },
+    Repeat {
+        node: Box<Node>,
+        min: u32,
+        max: Option<u32>,
+    },
 }
 
 impl Pattern {
     /// Reads a pattern; a construct the matcher does not know is refused, named.
     pub fn new(source: &str) -> Result<Pattern, String> {
         let chars: Vec<char> = source.chars().collect();
-        let mut reader = Reader { chars: &chars, at: 0 };
+        let mut reader = Reader {
+            chars: &chars,
+            at: 0,
+        };
         let alternatives = reader.alternatives()?;
         if reader.at < chars.len() {
             return Err(format!("the pattern {source:?} has an unmatched ')'"));
         }
-        Ok(Pattern { whole: [Node::Group(alternatives)] })
+        Ok(Pattern {
+            whole: [Node::Group(alternatives)],
+        })
     }
 
     /// Whether the pattern is found in `text`, as RegExp.prototype.test finds it: anywhere, unless anchored.
@@ -110,12 +122,18 @@ impl Reader<'_> {
             'u' => {
                 let mut code = 0u32;
                 for _ in 0..4 {
-                    let digit = self.next()?.to_digit(16).ok_or("the pattern has a \\u without four hex digits")?;
+                    let digit = self
+                        .next()?
+                        .to_digit(16)
+                        .ok_or("the pattern has a \\u without four hex digits")?;
                     code = code * 16 + digit;
                 }
-                char::from_u32(code).ok_or_else(|| format!("the pattern escape \\u{code:04x} is half a surrogate pair"))
+                char::from_u32(code).ok_or_else(|| {
+                    format!("the pattern escape \\u{code:04x} is half a surrogate pair")
+                })
             }
-            c @ ('^' | '$' | '\\' | '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '/' | '-') => Ok(c),
+            c @ ('^' | '$' | '\\' | '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}'
+            | '|' | '/' | '-') => Ok(c),
             c => Err(format!("the pattern escape \\{c} is not known")),
         }
     }
@@ -133,7 +151,8 @@ impl Reader<'_> {
                 '[' => return Err("the pattern construct [ inside a class is not known".into()),
                 c => c,
             };
-            let ranged = self.peek() == Some('-') && self.chars.get(self.at + 1).is_some_and(|&c| c != ']');
+            let ranged =
+                self.peek() == Some('-') && self.chars.get(self.at + 1).is_some_and(|&c| c != ']');
             if !ranged {
                 ranges.push((low, low));
                 continue;
@@ -192,7 +211,11 @@ impl Reader<'_> {
         if matches!(self.peek(), Some('?' | '*' | '+' | '{')) {
             return Err("the pattern construct of a lazy or double quantifier is not known".into());
         }
-        Ok(Node::Repeat { node: Box::new(atom), min, max })
+        Ok(Node::Repeat {
+            node: Box::new(atom),
+            min,
+            max,
+        })
     }
 
     fn number(&mut self) -> Result<u32, String> {
@@ -201,7 +224,9 @@ impl Reader<'_> {
             self.at += 1;
         }
         let digits: String = self.chars[from..self.at].iter().collect();
-        digits.parse().map_err(|_| "the pattern has a { without a number".to_string())
+        digits
+            .parse()
+            .map_err(|_| "the pattern has a { without a number".to_string())
     }
 }
 
@@ -216,15 +241,24 @@ fn sequence(nodes: &[Node], at: usize, text: &[char], then: &mut dyn FnMut(usize
         }
         Node::Start => at == 0 && sequence(rest, at, text, then),
         Node::End => at == text.len() && sequence(rest, at, text, then),
-        Node::Group(alternatives) => alternatives
-            .iter()
-            .any(|alternative| sequence(alternative, at, text, &mut |end| sequence(rest, end, text, then))),
+        Node::Group(alternatives) => alternatives.iter().any(|alternative| {
+            sequence(alternative, at, text, &mut |end| {
+                sequence(rest, end, text, then)
+            })
+        }),
         Node::Repeat { node, min, max } if matches!(**node, Node::Char(_) | Node::Class { .. }) => {
             // One character at a time: as many as match, then give them back one by one.
             let limit = max.map_or(usize::MAX, |max| max as usize);
-            let most = text[at..].iter().take(limit).take_while(|&&c| one(node, c)).count();
+            let most = text[at..]
+                .iter()
+                .take(limit)
+                .take_while(|&&c| one(node, c))
+                .count();
             let least = *min as usize;
-            most >= least && (least..=most).rev().any(|n| sequence(rest, at + n, text, then))
+            most >= least
+                && (least..=most)
+                    .rev()
+                    .any(|n| sequence(rest, at + n, text, then))
         }
         Node::Repeat { node, min, max } => repeat(node, *min, *max, 0, at, rest, text, then),
     }
@@ -234,7 +268,9 @@ fn sequence(nodes: &[Node], at: usize, text: &[char], then: &mut dyn FnMut(usize
 fn one(node: &Node, c: char) -> bool {
     match node {
         Node::Char(literal) => *literal == c,
-        Node::Class { ranges, negated } => ranges.iter().any(|&(low, high)| low <= c && c <= high) != *negated,
+        Node::Class { ranges, negated } => {
+            ranges.iter().any(|&(low, high)| low <= c && c <= high) != *negated
+        }
         _ => false,
     }
 }

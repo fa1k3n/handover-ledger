@@ -14,7 +14,11 @@ pub struct Parsed {
 impl Parsed {
     /// The value of an option: the last one given.
     pub fn value(&self, name: &str) -> Option<&str> {
-        self.values.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+        self.values
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -41,13 +45,19 @@ pub fn parse_args(args: &[String], names: &[&str]) -> Result<Parsed, String> {
         }
         // A long option: `--name=value` when there is an `=` after its first character, else `--name`.
         let rest = &arg[2..];
-        let inline = rest.char_indices().skip(1).find(|&(_, c)| c == '=').map(|(at, _)| at);
+        let inline = rest
+            .char_indices()
+            .skip(1)
+            .find(|&(_, c)| c == '=')
+            .map(|(at, _)| at);
         if let Some(at) = inline {
             let name = &rest[..at];
             if !names.contains(&name) {
                 return Err(unknown(&format!("--{name}")));
             }
-            parsed.values.push((name.to_string(), rest[at + 1..].to_string()));
+            parsed
+                .values
+                .push((name.to_string(), rest[at + 1..].to_string()));
             continue;
         }
         if !names.contains(&rest) {
@@ -68,7 +78,8 @@ pub fn parse_args(args: &[String], names: &[&str]) -> Result<Parsed, String> {
 }
 
 fn unknown(option: &str) -> String {
-    let quoted = String::from_utf8(fixed_form(&Value::String(option.to_string()))).expect("the fixed form is UTF-8");
+    let quoted = String::from_utf8(fixed_form(&Value::String(option.to_string())))
+        .expect("the fixed form is UTF-8");
     format!(
         "Unknown option '{option}'. To specify a positional argument starting with a '-', place it at the end of the command after '--', as in '-- {quoted}"
     )

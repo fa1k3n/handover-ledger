@@ -19,7 +19,9 @@ fn event_time(text: &str) -> Option<[u32; 6]> {
     }
     let fits = match &b[19..] {
         [b'Z'] => true,
-        [b'.', digits @ .., b'Z'] => (1..=9).contains(&digits.len()) && digits.iter().all(u8::is_ascii_digit),
+        [b'.', digits @ .., b'Z'] => {
+            (1..=9).contains(&digits.len()) && digits.iter().all(u8::is_ascii_digit)
+        }
         _ => false,
     };
     if !fits {
@@ -27,14 +29,36 @@ fn event_time(text: &str) -> Option<[u32; 6]> {
     }
     let number = |at: usize, len: usize| -> Option<u32> {
         let part = &b[at..at + len];
-        part.iter().all(u8::is_ascii_digit).then(|| part.iter().fold(0, |n, d| n * 10 + u32::from(d - b'0')))
+        part.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| part.iter().fold(0, |n, d| n * 10 + u32::from(d - b'0')))
     };
-    Some([number(0, 4)?, number(5, 2)?, number(8, 2)?, number(11, 2)?, number(14, 2)?, number(17, 2)?])
+    Some([
+        number(0, 4)?,
+        number(5, 2)?,
+        number(8, 2)?,
+        number(11, 2)?,
+        number(14, 2)?,
+        number(17, 2)?,
+    ])
 }
 
 /// Whether the day is on the calendar: no 30 February, no 29 February but in a leap year, no month 13.
 pub(crate) fn is_day(year: u32, month: u32, day: u32) -> bool {
     let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     (1..=12).contains(&month) && day >= 1 && day <= days[month as usize - 1]
 }

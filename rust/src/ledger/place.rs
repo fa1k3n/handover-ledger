@@ -18,8 +18,13 @@ impl Env {
     pub fn of_process() -> Env {
         let var = |name: &str| std::env::var_os(name).map(|v| v.to_string_lossy().into_owned());
         #[allow(deprecated)]
-        let home = var("HOME").or_else(|| std::env::home_dir().map(|h| h.to_string_lossy().into_owned()));
-        Env { howl_home: var("HOWL_HOME"), xdg_state_home: var("XDG_STATE_HOME"), home }
+        let home =
+            var("HOME").or_else(|| std::env::home_dir().map(|h| h.to_string_lossy().into_owned()));
+        Env {
+            howl_home: var("HOWL_HOME"),
+            xdg_state_home: var("XDG_STATE_HOME"),
+            home,
+        }
     }
 }
 
@@ -43,7 +48,10 @@ pub fn ledger_path(project: &str, env: &Env) -> Result<String, String> {
     let set = |v: &Option<String>| v.clone().filter(|v| !v.is_empty());
     let home = if let Some(howl) = set(&env.howl_home) {
         if !howl.starts_with('/') {
-            return Err(format!("HOWL_HOME must be an absolute path, not {}", quoted(&howl)));
+            return Err(format!(
+                "HOWL_HOME must be an absolute path, not {}",
+                quoted(&howl)
+            ));
         }
         howl
     } else if let Some(xdg) = set(&env.xdg_state_home).filter(|x| x.starts_with('/')) {
@@ -61,7 +69,8 @@ pub fn ledger_path(project: &str, env: &Env) -> Result<String, String> {
 
 /// A string as JSON.stringify writes it.
 fn quoted(text: &str) -> String {
-    String::from_utf8(fixed_form(&Value::String(text.to_string()))).expect("the fixed form is UTF-8")
+    String::from_utf8(fixed_form(&Value::String(text.to_string())))
+        .expect("the fixed form is UTF-8")
 }
 
 /// Absolute paths joined and made normal as Node's path.join does it: no empty part, no `.`, `..` taking the part
