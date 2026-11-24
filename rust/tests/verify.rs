@@ -687,7 +687,8 @@ const REVIEW_PIN: &str = "42c7b2f97281307edcc424f8718bf974e0c6e091b6fbf3534b8c03
 
 /// The faults of a ledger of test/fixtures/key-lines, pinned to its issuer, and its count of signed events.
 fn key_lines(name: &str) -> (Vec<(usize, String)>, usize) {
-    let Verdict::Holds { events, .. } = verify(&fixture(&format!("key-lines/{name}.jsonl"))).unwrap()
+    let Verdict::Holds { events, .. } =
+        verify(&fixture(&format!("key-lines/{name}.jsonl"))).unwrap()
     else {
         panic!("{name} does not hold");
     };
@@ -708,10 +709,7 @@ fn a_key_issued_line_copied_again_after_its_revocation_is_refused() {
         ),
         (6, "signed after the key was revoked"),
     ]);
-    assert_eq!(
-        key_lines("issued-again-after-revocation"),
-        (want, 2)
-    );
+    assert_eq!(key_lines("issued-again-after-revocation"), (want, 2));
 }
 
 #[test]
@@ -723,7 +721,10 @@ fn a_revocation_whose_at_cannot_be_read_is_refused_on_its_line() {
 #[test]
 fn a_key_id_that_is_not_the_hash_of_its_public_key_is_refused() {
     let want = owned(&[
-        (3, "key 8584df589866: its public key does not hash to its id"),
+        (
+            3,
+            "key 8584df589866: its public key does not hash to its id",
+        ),
         (
             4,
             "signed by key 5cabf08232c9, which has no valid issue on a line before",

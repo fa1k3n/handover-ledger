@@ -155,7 +155,10 @@ impl Signatures {
                 let by = d.get("issuer_public");
                 if let Some(weak) = key_fault(by) {
                     // A weak key that does not hash to the issuer named does not match it either.
-                    if by.and_then(Value::as_str).is_none_or(|text| !same(Some(&id_of(text)), d.get("issuer"))) {
+                    if by
+                        .and_then(Value::as_str)
+                        .is_none_or(|text| !same(Some(&id_of(text)), d.get("issuer")))
+                    {
                         self.unmatched.extend(Key::of(d.get("key")));
                     }
                     self.fault(n, format!("key {named}: the issuer key is refused: {weak}"));
@@ -185,7 +188,10 @@ impl Signatures {
                 // The key's id is the SHA-256 of its raw public key, as `issueKey` makes it.
                 let id = id_of(d.get("public").and_then(Value::as_str).unwrap_or_default());
                 if !same(Some(&id), d.get("key")) {
-                    self.fault(n, format!("key {named}: its public key does not hash to its id"));
+                    self.fault(
+                        n,
+                        format!("key {named}: its public key does not hash to its id"),
+                    );
                     return;
                 }
                 if let Some(end) = ["from", "until"]
@@ -202,7 +208,10 @@ impl Signatures {
                 // A key keeps its first issue and its revocation.
                 if let Some(key) = Key::of(d.get("key")) {
                     if let Some(first) = self.keys.get(&key) {
-                        let reason = format!("key {named}: the key is already issued on line {}", first.line);
+                        let reason = format!(
+                            "key {named}: the key is already issued on line {}",
+                            first.line
+                        );
                         self.fault(n, reason);
                         return;
                     }
