@@ -8,10 +8,13 @@ pub mod sign;
 pub use js::{base64_decode, date_parse, js_string};
 
 use crate::ledger::fixed::fixed_form;
+use crate::ledger::line::hex;
+use crate::ledger::time::is_day;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use js::{same, truthy, Key};
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 
 /// What the signatures of a ledger come to.
 #[derive(Debug, Clone, PartialEq)]
@@ -23,6 +26,11 @@ pub struct SignatureCheck {
     pub faults: Vec<(usize, String)>,
     /// The issuer the keys are held to, as `howl verify` writes it: the pinned one, else the first that issued a key.
     pub issuer: Option<String>,
+    /// Whether the issuer was pinned (`howl verify --issuer`), rather than taken from the ledger.
+    pub pinned: bool,
+    /// Signatures by a key whose issue was refused because its issuer does not match: the pin, the ledger's issuer, or
+    /// the hash of its issuer key.
+    pub unmatched: usize,
 }
 
 /// The issuer the keys are held to, compared as JavaScript's `!==` compares it.
@@ -81,6 +89,8 @@ struct Issued {
 /// The check, line by line, so that a ledger is read once.
 pub struct Signatures {
     keys: HashMap<Key, Issued>,
+    /// The keys whose issue was refused because its issuer does not match.
+    unmatched: HashSet<Key>,
     issuer: Issuer,
     check: SignatureCheck,
 }
@@ -96,9 +106,12 @@ impl Signatures {
             unsigned: 0,
             faults: Vec::new(),
             issuer: None,
+            pinned: pin.is_some(),
+            unmatched: 0,
         };
         Signatures {
             keys: HashMap::new(),
+            unmatched: HashSet::new(),
             issuer,
             check,
         }
@@ -120,26 +133,44 @@ impl Signatures {
                 if matches!(self.issuer, Issuer::Null) {
                     self.issuer = Issuer::of(d.get("issuer"), n);
                 }
+                let named = short(d.get("key"));
                 if !self.issuer.is(d.get("issuer"), n) {
-                    self.fault(
-                        n,
-                        format!(
-                            "key {}: not issued by the ledger's issuer",
-                            short(d.get("key"))
-                        ),
-                    );
+                    self.unmatched.extend(Key::of(d.get("key")));
+                    self.fault(n, format!("key {named}: not issued by the ledger's issuer"));
                     return;
                 }
                 let by = d.get("issuer_public");
+                if let Some(weak) = key_fault(by) {
+                    self.fault(n, format!("key {named}: the issuer key is refused: {weak}"));
+                    return;
+                }
+                // The pin is the SHA-256 of the issuer's raw public key, in hex, as `howl key issue` prints it.
+                let raw = base64_decode(by.and_then(Value::as_str).unwrap_or_default());
+                let hash = Value::String(hex(&Sha256::digest(raw)));
+                if !same(Some(&hash), d.get("issuer")) {
+                    self.unmatched.extend(Key::of(d.get("key")));
+                    let reason = format!("key {named}: the issuer key does not hash to the issuer it names");
+                    self.fault(n, reason);
+                    return;
+                }
                 let signer = sig.and_then(|s| s.get("key"));
-                if !truthy(by) || !signature_holds(event, by) || !same(signer, d.get("issuer")) {
-                    self.fault(
-                        n,
-                        format!(
-                            "key {}: the issuer's signature does not hold",
-                            short(d.get("key"))
-                        ),
+                if !signature_holds(event, by) || !same(signer, d.get("issuer")) {
+                    self.fault(n, format!("key {named}: the issuer's signature does not hold"));
+                    return;
+                }
+                if let Some(weak) = key_fault(d.get("public")) {
+                    self.fault(n, format!("key {named}: its public key is refused: {weak}"));
+                    return;
+                }
+                if let Some(end) = ["from", "until"]
+                    .into_iter()
+                    .find(|end| window_time(d.get(*end)).is_none())
+                {
+                    let written = js_string(d.get(end));
+                    let reason = format!(
+                        "key {named}: its window cannot be read: {end} {written} is not an ISO time with a zone"
                     );
+                    self.fault(n, reason);
                     return;
                 }
                 if let Some(key) = Key::of(d.get("key")) {
@@ -195,6 +226,9 @@ impl Signatures {
         self.check.signed += 1;
         let signer = sig.get("key");
         let Some(key) = Key::of(signer).and_then(|k| self.keys.get(&k)) else {
+            if Key::of(signer).is_some_and(|k| self.unmatched.contains(&k)) {
+                self.check.unmatched += 1;
+            }
             let reason = format!(
                 "signed by key {}, which has no valid issue on a line before",
                 short(signer)
@@ -265,6 +299,78 @@ pub fn check_signatures(lines: &[(usize, &Value)], pin: Option<&str>) -> Signatu
         signatures.add(n, event);
     }
     signatures.finish()
+}
+
+/// #199: why a raw public key is refused, or None when it is a key: not 32 bytes; not a point of the curve; not in its
+/// canonical form (y not below p, or x zero with its sign set); of small order. Checked here, before any signature is
+/// checked against the key, so that the verdict on a weak key is the TypeScript's `publicKeyFault`, whatever the
+/// library's verify would say.
+pub fn public_key_fault(raw: &[u8]) -> Option<&'static str> {
+    let Ok(bytes) = <[u8; 32]>::try_from(raw) else {
+        return Some("not 32 bytes");
+    };
+    let Ok(key) = VerifyingKey::from_bytes(&bytes) else {
+        return Some("not a point of the curve");
+    };
+    if key.to_edwards().compress().to_bytes() != bytes {
+        return Some("not in its canonical form");
+    }
+    if key.is_weak() {
+        return Some("of small order");
+    }
+    None
+}
+
+/// Why a public key as a ledger line gives it (base64url, read as Node reads it) is refused, or None.
+fn key_fault(value: Option<&Value>) -> Option<&'static str> {
+    match value.and_then(Value::as_str) {
+        None => Some("not a text in base64url"),
+        Some(text) => public_key_fault(&base64_decode(text)),
+    }
+}
+
+/// #199: the time of one end of a key's window, the twin of `windowTime`: an ISO time with a zone (a date, `T`, a time
+/// with seconds, a fraction of up to nine digits, then `Z` or an offset), a real day and time; None for anything else.
+pub fn window_time(value: Option<&Value>) -> Option<f64> {
+    let text = value?.as_str()?;
+    let b = text.as_bytes();
+    let marks = [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':')];
+    if b.len() < 20 || marks.iter().any(|&(i, c)| b[i] != c) {
+        return None;
+    }
+    let number = |at: usize, len: usize| -> Option<u32> {
+        let part = b.get(at..at + len)?;
+        part.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| part.iter().fold(0, |n, d| n * 10 + u32::from(d - b'0')))
+    };
+    let [year, month, day, hour, minute, second] = [
+        number(0, 4)?,
+        number(5, 2)?,
+        number(8, 2)?,
+        number(11, 2)?,
+        number(14, 2)?,
+        number(17, 2)?,
+    ];
+    let mut i = 19;
+    if b.get(i) == Some(&b'.') {
+        let digits = b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+        if !(1..=9).contains(&digits) {
+            return None;
+        }
+        i += 1 + digits;
+    }
+    let zone_fits = match &b[i..] {
+        [b'Z'] => true,
+        [b'+' | b'-', _, _, b':', _, _] => {
+            matches!((number(i + 1, 2), number(i + 4, 2)), (Some(h), Some(m)) if h <= 23 && m <= 59)
+        }
+        _ => false,
+    };
+    if !zone_fits || !is_day(year, month, day) || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    date_parse(text)
 }
 
 /// Date.parse of a value, as a number of milliseconds; NaN when it is no time.

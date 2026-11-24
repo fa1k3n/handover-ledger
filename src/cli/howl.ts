@@ -135,7 +135,10 @@ async function verifyCommand(args: string[]): Promise<number> {
   const { ledgerLines } = await import("../read/reader.ts");
   const lines = ledgerLines(path, { first: true }).map((r) => ({ n: r.n!, event: r.event }));
   const sigs = checkSignatures(lines, values.issuer);
-  console.log(`signatures: ${sigs.signed} signed, ${sigs.unsigned} unsigned claimed${sigs.issuer ? `, issuer ${sigs.issuer}` : ""}`);
+  // #199: whether the issuer is pinned is said in every case, so that "holds" is never read as "holds for a known issuer".
+  const unmatched = sigs.unmatched > 0 ? `, ${sigs.unmatched} on an issuer that does not match` : "";
+  const by = sigs.pinned ? `, issuer ${sigs.issuer} (pinned)` : sigs.issuer ? `, issuer ${sigs.issuer} (taken from the ledger, not pinned)` : ", issuer not pinned";
+  console.log(`signatures: ${sigs.signed} signed, ${sigs.unsigned} unsigned claimed${unmatched}${by}`);
   for (const f of sigs.faults) console.log(`line ${f.line}: ${f.reason}`);
   let failed = sigs.faults.length > 0;
   // #18: the head held against a checkpoint kept elsewhere.

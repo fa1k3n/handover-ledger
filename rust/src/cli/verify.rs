@@ -90,13 +90,21 @@ pub fn run(args: &[OsString], fallback: impl FnOnce(&str) -> i32) -> i32 {
     }
     // #23: the signed claims, held to the keys issued for them.
     let check = signatures.finish();
-    let by = check
-        .issuer
-        .map(|i| format!(", issuer {i}"))
-        .unwrap_or_default();
+    // #199: whether the issuer is pinned is said in every case, so that "holds" is never read as "holds for a known
+    // issuer".
+    let unmatched = if check.unmatched > 0 {
+        format!(", {} on an issuer that does not match", check.unmatched)
+    } else {
+        String::new()
+    };
+    let by = match &check.issuer {
+        Some(issuer) if check.pinned => format!(", issuer {issuer} (pinned)"),
+        Some(issuer) => format!(", issuer {issuer} (taken from the ledger, not pinned)"),
+        None => ", issuer not pinned".to_string(),
+    };
     let _ = writeln!(
         out,
-        "signatures: {} signed, {} unsigned claimed{by}",
+        "signatures: {} signed, {} unsigned claimed{unmatched}{by}",
         check.signed, check.unsigned
     );
     for (line, reason) in &check.faults {
