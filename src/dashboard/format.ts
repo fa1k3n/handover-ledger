@@ -484,16 +484,23 @@ export function cutDetail(text: string): { text: string; cut: boolean } {
 
 /**
  * #210: the mark of a row's signature, from the server's verdict alone. "pinned"
- * only when the server holds a pin and the signature holds under it; an event the
- * server gave no verdict for has none. `pinned` null (the ledger's state not read
- * yet) is taken as not pinned, the weaker claim.
+ * only when the server holds a pin and the signature holds under it. A claim that
+ * carries a signature but has no verdict is one whose key has no valid issue (the
+ * server sets a verdict on a failure only for a known key): a fault, as part 7 says.
+ * A key's issue or revocation has no verdict from the server, so no mark. `pinned`
+ * null (the ledger's state not read yet) is never taken for a pin or for no pin.
  */
-export function signatureMark(item: Item, pinned: boolean | null): { kind: "pinned" | "open" | "fault" | "none"; glyph: string; text: string } {
+export function signatureMark(item: Item, pinned: boolean | null): { kind: "pinned" | "open" | "unread" | "fault" | "none"; glyph: string; text: string } {
   const s = item.signed;
-  if (s === undefined) return { kind: "none", glyph: "", text: "" };
   const t = texts.stream.signature;
+  if (s === undefined) {
+    const e = item.event;
+    if (e.sig === undefined || e.type === "key.issued" || e.type === "key.revoked") return { kind: "none", glyph: "", text: "" };
+    return { kind: "fault", glyph: "!", text: t.noIssue };
+  }
   if (!s.ok) return { kind: "fault", glyph: "!", text: t.fault };
-  return pinned === true ? { kind: "pinned", glyph: "●", text: t.pinned } : { kind: "open", glyph: "○", text: t.open };
+  if (pinned === null) return { kind: "unread", glyph: "○", text: t.unread };
+  return pinned ? { kind: "pinned", glyph: "●", text: t.pinned } : { kind: "open", glyph: "○", text: t.open };
 }
 
 export type SavedFilter = { name: string; expression: string };

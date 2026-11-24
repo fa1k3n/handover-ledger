@@ -73,7 +73,7 @@ export const texts = {
     showDetail: (what: string) => `Show the whole detail of line ${what}`,
     hideDetail: (what: string) => `Hide the whole detail of line ${what}`,
     /** #210: what a signed row says of its signature; never more than the server's verdict. */
-    signature: { pinned: "signed, pinned issuer", open: "signed, issuer not pinned", fault: "signature does not hold" },
+    signature: { pinned: "signed, pinned issuer", open: "signed, issuer not pinned", fault: "signature does not hold", noIssue: "signature does not hold: its key has no valid issue", unread: "signed, issuer not read yet" },
     /** #210: a filter for a server with no pin. */
     signedNotPinned: { name: "Signed, not pinned", expression: "has(event.sig)" },
     /** #190: the band of what needs a person, above the list. */
