@@ -211,7 +211,7 @@ export interface Ref {
 
 export interface CodeHost {
   /** The adapter, as it stands in `source.adapter` and at the start of every id. */
-  readonly name: string;
+  readonly name: HostName;
   /** The repository, as `owner/name`: what people read, and what `repo` of an event holds. It can change. */
   readonly repository: string;
   /**
