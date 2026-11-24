@@ -10,11 +10,11 @@ usage:
   howl emit <type> [--task <id>] [--change <id>] [--data '<json object>']
   howl ingest [--project <name>] [--watch] [--interval <seconds>]
   howl observe [--once] [--interval <seconds>] [--since <date | now>] [--anchor-every <minutes>]
-  howl up [--port <n>] [--interval <seconds>] [--since <date | now>] [--anchor-every <minutes>]
+  howl up [--port <n>] [--interval <seconds>] [--since <date | now>] [--anchor-every <minutes>] [--issuer <fingerprint>]
   howl watch [--since <time>] [--filter <field>=<value> ...] [--activity] [--utc] [--json] [--no-follow]
   howl show <task or change> [--utc] [--json]
   howl status [--follow] [--json]
-  howl serve [--port <n>] [--all]
+  howl serve [--port <n>] [--all] [--issuer <fingerprint>]
   howl classes [--check] [--json]
   howl trace [--at <commit>] [--check] [--json]
 
@@ -76,6 +76,11 @@ usage:
             --project); --all serves every project, picked in the page, the
             project first; --ledger serves one ledger only. Read-only, on
             this machine only: a request that names another host is refused.
+            --issuer <fingerprint> pins the issuer, as verify does: the page
+            then says whether a signature holds against it, else that the
+            issuer is not pinned. up takes it too. A pin is one project's
+            issuer: with --all, or with up where the home holds more than one
+            project, it is refused.
             Build the page first with npm run build:dashboard
 
   classes   the code class of every file git tracks, by path (classes in

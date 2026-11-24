@@ -163,7 +163,7 @@ export function EventDialog({
               </h3>
               <p className="m-0 text-[13px] text-mute">{texts.provenance.reading}</p>
               <dl className="m-0 grid grid-cols-[minmax(110px,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[13px]">
-                {decodedFields(item).map((f) => {
+                {decodedFields(item, undefined, answer?.issuer).map((f) => {
                   const by = onNarrow === undefined ? null : narrowOf(f, item);
                   return (
                     <div key={f.k} className="contents">
@@ -259,7 +259,8 @@ function IdentityPart({ item, answer }: { item: Item; answer: LineAnswer | undef
   const t = texts.provenance.identity;
   // While the line is read, its signature is not known yet: nothing is said of it.
   const waiting = item.from === "ledger" && answer === undefined;
-  const id = partIdentity(item, item.from === "ledger" ? (answer?.signature ?? null) : undefined);
+  // The issuer is the answer's: until it is read, the most restrictive words are never used, as nothing is said of the signature.
+  const id = partIdentity(item, item.from === "ledger" ? (answer?.signature ?? null) : undefined, answer?.issuer ?? { id: null, pinned: false });
   return (
     <>
       <Facts rows={[{ k: t.actor, v: id.actor }, ...(waiting ? [] : [{ k: t.signature, v: id.signature }])]} />
