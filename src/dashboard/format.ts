@@ -106,7 +106,7 @@ function listText(value: unknown): string {
 }
 
 /** The fields of an event for the decoded view; a field the event does not have is left out. */
-export function decodedFields(item: Item, timeZone?: string): Field[] {
+export function decodedFields(item: Item, timeZone?: string, issuer?: LineIssuer): Field[] {
   const e = item.event;
   const d = (e.data ?? {}) as Record<string, unknown>;
   const actor = e.actor ? `${e.actor.id} (${e.actor.kind === "person" ? "person, pseudonym" : e.actor.kind})` : undefined;
@@ -144,12 +144,14 @@ export function decodedFields(item: Item, timeZone?: string): Field[] {
                   item.signed.task !== undefined ? `task ${item.signed.task}` : null,
                   item.signed.change !== undefined ? `change ${item.signed.change}` : null,
                   `until ${utcTime(item.signed.until)}`,
+                  // #202: a valid signature holds under an issuer, and part 7 says which kind: never a bare "valid".
+                  issuer === undefined ? texts.provenance.signatureRow.unread : issuer.pinned && issuer.id !== null ? texts.provenance.signatureRow.pinned(issuer.id) : texts.provenance.signatureRow.notPinned,
                 ]
                   .filter(Boolean)
                   .join(" · ")
               : `does not hold: ${item.signed.reason ?? "unknown"}`
             : e.sig
-              ? "does not hold: its key is not issued in the ledger"
+              ? `does not hold: ${texts.provenance.signatureRow.noValidIssue}`
               : "unsigned",
         }
       : null,
@@ -631,7 +633,9 @@ export function partIdentity(item: Item, signature: LineSignature | null | undef
   if (signature === null) return { actor, signature: t.notSigned, limit: null, note };
   // A key's issue or revocation is checked against the issuer key the line names, which must be the pin when there is one.
   const words = e.type === "key.issued" || e.type === "key.revoked" ? t.validIssuer : t.valid;
-  const key = signature.key.slice(0, 12);
+  // #202 (review): a key's issue or revocation names the issuer it holds (`data.issuer`), never the `sig.key` it carries: a revocation's is not held to it.
+  const named = (e.data as Record<string, unknown> | undefined)?.issuer;
+  const key = (e.type !== "key.issued" && e.type !== "key.revoked" ? signature.key : typeof named === "string" ? named : signature.key).slice(0, 12);
   // `pinned` with no id is never read as a pin: the words need the pin itself.
   const pin = issuer.pinned ? issuer.id : null;
   const valid = pin !== null ? words.pinned(key, pin) : words.open(key);

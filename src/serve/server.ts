@@ -171,6 +171,11 @@ function pathOf(req: IncomingMessage): string {
   }
 }
 
+/** #202: the names of the projects of a home that hold a ledger, as `howl up` shows them. */
+export function projectsServed(home: string): string[] {
+  return projectsOf({ home, port: 0, root: "" }).map((p) => p.name);
+}
+
 /** The projects served: the one ledger, the one project of the home (#54), or every folder of the home that holds a ledger, by name. */
 function projectsOf(options: ServeOptions): Project[] {
   if (options.ledger !== undefined) {

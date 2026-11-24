@@ -78,7 +78,9 @@ usage:
             this machine only: a request that names another host is refused.
             --issuer <fingerprint> pins the issuer, as verify does: the page
             then says whether a signature holds against it, else that the
-            issuer is not pinned. up takes it too.
+            issuer is not pinned. up takes it too. A pin is one project's
+            issuer: with --all, or with up where the home holds more than one
+            project, it is refused.
             Build the page first with npm run build:dashboard
 
   classes   the code class of every file git tracks, by path (classes in

@@ -195,6 +195,13 @@ export const texts = {
       tool: "Related events are given for a line of the ledger.",
     },
     reading: "Worked out by howl from parts 1 to 6, and can be worked out again from them.",
+    // #202: what part 7's signature row says beside "valid", and for a key that has no valid issue.
+    signatureRow: {
+      pinned: (pin: string) => `pinned issuer ${pin}`,
+      notPinned: "issuer not pinned",
+      unread: "issuer not read yet",
+      noValidIssue: "its key has no valid issue on a line before",
+    },
   },
   overview: {
     title: "Overview",

@@ -163,7 +163,7 @@ export function EventDialog({
               </h3>
               <p className="m-0 text-[13px] text-mute">{texts.provenance.reading}</p>
               <dl className="m-0 grid grid-cols-[minmax(110px,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[13px]">
-                {decodedFields(item).map((f) => {
+                {decodedFields(item, undefined, answer?.issuer).map((f) => {
                   const by = onNarrow === undefined ? null : narrowOf(f, item);
                   return (
                     <div key={f.k} className="contents">
