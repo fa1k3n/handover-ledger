@@ -248,3 +248,15 @@ test("#203 B: the warning says whether the line is of this host and observed, an
   const reason = readdirSync(join(own.ws.inbox, "rejected")).find((n) => n.endsWith(".reason"))!;
   assert.match(readFileSync(join(own.ws.inbox, "rejected", reason), "utf8"), /differs in time/);
 });
+
+test("#203 B: a change closed, reopened and closed again at the same head: its checks.none is the observer's own, no warning, nothing refused", () => {
+  const { ws, host } = setup();
+  host.change(change({ closedAt: at(30), closedBy: { login: "carol" }, updatedAt: at(30) }));
+  assert.equal(observe(ws).status, 0);
+  assert.ok(typesOf(ws).includes("checks.none"), "the first close gives checks.none");
+  host.change(change({ closedAt: at(60), closedBy: { login: "carol" }, updatedAt: at(60), reopenings: [{ id: "ro-1", at: at(45), by: { login: "carol" } }] }));
+  const again = observe(ws);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.stderr, "");
+  assert.deepEqual(rejectedOf(ws), []);
+});

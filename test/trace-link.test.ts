@@ -3,9 +3,10 @@
 // @code_class tests
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { openLedger } from "../src/ledger/ledger.ts";
 import { findTrace, summaryOf, trace, treeAt } from "../src/howl/trace.ts";
 import { readTrace } from "../src/howl/trace-read.ts";
 import { decodedFields } from "../src/dashboard/format.ts";
@@ -190,6 +191,22 @@ test("#38: howl show reads several heads, each with its own line", () => {
   round(r);
   const text = howl(["show", "change:40"], { cwd: r.ws.root, env: r.ws.env }).stdout;
   assert.match(text, /head [0-9a-f]{7}\n\s+no test names a requirement\n[^\n]*new head [0-9a-f]{7}\n\s+requirements: R-2 covered by 1 test/);
+});
+
+test("#203: a trace.read under an id that a line of another event holds is warned of and kept in rejected/, not passed over in silence", () => {
+  const r = repo();
+  const sha = r.commit('test("R-1 one", () => {});\n');
+  open(r, 40, sha, 10);
+  const id = `local:team/product:trace:40:${sha}`;
+  const writer = openLedger(r.ws.ledger, { project: PROJECT });
+  writer.append({ v: 0, id, time: at(1), type: "session.started", source: { adapter: "claude-code-hook", kind: "claimed" }, project: PROJECT, session: "x" } as never);
+  writer.close();
+  const run = howl(["observe", "--once"], { cwd: r.ws.root, env: r.ws.env });
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stderr, new RegExp(id));
+  assert.match(run.stderr, /not of this host and observed/);
+  assert.equal(reads(lines(r.ws.ledger).map((l) => l.event as Record<string, any>)).length, 0);
+  assert.equal(readdirSync(join(r.ws.inbox, "rejected")).length, 2);
 });
 
 test("#38: the time of a trace.read is its head's", () => {
