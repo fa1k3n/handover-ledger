@@ -42,27 +42,91 @@ pub fn inbox_name(ms: i64, uuid: &str) -> String {
     format!("{ms:015}-{uuid}.json")
 }
 
+/// Why an event could not be left: the words of Node's error for the call that failed (`ENOTDIR: not a directory,
+/// mkdir '/x/inbox'`), as the TypeScript's `howl emit` ends with them, and the code at their start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeaveError {
+    pub code: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for LeaveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for LeaveError {}
+
+impl LeaveError {
+    /// A fault that is no failure of a call: its words, with no code.
+    pub fn other(message: String) -> LeaveError {
+        LeaveError {
+            code: String::new(),
+            message,
+        }
+    }
+
+    /// The error of a call of `syscall`, on `what` (a path, or `'a' -> 'b'`, or nothing), in Node's words.
+    fn of(error: &std::io::Error, syscall: &str, what: &str) -> LeaveError {
+        let (code, words) = match error.raw_os_error() {
+            Some(1) => ("EPERM", "operation not permitted"),
+            Some(2) => ("ENOENT", "no such file or directory"),
+            Some(5) => ("EIO", "i/o error"),
+            Some(13) => ("EACCES", "permission denied"),
+            Some(17) => ("EEXIST", "file already exists"),
+            Some(20) => ("ENOTDIR", "not a directory"),
+            Some(21) => ("EISDIR", "illegal operation on a directory"),
+            Some(24) => ("EMFILE", "too many open files"),
+            Some(28) => ("ENOSPC", "no space left on device"),
+            Some(30) => ("EROFS", "read-only file system"),
+            Some(36) => ("ENAMETOOLONG", "name too long"),
+            _ => ("", ""),
+        };
+        let place = if what.is_empty() {
+            String::new()
+        } else {
+            format!(" {what}")
+        };
+        let message = if code.is_empty() {
+            format!("{error}, {syscall}{place}")
+        } else {
+            format!("{code}: {words}, {syscall}{place}")
+        };
+        LeaveError {
+            code: code.to_string(),
+            message,
+        }
+    }
+}
+
 /// Leaves an event in the inbox, in its fixed form. Gives the path of the file.
-pub fn leave(inbox: &str, event: &Value) -> std::io::Result<String> {
+pub fn leave(inbox: &str, event: &Value) -> Result<String, LeaveError> {
     let bytes = fixed_form(event);
     DirBuilder::new()
         .recursive(true)
         .mode(0o700)
-        .create(inbox)?;
-    let name = inbox_name(now_ms(), &random_uuid()?);
+        .create(inbox)
+        .map_err(|e| LeaveError::of(&e, "mkdir", &format!("'{inbox}'")))?;
+    let name = inbox_name(
+        now_ms(),
+        &random_uuid().map_err(|e| LeaveError::of(&e, "open", "'/dev/urandom'"))?,
+    );
     let temporary = join(&[inbox, &format!(".{name}.tmp")]);
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(&temporary)?;
+        .open(&temporary)
+        .map_err(|e| LeaveError::of(&e, "open", &format!("'{temporary}'")))?;
     if let Err(e) = file.write_all(&bytes).and_then(|_| file.sync_all()) {
         drop(file);
         let _ = std::fs::remove_file(&temporary);
-        return Err(e);
+        return Err(LeaveError::of(&e, "write", ""));
     }
     drop(file);
     let path = join(&[inbox, &name]);
-    std::fs::rename(&temporary, &path)?;
+    std::fs::rename(&temporary, &path)
+        .map_err(|e| LeaveError::of(&e, "rename", &format!("'{temporary}' -> '{path}'")))?;
     Ok(path)
 }

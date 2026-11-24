@@ -1,0 +1,29 @@
+{
+  "v": 0,
+  "id": "11111111-2222-4333-8444-555555555555",
+  "time": "2026-01-02T03:04:05.678Z",
+  "type": "tool.used",
+  "source": {
+    "adapter": "claude-code-hook",
+    "kind": "claimed"
+  },
+  "project": "example",
+  "actor": {
+    "kind": "agent",
+    "id": "agent-å"
+  },
+  "session": "s😀1",
+  "task": "12",
+  "task_from": "env",
+  "data": {
+    "tool": "Bash",
+    "target": "ls",
+    "outcome": "succeeded",
+    "z": 1e+21,
+    "a": [
+      0.1,
+      0,
+      5
+    ]
+  }
+}

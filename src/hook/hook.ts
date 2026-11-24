@@ -75,8 +75,12 @@ export async function runHook(stdin: string, env: Record<string, string | undefi
         const down = join(projectDir(project.project, env), "keyd.down");
         if (!recentlyDown(down, KEYD_PAUSE_MS)) {
           const a = await request(viaKeyd.socket, { op: "sign", key: viaKeyd.key, token: viaKeyd.token, event }, KEYD_TIMEOUT_MS);
-          if (a.ok && a.sig) out = { ...event, sig: a.sig as LedgerEvent["sig"] };
-          else if (!a.ok && a.unreachable) markDown(down);
+          if (a.ok && a.sig) {
+            // Only a signature the writer takes: the event with it must pass the schema check. Loaded here, so that a hook without keyd starts as quickly as before.
+            const signed = { ...event, sig: a.sig as LedgerEvent["sig"] };
+            const { eventFaults } = await import("../ledger/schema.ts");
+            if (eventFaults(JSON.parse(JSON.stringify(signed))).length === 0) out = signed;
+          } else if (!a.ok && a.unreachable) markDown(down);
         }
       } else {
         out = signEvent(event, readKey(keyFile));

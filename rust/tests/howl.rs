@@ -82,7 +82,7 @@ fn a_command_that_is_not_there_ends_with_2_and_the_usage_text() {
 
 #[test]
 fn without_howl_fallback_a_command_not_built_yet_is_refused_with_2() {
-    for command in ["show", "emit", "status", "up"] {
+    for command in ["show", "ingest", "status", "up"] {
         let (out, _) = howl(&[command, "1"], &[], "");
         assert_eq!(out.status.code(), Some(2));
         assert_eq!(text(&out.stdout), "");

@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::cli::{hook, verify};
+use crate::howl::emit;
 
 /// The usage text, kept once in src/cli/usage.txt, which the TypeScript reads too.
 pub const USAGE: &str = include_str!("../../../src/cli/usage.txt");
@@ -19,7 +20,7 @@ const COMMANDS: [&str; 16] = [
 ];
 
 /// The commands this side does.
-const PORTED: [&str; 2] = ["verify", "hook"];
+const PORTED: [&str; 3] = ["verify", "hook", "emit"];
 
 /// What `howl` does with its arguments, chosen before anything else happens.
 #[derive(Debug, PartialEq, Eq)]
@@ -82,7 +83,8 @@ pub fn run() -> i32 {
     let node = std::env::var_os("HOWL_NODE");
     match choose(&args, entry, node) {
         // The hook first: whatever happens, it prints nothing and ends with 0.
-        Choice::Ported(name) if name == "hook" => hook::run(&args),
+        Choice::Ported(name) if name == "hook" => hook::run(),
+        Choice::Ported(name) if name == "emit" => emit::run(&args[1..]),
         Choice::Ported(_) => verify::run(&args[1..], fallback_to_node(&args)),
         Choice::Help => {
             // A closed standard output is not an error of howl's.

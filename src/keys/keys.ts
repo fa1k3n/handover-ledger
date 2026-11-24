@@ -34,6 +34,8 @@ function payload(event: LedgerEvent): Buffer {
 
 /** The event with its signature by `key`. */
 export function signEvent(event: LedgerEvent, key: KeyObject): LedgerEvent {
+  // The check of a signature builds an Ed25519 key from the issued public key: a signature by another kind of key, under an id never issued, could never hold.
+  if (key.asymmetricKeyType !== "ed25519") throw new LedgerError("not an Ed25519 key");
   const { id } = publicOf(key);
   const value = sign(null, payload(event), key).toString("base64url");
   return { ...event, sig: { key: id, value } };
