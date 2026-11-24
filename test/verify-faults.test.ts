@@ -580,6 +580,33 @@ test("#199 (review): a forged issuer key that is also weak counts as on an issue
   ]);
 });
 
+/** The fault of a revocation whose sig.key is not the issuer it names (#207). */
+const NOT_BY_ITS_ISSUER = "the revocation is not signed by the issuer it names; the key is revoked all the same";
+
+test("#207: a revocation with a forged sig.key is a fault on its line, and the key is still revoked, with or without --issuer", () => {
+  const issuer = ed25519();
+  const agent = ed25519();
+  const key = publicOf(agent).id.slice(0, 12);
+  const forged = revoked(issuer, agent, "2026-11-23T14:30:00.000Z");
+  // The signed payload leaves out the whole sig, so the issuer's signature still holds.
+  forged.sig = { ...forged.sig!, key: "f".repeat(64) };
+  const path = chained([issued(issuer, {}, agent), forged, claim(agent)]);
+  for (const pin of [[], ["--issuer", publicOf(issuer).id]]) {
+    const r = howl(["verify", "--ledger", path, ...pin]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.deepEqual(tailOf(r).slice(1), [`line 3: revocation of key ${key}: ${NOT_BY_ITS_ISSUER}`, "line 4: signed after the key was revoked"]);
+  }
+});
+
+test("#207: an honest revocation is no fault on its line, as before", () => {
+  const issuer = ed25519();
+  const agent = ed25519();
+  const path = chained([issued(issuer, {}, agent), revoked(issuer, agent, "2026-11-23T14:30:00.000Z"), claim(agent)]);
+  const r = howl(["verify", "--ledger", path, "--issuer", publicOf(issuer).id]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.deepEqual(tailOf(r).slice(1), ["line 4: signed after the key was revoked"]);
+});
+
 test("#140: an inbox file with a lone surrogate is refused by howl ingest as not JSON, and nothing is written", () => {
   const ws = workspace();
   mkdirSync(ws.inbox, { recursive: true });
