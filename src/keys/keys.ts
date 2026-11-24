@@ -224,6 +224,18 @@ export interface SignatureFault {
   reason: string;
 }
 
+/** The key that signed an event, its assignment, and whether the signature holds. */
+export interface SignedBy {
+  key: string;
+  actor: string;
+  task?: string;
+  change?: string;
+  role?: string;
+  until: string;
+  ok: boolean;
+  reason?: string;
+}
+
 export interface SignatureCheck {
   signed: number;
   /** Claimed events without a signature. */
@@ -236,7 +248,9 @@ export interface SignatureCheck {
   /** Signatures by a key whose issue was refused because its issuer does not match: the pin, the ledger's issuer, or the hash of its issuer key. */
   unmatched: number;
   /** Per event id, the key that signed it and its assignment, for a reader. */
-  byEvent: Map<string, { key: string; actor: string; task?: string; change?: string; role?: string; until: string; ok: boolean; reason?: string }>;
+  byEvent: Map<string, SignedBy>;
+  /** Per line, the key that signed it and its assignment, for a reader that shows one line (#199): a repeated id never borrows another line's verdict. */
+  byLine: Map<number, SignedBy>;
 }
 
 /**
@@ -260,11 +274,19 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
   const unmatchedKeys = new Set<unknown>();
   const faults: SignatureFault[] = [];
   const byEvent: SignatureCheck["byEvent"] = new Map();
+  const byLine: SignatureCheck["byLine"] = new Map();
 
   for (const { n, event } of lines) {
     const seen = ids.get(event.id);
     if (seen !== undefined) {
-      faults.push({ line: n, reason: `the event ${event.id} is already on line ${seen}` });
+      const reason = `the event ${event.id} is already on line ${seen}`;
+      faults.push({ line: n, reason });
+      // No reader keyed by the id may read it as valid: a copy may differ from the line it copies.
+      const first = byEvent.get(event.id);
+      if (first !== undefined) {
+        byEvent.set(event.id, { ...first, ok: false, reason });
+        byLine.set(n, { ...first, ok: false, reason });
+      }
       continue;
     }
     ids.set(event.id, n);
@@ -345,7 +367,10 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
     const key = keys.get(event.sig.key);
     const fail = (reason: string) => {
       faults.push({ line: n, reason });
-      if (key) byEvent.set(event.id, { ...info(key.data), ok: false, reason });
+      if (key) {
+        byEvent.set(event.id, { ...info(key.data), ok: false, reason });
+        byLine.set(n, { ...info(key.data), ok: false, reason });
+      }
     };
     if (!key) {
       if (unmatchedKeys.has(event.sig.key)) unmatched++;
@@ -379,8 +404,9 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
       continue;
     }
     byEvent.set(event.id, { ...info(d2), ok: true });
+    byLine.set(n, { ...info(d2), ok: true });
   }
-  return { signed, unsigned, faults, issuer, pinned: pin !== undefined, unmatched, byEvent };
+  return { signed, unsigned, faults, issuer, pinned: pin !== undefined, unmatched, byEvent, byLine };
 }
 
 function info(d: Record<string, string>) {
