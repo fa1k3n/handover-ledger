@@ -848,5 +848,10 @@ fn an_honest_revocation_is_no_fault_on_its_line() {
     let honest = revoked_by(&issuer, &agent, "r1", "2026-11-23T14:30:00.000Z");
     let events = revoked_ledger(&issuer, &agent, honest);
     let want = vec![(4, "signed after the key was revoked".to_string())];
+    let pin = public_of(&issuer).0;
     assert_eq!(check_signatures(&numbered(&events), None).faults, want);
+    assert_eq!(
+        check_signatures(&numbered(&events), Some(&pin)).faults,
+        want
+    );
 }

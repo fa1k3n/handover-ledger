@@ -598,13 +598,45 @@ test("#207: a revocation with a forged sig.key is a fault on its line, and the k
   }
 });
 
-test("#207: an honest revocation is no fault on its line, as before", () => {
+test("#207: an honest revocation is no fault on its line, as before, with or without --issuer", () => {
   const issuer = ed25519();
   const agent = ed25519();
   const path = chained([issued(issuer, {}, agent), revoked(issuer, agent, "2026-11-23T14:30:00.000Z"), claim(agent)]);
-  const r = howl(["verify", "--ledger", path, "--issuer", publicOf(issuer).id]);
-  assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.deepEqual(tailOf(r).slice(1), ["line 4: signed after the key was revoked"]);
+  for (const pin of [[], ["--issuer", publicOf(issuer).id]]) {
+    const r = howl(["verify", "--ledger", path, ...pin]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.deepEqual(tailOf(r).slice(1), ["line 4: signed after the key was revoked"]);
+  }
+});
+
+test("#207 (review): a forged sig.key with a changed sig.value keeps today's fault and does not revoke: the claim after it holds", () => {
+  const issuer = ed25519();
+  const agent = ed25519();
+  const key = publicOf(agent).id.slice(0, 12);
+  const forged = revoked(issuer, agent, "2026-11-23T14:30:00.000Z");
+  // The value of the issuer's signature of another revocation: a signature, but not of this line.
+  forged.sig = { key: "f".repeat(64), value: revoked(issuer, agent, "2026-11-23T14:40:00.000Z").sig!.value };
+  const path = chained([issued(issuer, {}, agent), forged, claim(agent)]);
+  for (const pin of [[], ["--issuer", publicOf(issuer).id]]) {
+    const r = howl(["verify", "--ledger", path, ...pin]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.deepEqual(tailOf(r).slice(1), [`line 3: revocation of key ${key}: the issuer's signature does not hold`]);
+  }
+});
+
+test("#207 (review): a forged sig.key on a revocation whose id is taken gives only the repeated id's fault, and the key is still revoked", () => {
+  const issuer = ed25519();
+  const agent = ed25519();
+  const issue = issued(issuer, {}, agent);
+  // The id is in the signed payload: signed again under the id of the issue line, so the issuer's signature holds.
+  const taken = signEvent({ ...revoked(issuer, agent, "2026-11-23T14:30:00.000Z"), id: issue.id }, issuer);
+  taken.sig = { ...taken.sig!, key: "f".repeat(64) };
+  const path = chained([issue, taken, claim(agent)]);
+  for (const pin of [[], ["--issuer", publicOf(issuer).id]]) {
+    const r = howl(["verify", "--ledger", path, ...pin]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.deepEqual(tailOf(r).slice(1), [`line 3: the event ${issue.id} is already on line 2`, "line 4: signed after the key was revoked"]);
+  }
 });
 
 test("#140: an inbox file with a lone surrogate is refused by howl ingest as not JSON, and nothing is written", () => {

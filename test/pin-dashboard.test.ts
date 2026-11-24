@@ -320,7 +320,7 @@ test("#202 (review, 2): under a pin, a key issued by another issuer reads as hav
   });
 });
 
-test("#202 (review, 3): part 3 names the issuer the line holds (data.issuer) for a key's revocation, never the sig.key it carries", async () => {
+test("#202 (review, 3), #207: a key's revocation with a forged sig.key never shows that key: /api/line names data.issuer, and part 3 reads not valid with the fault", async () => {
   const { ledger, issuer } = ledgerOfForgedRevocation();
   for (const pin of [undefined, issuer]) {
     await withServer({ ledger, issuer: pin }, async (url) => {
