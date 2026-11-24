@@ -28,6 +28,7 @@ import { fixedForm } from "../ledger/fixed.ts";
 import { checkEventDepth, NotJson, parseJson } from "../ledger/json.ts";
 import type { LedgerWriter } from "../ledger/ledger.ts";
 import { ACTIVITY_TYPES, eventFaults, type LedgerEvent } from "../ledger/schema.ts";
+import { HOST_NAMES } from "../observe/port.ts";
 import { isReady } from "./inbox.ts";
 
 export interface Places {
@@ -117,6 +118,10 @@ export function eventOf(value: unknown, project: string): LedgerEvent {
   const event = value as LedgerEvent;
   if (event.project !== project) {
     throw new LedgerError(`not an event of this project: project is ${JSON.stringify(event.project)}, not ${JSON.stringify(project)}`);
+  }
+  // #203: the observer's ids can be known beforehand, and it writes its own events, never through the inbox.
+  if (HOST_NAMES.some((name) => event.id.startsWith(`${name}:`) || event.source.adapter === name)) {
+    throw new LedgerError("this id is the observer's; the observer writes its own events, never through the inbox");
   }
   if (event.type === "ledger.created") throw new LedgerError("ledger.created is written by the ledger itself");
   // Refuses an event with no fixed form, and one the writer would not write for its depth, before anything is written.

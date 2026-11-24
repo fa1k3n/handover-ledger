@@ -62,9 +62,10 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
   let fd: number | undefined;
   let head: string;
   const ids = new Set<string>();
-  // The hashes of the events held under an id: read from the file when the id is asked about first, never for every
-  // id of a large ledger at the start. An event this writer appends is entered at once.
-  const hashes = new Map<string, Set<string>>();
+  // The hashes of the events held under each id. Read from the file once, the first time a taken id is asked about
+  // (#203): a pass with many taken ids reads the ledger once, and a ledger nobody repeats an id in is not hashed at all.
+  // Until then an event this writer appends is not entered: the file holds it.
+  let hashes: Map<string, Set<string>> | undefined;
   try {
     let created = true;
     try {
@@ -98,20 +99,22 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
   const file = fd;
   const holds = (event: LedgerEvent): "none" | "same" | "other" => {
     if (!ids.has(event.id)) return "none";
-    let held = hashes.get(event.id);
-    if (held === undefined) {
-      held = new Set<string>();
+    if (hashes === undefined) {
+      hashes = new Map();
       for (const e of events(path)) {
-        if (e.id !== event.id) continue;
+        if (typeof e.id !== "string") continue;
         try {
-          held.add(eventHash(e as LedgerEvent));
+          const hash = eventHash(e as LedgerEvent);
+          const held = hashes.get(e.id);
+          if (held === undefined) hashes.set(e.id, new Set([hash]));
+          else held.add(hash);
         } catch {
-          // An event with no fixed form is not this one.
+          // An event with no fixed form is not any event that is asked about.
+          if (!hashes.has(e.id)) hashes.set(e.id, new Set());
         }
       }
-      hashes.set(event.id, held);
     }
-    return held.has(eventHash(event)) ? "same" : "other";
+    return hashes.get(event.id)?.has(eventHash(event)) ? "same" : "other";
   };
   return {
     append(event) {
@@ -127,7 +130,7 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
       const written = write(file, fstatSync(file).size, head, event);
       head = written.head;
       ids.add(event.id);
-      hashes.set(event.id, new Set([written.event]));
+      hashes?.set(event.id, new Set([written.event]));
       return head;
     },
     has(id) {

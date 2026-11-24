@@ -7,7 +7,7 @@
 // Details are asked only for what has changed.
 // @code_class recording
 import { byUnits } from "../read/order.ts";
-import { isReviewComment, type Account, type Change, type CheckRun, type ChecksState, type CodeHost, type Comment, type Push, type Ref, type Review, type Task } from "./port.ts";
+import { isReviewComment, type HostName, type Account, type Change, type CheckRun, type ChecksState, type CodeHost, type Comment, type Push, type Ref, type Review, type Task } from "./port.ts";
 
 const API = "https://api.github.com";
 
@@ -24,7 +24,7 @@ export interface GitHubOptions {
 type Json = Record<string, any>;
 
 export class GitHub implements CodeHost {
-  readonly name = "github";
+  readonly name = "github" satisfies HostName;
   readonly repository: string;
   private readonly token: string;
   private readonly fetch: typeof globalThis.fetch;
