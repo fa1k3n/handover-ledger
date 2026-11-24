@@ -101,8 +101,21 @@ export function publicKeyFault(raw: Uint8Array): string | null {
 /** Why a public key as a ledger line gives it (base64url, read as Node reads it) is refused, or null. */
 function keyFault(value: unknown): string | null {
   if (typeof value !== "string") return "not a text in base64url";
-  return publicKeyFault(Buffer.from(value, "base64url"));
+  let verdict = keyVerdicts.get(value);
+  if (verdict === undefined) {
+    verdict = publicKeyFault(Buffer.from(value, "base64url"));
+    // The issuer key is the same on every key line, and the readers check the ledger again when it changes.
+    if (keyVerdicts.size >= 1024) keyVerdicts.clear();
+    keyVerdicts.set(value, verdict);
+  }
+  return verdict;
 }
+
+/** The verdicts of `keyFault`, by the text of the key: at most 1,024. */
+const keyVerdicts = new Map<string, string | null>();
+
+/** The SHA-256 of a key in base64url, read as Node reads it, in hex: a key's id. */
+const idOf = (text: string): string => createHash("sha256").update(Buffer.from(text, "base64url")).digest("hex");
 
 /** An ISO time with a zone, as a key's window is written: a date, `T`, a time with seconds, a fraction of up to nine digits, then `Z` or an offset. */
 const WINDOW = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/;
@@ -137,6 +150,10 @@ export function issuerKey(configDir: string): { key: KeyObject; made: boolean } 
   return { key: privateKey, made: true };
 }
 
+/** The last time a key's window can end (#199, after the review): `toISOString` writes a year after 9999 in another form, which no window may have. */
+export const LAST_WINDOW = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+export const PAST_LAST_WINDOW = "--hours runs the key's window past 9999-12-31T23:59:59Z";
+
 export interface Assignment {
   actor: string;
   task?: string;
@@ -154,6 +171,7 @@ export function issueKey(
   now = new Date(),
 ): { keyId: string; file: string; event: LedgerEvent; issuerMade: boolean; issuerId: string } {
   if (!(assignment.hours > 0)) throw new LedgerError("--hours must be a number above 0");
+  if (!(now.getTime() + assignment.hours * 3600_000 <= LAST_WINDOW)) throw new LedgerError(PAST_LAST_WINDOW);
   const issuer = issuerKey(places.configDir);
   const { privateKey } = generateKeyPairSync("ed25519");
   const own = publicOf(privateKey);
@@ -231,7 +249,9 @@ export interface SignatureCheck {
  * whose ends are ISO times with a zone.
  */
 export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?: string): SignatureCheck {
-  const keys = new Map<string, { data: Record<string, string>; revokedAt?: number }>();
+  const keys = new Map<string, { data: Record<string, string>; line: number; revokedAt?: number }>();
+  /** The line of each event id seen (#199, after the review): a copied line is refused. */
+  const ids = new Map<string, number>();
   let issuer: string | null = pin ?? null;
   let signed = 0;
   let unsigned = 0;
@@ -242,6 +262,12 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
   const byEvent: SignatureCheck["byEvent"] = new Map();
 
   for (const { n, event } of lines) {
+    const seen = ids.get(event.id);
+    if (seen !== undefined) {
+      faults.push({ line: n, reason: `the event ${event.id} is already on line ${seen}` });
+      continue;
+    }
+    ids.set(event.id, n);
     const d = (event.data ?? {}) as Record<string, string>;
     if (event.type === "key.issued" || event.type === "key.revoked") {
       // An issuer's own act: signed by the issuer it names.
@@ -255,11 +281,13 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
         }
         const weak = keyFault(by);
         if (weak !== null) {
+          // A weak key that does not hash to the issuer named does not match it either.
+          if (typeof by !== "string" || idOf(by) !== d.issuer) unmatchedKeys.add(d.key);
           faults.push({ line: n, reason: `key ${short(d.key)}: the issuer key is refused: ${weak}` });
           continue;
         }
         // The pin is the SHA-256 of the issuer's raw public key, in hex, as `howl key issue` prints it.
-        if (createHash("sha256").update(Buffer.from(by!, "base64url")).digest("hex") !== d.issuer) {
+        if (idOf(by!) !== d.issuer) {
           unmatchedKeys.add(d.key);
           faults.push({ line: n, reason: `key ${short(d.key)}: the issuer key does not hash to the issuer it names` });
           continue;
@@ -273,12 +301,23 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
           faults.push({ line: n, reason: `key ${short(d.key)}: its public key is refused: ${own}` });
           continue;
         }
+        // The key's id is the SHA-256 of its raw public key, as `issueKey` makes it.
+        if (idOf(d.public!) !== d.key) {
+          faults.push({ line: n, reason: `key ${short(d.key)}: its public key does not hash to its id` });
+          continue;
+        }
         const end = (["from", "until"] as const).find((e) => Number.isNaN(windowTime(d[e])));
         if (end !== undefined) {
           faults.push({ line: n, reason: `key ${short(d.key)}: its window cannot be read: ${end} ${d[end]} is not an ISO time with a zone` });
           continue;
         }
-        keys.set(d.key!, { data: d });
+        // A key keeps its first issue and its revocation.
+        const first = keys.get(d.key!);
+        if (first !== undefined) {
+          faults.push({ line: n, reason: `key ${short(d.key)}: the key is already issued on line ${first.line}` });
+          continue;
+        }
+        keys.set(d.key!, { data: d, line: n });
       } else {
         const known = keys.get(d.key ?? "");
         const issuerPublic = known?.data.issuer_public;
@@ -286,7 +325,14 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
           faults.push({ line: n, reason: `revocation of key ${short(d.key)}: the issuer's signature does not hold` });
           continue;
         }
-        known.revokedAt = Date.parse(d.at ?? event.time);
+        const at = d.at ?? event.time;
+        const t = windowTime(at);
+        if (Number.isNaN(t)) {
+          faults.push({ line: n, reason: `revocation of key ${short(d.key)}: its time cannot be read: at ${at} is not an ISO time with a zone` });
+          continue;
+        }
+        // The earliest revocation stands.
+        if (known.revokedAt === undefined || t < known.revokedAt) known.revokedAt = t;
       }
       continue;
     }

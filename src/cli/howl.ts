@@ -257,6 +257,12 @@ async function keyCommand(args: string[]): Promise<number> {
   const project = values.project ?? findProject(process.cwd())?.project;
   if (project === undefined) throw new UsageError("key needs --project, or a .howl/howl.yml above the working directory");
   const places = { configDir: configDir(project), keysDir: join(projectDir(project), "keys") };
+  if (sub === "issue" && values.hours !== undefined) {
+    // #199: a window past the year 9999 would be written in a form verify refuses.
+    const { LAST_WINDOW, PAST_LAST_WINDOW } = await import("../keys/keys.ts");
+    const hours = Number(values.hours);
+    if (hours > 0 && !(Date.now() + hours * 3600_000 <= LAST_WINDOW)) throw new UsageError(PAST_LAST_WINDOW);
+  }
   // #24: through keyd when it runs: it holds the keys; the session gets a token.
   const keyd = process.env.HOWL_KEYD;
   if (keyd) {

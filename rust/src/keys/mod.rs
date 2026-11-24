@@ -82,13 +82,17 @@ impl Issuer {
 /// A key issued on an earlier line: the data of its key.issued, and when it was revoked.
 struct Issued {
     data: Map<String, Value>,
-    /// The time of its revocation, NaN when Date.parse finds none.
+    /// The line it was issued on.
+    line: usize,
+    /// The time of its earliest revocation.
     revoked_at: Option<f64>,
 }
 
 /// The check, line by line, so that a ledger is read once.
 pub struct Signatures {
     keys: HashMap<Key, Issued>,
+    /// The line of each event id seen (#199, after the review): a copied line is refused.
+    ids: HashMap<String, usize>,
     /// The keys whose issue was refused because its issuer does not match.
     unmatched: HashSet<Key>,
     issuer: Issuer,
@@ -111,6 +115,7 @@ impl Signatures {
         };
         Signatures {
             keys: HashMap::new(),
+            ids: HashMap::new(),
             unmatched: HashSet::new(),
             issuer,
             check,
@@ -125,6 +130,14 @@ impl Signatures {
             .and_then(Value::as_object)
             .unwrap_or(&empty);
         let field = |name: &str| event.get(name);
+        if let Some(id) = field("id").and_then(Value::as_str) {
+            if let Some(seen) = self.ids.get(id) {
+                let reason = format!("the event {id} is already on line {seen}");
+                self.fault(n, reason);
+                return;
+            }
+            self.ids.insert(id.to_string(), n);
+        }
         let kind = field("type").and_then(Value::as_str).unwrap_or_default();
         let sig = field("sig").filter(|s| truthy(Some(s)));
         if kind == "key.issued" || kind == "key.revoked" {
@@ -141,12 +154,15 @@ impl Signatures {
                 }
                 let by = d.get("issuer_public");
                 if let Some(weak) = key_fault(by) {
+                    // A weak key that does not hash to the issuer named does not match it either.
+                    if by.and_then(Value::as_str).is_none_or(|text| !same(Some(&id_of(text)), d.get("issuer"))) {
+                        self.unmatched.extend(Key::of(d.get("key")));
+                    }
                     self.fault(n, format!("key {named}: the issuer key is refused: {weak}"));
                     return;
                 }
                 // The pin is the SHA-256 of the issuer's raw public key, in hex, as `howl key issue` prints it.
-                let raw = base64_decode(by.and_then(Value::as_str).unwrap_or_default());
-                let hash = Value::String(hex(&Sha256::digest(raw)));
+                let hash = id_of(by.and_then(Value::as_str).unwrap_or_default());
                 if !same(Some(&hash), d.get("issuer")) {
                     self.unmatched.extend(Key::of(d.get("key")));
                     let reason =
@@ -166,6 +182,12 @@ impl Signatures {
                     self.fault(n, format!("key {named}: its public key is refused: {weak}"));
                     return;
                 }
+                // The key's id is the SHA-256 of its raw public key, as `issueKey` makes it.
+                let id = id_of(d.get("public").and_then(Value::as_str).unwrap_or_default());
+                if !same(Some(&id), d.get("key")) {
+                    self.fault(n, format!("key {named}: its public key does not hash to its id"));
+                    return;
+                }
                 if let Some(end) = ["from", "until"]
                     .into_iter()
                     .find(|end| window_time(d.get(*end)).is_none())
@@ -177,11 +199,18 @@ impl Signatures {
                     self.fault(n, reason);
                     return;
                 }
+                // A key keeps its first issue and its revocation.
                 if let Some(key) = Key::of(d.get("key")) {
+                    if let Some(first) = self.keys.get(&key) {
+                        let reason = format!("key {named}: the key is already issued on line {}", first.line);
+                        self.fault(n, reason);
+                        return;
+                    }
                     self.keys.insert(
                         key,
                         Issued {
                             data: d.clone(),
+                            line: n,
                             revoked_at: None,
                         },
                     );
@@ -200,11 +229,22 @@ impl Signatures {
                         && truthy(public)
                         && signature_holds(event, public)
                 });
+                let at = d.get("at").filter(|a| !a.is_null()).or(field("time"));
                 match known {
-                    Some(known) if holds => {
-                        let at = d.get("at").filter(|a| !a.is_null()).or(field("time"));
-                        known.revoked_at = Some(time_of(at));
-                    }
+                    Some(known) if holds => match window_time(at) {
+                        // The earliest revocation stands.
+                        Some(t) => {
+                            known.revoked_at = Some(known.revoked_at.map_or(t, |r| r.min(t)));
+                        }
+                        None => {
+                            let reason = format!(
+                                "revocation of key {}: its time cannot be read: at {} is not an ISO time with a zone",
+                                short(d.get("key")),
+                                js_string(at)
+                            );
+                            self.fault(n, reason);
+                        }
+                    },
                     _ => {
                         let reason = format!(
                             "revocation of key {}: the issuer's signature does not hold",
@@ -323,6 +363,11 @@ pub fn public_key_fault(raw: &[u8]) -> Option<&'static str> {
         return Some("of small order");
     }
     None
+}
+
+/// The SHA-256 of a key in base64url, read as Node reads it, in hex: a key's id.
+fn id_of(text: &str) -> Value {
+    Value::String(hex(&Sha256::digest(base64_decode(text))))
 }
 
 /// Why a public key as a ledger line gives it (base64url, read as Node reads it) is refused, or None.
