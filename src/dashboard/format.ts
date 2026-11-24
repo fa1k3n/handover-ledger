@@ -8,7 +8,8 @@ import { concerns, duration } from "../read/words.ts";
 import type { Claim, Head, Session, Summary } from "../read/show.ts";
 import type { AgentRow } from "../read/state.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
-import type { LineSignature } from "../read/line.ts";
+import type { LineIssuer, LineSignature } from "../read/line.ts";
+import type { LedgerState } from "./api.ts";
 import type { Item } from "../serve/server.ts";
 import { waitsForPerson } from "../read/wait.ts";
 import { writingLine, type Writing } from "../read/writing-text.ts";
@@ -616,20 +617,25 @@ export function partTime(item: Item, timeZone?: string): { stated: string; by: s
 /**
  * #191, part 3: the actor, and the signature's result as `/api/line` gives it:
  * null when the line is not signed, undefined for a tool call, which is outside
- * the chain. A valid signature says no more than that it holds for the key
- * issued in this ledger: the issuer key is not tied to one kept apart.
+ * the chain. A valid signature says under which issuer it holds (#202): the
+ * pin the server was given, or only the issuer the ledger names, which anyone
+ * who can append to the file could have written. Without a pin nothing reads
+ * as known or pinned.
  */
-export function partIdentity(item: Item, signature: LineSignature | null | undefined): { actor: string; signature: string; limit: string | null; note: string | null } {
+export function partIdentity(item: Item, signature: LineSignature | null | undefined, issuer: LineIssuer): { actor: string; signature: string; limit: string | null; note: string | null } {
   const e = item.event;
   const t = texts.provenance.identity;
   const actor = e.actor ? `${e.actor.id} (${e.actor.kind === "person" ? "person, pseudonym" : e.actor.kind})` : t.noActor;
   const note = e.source.kind === "observed" && originOf(e) === "host" ? t.observed : null;
   if (item.from !== "ledger" || signature === undefined) return { actor, signature: t.tool, limit: null, note };
   if (signature === null) return { actor, signature: t.notSigned, limit: null, note };
-  // A key's issue or revocation is checked against the issuer key the line names itself, as given.
-  const issuer = e.type === "key.issued" || e.type === "key.revoked";
+  // A key's issue or revocation is checked against the issuer key the line names, which must be the pin when there is one.
+  const words = e.type === "key.issued" || e.type === "key.revoked" ? t.validIssuer : t.valid;
   const key = signature.key.slice(0, 12);
-  return { actor, signature: signature.ok ? (issuer ? t.validIssuer(key) : t.valid(key)) : t.invalid(signature.reason ?? "unknown"), limit: t.limit, note };
+  // `pinned` with no id is never read as a pin: the words need the pin itself.
+  const pin = issuer.pinned ? issuer.id : null;
+  const valid = pin !== null ? words.pinned(key, pin) : words.open(key);
+  return { actor, signature: signature.ok ? valid : t.invalid(signature.reason ?? "unknown"), limit: pin !== null ? t.limit.pinned : t.limit.open, note };
 }
 
 /** #191, part 5: what was dropped or not kept, by where the event comes from; and its data as kept, or null when it holds none. */
@@ -637,4 +643,10 @@ export function partKept(item: Item): { note: string; data: string | null } {
   const e = item.event;
   const data = e.data !== undefined && Object.keys(e.data).length > 0 ? JSON.stringify(e.data, null, 2) : null;
   return { note: texts.provenance.kept[originOf(e)], data };
+}
+
+/** #202: what the status bar says of the issuer, once: pinned or not. Nothing before the ledger's state is read. */
+export function barIssuer(ledger: LedgerState | null): string | null {
+  if (ledger === null) return null;
+  return ledger.pinned ? texts.stream.bar.pinned : texts.stream.bar.notPinned;
 }

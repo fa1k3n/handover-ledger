@@ -12,7 +12,8 @@ import { issueKey, readKey, signEvent } from "../src/keys/keys.ts";
 import { openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
 import type { Item } from "../src/serve/server.ts";
 import { startServer } from "../src/serve/server.ts";
-import { event, folder, howl, PROJECT } from "./helpers.ts";
+import { event, folder, howl, PROJECT, startHowl } from "./helpers.ts";
+import { observed, up } from "./up-helpers.ts";
 
 /** A built page of its own, so the tests need no build. */
 function page(): string {
@@ -174,7 +175,7 @@ test("#202: the status bar says issuer pinned or not pinned, and nothing before 
 });
 
 const PIN = "d".repeat(64);
-const sent = (type: string) => event({ type, source: { adapter: "test", kind: "claimed" }, actor: { kind: "agent", id: "agent-1" } });
+const sent = (type: LedgerEvent["type"]) => event({ type, source: { adapter: "test", kind: "claimed" }, actor: { kind: "agent", id: "agent-1" } });
 const asItem = (e: LedgerEvent) => ({ from: "ledger", n: 3, hash: "h", prev: "p", event: e, raw: "{}" }) as Item;
 
 test("#202: part 3 says valid for the key under the pinned issuer, with the pin whole", () => {
@@ -198,7 +199,7 @@ test("#202: part 3 says valid for the key under the issuer the ledger names (not
 
 test("#202: part 3 for a key's issue or revocation says the same of its issuer, in both cases", () => {
   const key = "b".repeat(64);
-  for (const type of ["key.issued", "key.revoked"]) {
+  for (const type of ["key.issued", "key.revoked"] as const) {
     const it = asItem(sent(type));
     assert.equal(partIdentity(it, { key, ok: true }, { id: PIN, pinned: true }).signature, `valid for the issuer key this line names (bbbbbbbbbbbb), under the pinned issuer ${PIN}`, type);
     const open = partIdentity(it, { key, ok: true }, { id: key, pinned: false }).signature;
@@ -223,5 +224,41 @@ test("#202: part 3 for an unsigned event or a tool call says nothing of the issu
     assert.equal(unsigned.limit, null);
     const tool = partIdentity({ ...asItem(sent("tool.used")), from: "activity" } as Item, undefined, issuer);
     assert.equal(tool.signature, texts.provenance.identity.tool);
+  }
+});
+
+test("#202: howl up --issuer starts a server that holds signatures to the pin, and without it nothing is pinned", async () => {
+  for (const pin of [undefined, "a".repeat(64)]) {
+    const running = await up(observed(), pin === undefined ? [] : ["--issuer", pin]);
+    try {
+      const body = (await (await fetch(`${running.url}/api/ledger`)).json()) as { pinned: boolean };
+      assert.equal(body.pinned, pin !== undefined, `up ${pin ?? "without a pin"}`);
+    } finally {
+      await running.stop();
+    }
+  }
+});
+
+test("#202: howl serve --issuer starts a server that holds signatures to the pin, and without it nothing is pinned", async () => {
+  const { ledger, issuer } = ledgerOfIssuer();
+  for (const pin of [undefined, issuer]) {
+    const child = startHowl(["serve", "--port", "0", "--ledger", ledger, ...(pin === undefined ? [] : ["--issuer", pin])], { env: { HOWL_HOME: folder() } });
+    try {
+      const url = await new Promise<string>((resolve, reject) => {
+        let out = "";
+        child.stdout.on("data", (d) => {
+          out += d;
+          const m = /howl serve: (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
+          if (m) resolve(m[1]!);
+        });
+        child.on("close", (status) => reject(new Error(`howl serve ended with ${status}`)));
+      });
+      const answer = await line(url, 3);
+      assert.deepEqual(answer.body.issuer, { id: issuer, pinned: pin !== undefined });
+      assert.equal(answer.body.signature?.ok, true);
+    } finally {
+      child.kill("SIGTERM");
+      await new Promise((resolve) => child.once("close", resolve));
+    }
   }
 });

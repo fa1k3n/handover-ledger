@@ -259,7 +259,8 @@ function IdentityPart({ item, answer }: { item: Item; answer: LineAnswer | undef
   const t = texts.provenance.identity;
   // While the line is read, its signature is not known yet: nothing is said of it.
   const waiting = item.from === "ledger" && answer === undefined;
-  const id = partIdentity(item, item.from === "ledger" ? (answer?.signature ?? null) : undefined);
+  // The issuer is the answer's: until it is read, the most restrictive words are never used, as nothing is said of the signature.
+  const id = partIdentity(item, item.from === "ledger" ? (answer?.signature ?? null) : undefined, answer?.issuer ?? { id: null, pinned: false });
   return (
     <>
       <Facts rows={[{ k: t.actor, v: id.actor }, ...(waiting ? [] : [{ k: t.signature, v: id.signature }])]} />

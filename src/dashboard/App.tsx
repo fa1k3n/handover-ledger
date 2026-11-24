@@ -9,7 +9,7 @@ import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
 import { EventDialog } from "./EventDialog.tsx";
-import { answerWanted, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, needsPersonItems, waitFilter, waitRowKeys, statusMark, markText, nameTaken, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
+import { answerWanted, barIssuer, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, needsPersonItems, waitFilter, waitRowKeys, statusMark, markText, nameTaken, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -803,6 +803,7 @@ function Stream({ agents, ledger, onError, project, served, unwritten }: { agent
             <span className={ledger !== null && !ledger.ok ? "font-medium text-error-ink" : ""}>
               {ledger === null ? texts.stream.bar.unknown : ledger.ok ? texts.stream.bar.verified(ledger.lines) : texts.stream.bar.broken(ledger.line)}
             </span>
+            {ledger !== null && <span>{barIssuer(ledger)}</span>}
             <span>{texts.stream.bar.displayed(items.length)}</span>
             <span>{tools ? texts.stream.bar.withTools : texts.stream.bar.evidenceOnly}</span>
             <span>{texts.stream.bar.people}</span>

@@ -55,6 +55,12 @@ export interface LineItem extends Read {
   signed?: { key: string; actor: string; task?: string; change?: string; role?: string; until: string; ok: boolean; reason?: string };
 }
 
+/** #202: the issuer the ledger's signatures were held to: the pin when the server was given one, else the issuer the ledger names first (null when no key was issued). */
+export interface LineIssuer {
+  id: string | null;
+  pinned: boolean;
+}
+
 export interface Provenance {
   item: LineItem;
   intact: boolean;
@@ -66,6 +72,8 @@ export interface Provenance {
   last: boolean;
   checkpoint: Covering | null;
   signature: LineSignature | null;
+  /** #202: beside the signature's result, whether the issuer was pinned and which issuer was used. */
+  issuer: LineIssuer;
   related: RelatedEvents;
 }
 
@@ -129,12 +137,12 @@ export interface Prepared {
   acting: Map<string, { agent: string }>;
 }
 
-export function prepareLines(ledger: string): Prepared {
+export function prepareLines(ledger: string, pin?: string): Prepared {
   const whole = readWhole(ledger);
   return {
     whole,
     // #200: every line that parses to an event, those left out too.
-    signatures: checkSignatures(whole.parsed),
+    signatures: checkSignatures(whole.parsed, pin),
     acting: actingAgents(whole.lines.map((r) => r.event)),
   };
 }
@@ -194,6 +202,7 @@ export function lineProvenance(ledger: string, prepared: Prepared, n: number, ve
     last: n === whole.bytes.length,
     checkpoint,
     signature,
+    issuer: { id: check.issuer, pinned: check.pinned },
     related: relatedEvents(whole.lines, n),
   };
 }

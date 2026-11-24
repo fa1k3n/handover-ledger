@@ -131,10 +131,10 @@ async function verifyCommand(args: string[]): Promise<number> {
   if (verdict.trial) console.log("a trial: it does not count as evidence");
   // #23: the signed claims, held to the keys issued for them.
   const { checkSignatures } = await import("../keys/keys.ts");
-  if (values.issuer !== undefined && !/^[0-9a-f]{64}$/.test(values.issuer)) throw new UsageError("--issuer must be a key id: 64 hex digits");
+  const pin = await issuerPin(values.issuer);
   const { ledgerLines } = await import("../read/reader.ts");
   const lines = ledgerLines(path, { first: true }).map((r) => ({ n: r.n!, event: r.event }));
-  const sigs = checkSignatures(lines, values.issuer);
+  const sigs = checkSignatures(lines, pin);
   // #199: whether the issuer is pinned is said in every case, so that "holds" is never read as "holds for a known issuer".
   const unmatched = sigs.unmatched > 0 ? `, ${sigs.unmatched} on an issuer that does not match` : "";
   const by = sigs.pinned ? `, issuer ${sigs.issuer} (pinned)` : sigs.issuer ? `, issuer ${sigs.issuer} (taken from the ledger, not pinned)` : ", issuer not pinned";
@@ -157,6 +157,13 @@ async function verifyCommand(args: string[]): Promise<number> {
     if (!result.ok) failed = true;
   }
   return failed ? 1 : 0;
+}
+
+/** #202: the pin `--issuer` gives, as `verify`, `up` and `serve` all read it: a key id of 64 hex digits, else a usage error. Absent: nothing is pinned. */
+async function issuerPin(value: string | undefined): Promise<string | undefined> {
+  const { PIN, PIN_REFUSED } = await import("../keys/keys.ts");
+  if (value !== undefined && !PIN.test(value)) throw new UsageError(PIN_REFUSED);
+  return value;
 }
 
 /** A checkpoint kept in a file, with its signature beside it (`<file>.sig`) when there is one. */
@@ -515,9 +522,12 @@ async function upCommand(args: string[]): Promise<number> {
     interval: { type: "string" },
     since: { type: "string" },
     "anchor-every": { type: "string" },
+    issuer: { type: "string" },
   });
   const port = values.port === undefined ? 4317 : Number(values.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError("--port must be a port number");
+  // #202: before the writer or anything else starts.
+  const issuer = await issuerPin(values.issuer);
   const { randomBytes } = await import("node:crypto");
   const { chmodSync, existsSync, readFileSync: read, rmSync, writeFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
@@ -577,6 +587,7 @@ async function upCommand(args: string[]): Promise<number> {
       defaultProject: o.project,
       port,
       root,
+      issuer,
       agents: await knownAgents(),
       write: {
         project: o.project,
@@ -802,9 +813,11 @@ async function traceReader(root: string) {
 }
 
 async function serveCommand(args: string[]): Promise<number> {
-  const { values } = parse(args, { ledger: { type: "string" }, project: { type: "string" }, all: { type: "boolean" }, port: { type: "string" } });
+  const { values } = parse(args, { ledger: { type: "string" }, project: { type: "string" }, all: { type: "boolean" }, port: { type: "string" }, issuer: { type: "string" } });
   const port = values.port === undefined ? 4317 : Number(values.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError("--port must be a port number");
+  // #202: before anything else, as `verify` reads it.
+  const issuer = await issuerPin(values.issuer);
   if (values.ledger !== undefined && values.all) throw new UsageError("give --ledger or --all, not both");
   // #54: one project unless --all asks for every one; the project is found before anything is started.
   const { howlHome, isProjectName } = await import("../ledger/place.ts");
@@ -827,18 +840,18 @@ async function serveCommand(args: string[]): Promise<number> {
   if (values.ledger !== undefined) {
     const { statSync } = await import("node:fs");
     statSync(values.ledger);
-    server = await startServer({ ledger: values.ledger, port, root, agents });
+    server = await startServer({ ledger: values.ledger, port, root, agents, issuer });
     console.log(`howl serve: ${server.url} (read-only, ${values.ledger})`);
   } else if (values.all) {
     // Every project of the howl home; first the one asked for, else that of the nearest howl.yml.
     const home = howlHome();
     const defaultProject = project;
-    server = await startServer({ home, defaultProject, port, root, agents });
+    server = await startServer({ home, defaultProject, port, root, agents, issuer });
     console.log(`howl serve: ${server.url} (read-only, every project in ${home}${defaultProject ? `, ${defaultProject} first` : ""})`);
   } else {
     // #54: the one project, and no other.
     const home = howlHome();
-    server = await startServer({ home, project, port, root, agents });
+    server = await startServer({ home, project, port, root, agents, issuer });
     console.log(`howl serve: ${server.url} (read-only, the project ${project} in ${home})`);
   }
   await new Promise<void>((resolve) => {
