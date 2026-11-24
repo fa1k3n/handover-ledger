@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fixedForm } from "../src/ledger/fixed.ts";
-import { openLedger } from "../src/ledger/ledger.ts";
+import { eventHash, fixedForm } from "../src/ledger/fixed.ts";
+import { openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
 import { ACTIVITY_TYPES } from "../src/ledger/schema.ts";
 import { event, howl, inboxFiles, lines, PROJECT, rawLines, startHowl, workspace, type Workspace } from "./helpers.ts";
 
@@ -125,6 +125,84 @@ test("an invalid file is moved to rejected/ with the reason, and the pass goes o
 
   assert.deepEqual(lines(ws.ledger).map((l) => l.event.id).slice(1), ["good"]);
   assert.ok(!existsSync(ws.activity));
+});
+
+/** A ledger in which a line holding `planted` has been written first, as someone who can append would. */
+function plant(ws: Workspace, planted: LedgerEvent): void {
+  const writer = openLedger(ws.ledger, { project: PROJECT });
+  writer.append(planted);
+  writer.close();
+}
+
+test("#203: an event whose id a planted line holds first is refused with the reason and kept in rejected/, never dropped as a duplicate", () => {
+  const ws = workspace();
+  const real = event({ id: "predicted", type: "session.started", session: "s" });
+  plant(ws, event({ id: "predicted", type: "session.stopped", session: "other" }));
+  const before = readFileSync(ws.ledger);
+  leave(ws, "0001-real.json", real);
+  leave(ws, "0002-next.json", event({ id: "next", type: "session.started", session: "t" }));
+
+  const result = ingest(ws);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /1 rejected/);
+  assert.doesNotMatch(result.stdout, /already in the ledger/);
+
+  assert.deepEqual(inboxFiles(ws.inbox), []);
+  const rejected = join(ws.inbox, "rejected");
+  assert.deepEqual(readdirSync(rejected).sort(), ["0001-real.json", "0001-real.json.reason"]);
+  assert.deepEqual(readFileSync(join(rejected, "0001-real.json")), fixedForm(real));
+  const reason = readFileSync(join(rejected, "0001-real.json.reason"), "utf8");
+  assert.match(reason, /predicted/);
+  assert.match(reason, /another event/);
+
+  // The pass went on, and the planted line is untouched.
+  assert.deepEqual(readFileSync(ws.ledger).subarray(0, before.length), before);
+  assert.deepEqual(lines(ws.ledger).map((l) => l.event.id).slice(1), ["predicted", "next"]);
+  assert.equal(lines(ws.ledger)[1]?.event.type, "session.stopped");
+});
+
+test("#203: a planted line that names the hash of the real event beside its own event does not make the real event a duplicate", () => {
+  const ws = workspace();
+  const real = event({ id: "predicted", type: "session.started", session: "s" });
+  const planted = event({ id: "predicted", type: "session.stopped", session: "other" });
+  plant(ws, planted);
+  writeFileSync(ws.ledger, readFileSync(ws.ledger, "utf8").replace(`"hash":"${eventHash(planted)}"`, `"hash":"${eventHash(real)}"`));
+  leave(ws, "0001.json", real);
+
+  const result = ingest(ws);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /1 rejected/);
+  assert.deepEqual(readdirSync(join(ws.inbox, "rejected")).sort(), ["0001.json", "0001.json.reason"]);
+});
+
+test("#203: an activity event whose id a line of the ledger holds for another event is refused too", () => {
+  const ws = workspace();
+  plant(ws, event({ id: "predicted", type: "session.started" }));
+  leave(ws, "0001.json", event({ id: "predicted", type: "tool.used", time: new Date().toISOString(), data: { tool: "Read" } }));
+
+  const result = ingest(ws);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /1 rejected/);
+  assert.deepEqual(readdirSync(join(ws.inbox, "rejected")).sort(), ["0001.json", "0001.json.reason"]);
+  assert.ok(!existsSync(ws.activity));
+});
+
+test("#203: the same event ingested twice is dropped as a duplicate, also when its keys come in another order, and nothing is refused", () => {
+  const ws = workspace();
+  const e = event({ id: "once", type: "session.started", session: "s" });
+  leave(ws, "0001.json", e);
+  assert.equal(ingest(ws).status, 0);
+  const before = readFileSync(ws.ledger);
+
+  leave(ws, "0002.json", e);
+  leave(ws, "0003.json", JSON.stringify(Object.fromEntries(Object.entries(e).reverse())));
+  const result = ingest(ws);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /2 already in the ledger/);
+  assert.match(result.stdout, /0 rejected/);
+  assert.deepEqual(inboxFiles(ws.inbox), []);
+  assert.ok(!existsSync(join(ws.inbox, "rejected")));
+  assert.deepEqual(readFileSync(ws.ledger), before);
 });
 
 test("files under a temporary name are left for the next pass", () => {

@@ -1,7 +1,7 @@
 // The ledger file and its writer: the tests of issues #1 and #5.
 // @code_class tests
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { eventHash, fixedForm } from "../src/ledger/fixed.ts";
@@ -204,4 +204,60 @@ test("a place that would follow the working directory is refused", () => {
   assert.throws(() => ledgerPath(PROJECT, { HOWL_HOME: "state" }, "/home/nobody"), LedgerError);
   assert.throws(() => ledgerPath("../elsewhere", { HOWL_HOME: "/var/howl" }, "/home/nobody"), LedgerError);
   assert.throws(() => ledgerPath("a/b", { HOWL_HOME: "/var/howl" }, "/home/nobody"), LedgerError);
+});
+
+test("#203: append refuses an event whose id is taken by another event, and says so; the same event again is refused as written already", () => {
+  const path = ledgerWith(0);
+  const writer = openLedger(path, { project: PROJECT });
+  const first = event({ id: "taken", type: "session.started" });
+  writer.append(first);
+  const before = readFileSync(path);
+
+  const other = event({ id: "taken", type: "session.stopped" });
+  assert.throws(
+    () => writer.append(other),
+    (e: unknown) => e instanceof LedgerError && /taken/.test(e.message) && /another event/.test(e.message),
+  );
+  assert.throws(
+    () => writer.append(first),
+    (e: unknown) => e instanceof LedgerError && /already/.test(e.message) && !/another event/.test(e.message),
+  );
+  writer.close();
+  assert.deepEqual(readFileSync(path), before);
+});
+
+test("#203: holds says whether the ledger has this event, another event under its id, or nothing, also for a ledger opened again", () => {
+  const path = ledgerWith(0);
+  const written = event({ id: "written", type: "session.started" });
+  const writer = openLedger(path, { project: PROJECT });
+  writer.append(written);
+  assert.equal(writer.holds(written), "same");
+  assert.equal(writer.holds({ ...written, type: "session.stopped" }), "other");
+  assert.equal(writer.holds(event({ id: "free" })), "none");
+  writer.close();
+
+  const again = openLedger(path, { project: PROJECT });
+  // The same event in another order of its keys is the same event: the fixed form is the same.
+  const shuffled = Object.fromEntries(Object.entries(written).reverse()) as unknown as LedgerEvent;
+  assert.equal(again.holds(shuffled), "same");
+  assert.equal(again.holds({ ...written, session: "s" }), "other");
+  assert.equal(again.holds(event({ id: "free" })), "none");
+  again.close();
+});
+
+test("#203: holds goes by the event in the line, never by the hash written beside it", () => {
+  const path = ledgerWith(0);
+  const real = event({ id: "predicted", type: "session.started" });
+  const planted = event({ id: "predicted", type: "session.stopped" });
+  const writer = openLedger(path, { project: PROJECT });
+  writer.append(planted);
+  writer.close();
+  // The line of the planted event now names the hash of the real one.
+  const text = readFileSync(path, "utf8").replace(`"hash":"${eventHash(planted)}"`, `"hash":"${eventHash(real)}"`);
+  writeFileSync(path, text);
+
+  const again = openLedger(path, { project: PROJECT });
+  assert.equal(again.holds(real), "other");
+  assert.equal(again.holds(planted), "same");
+  again.close();
 });
