@@ -42,7 +42,7 @@ export const texts = {
     narrow: (field: string, value: string) => `Show only ${field} ${value}`,
     apply: "Apply",
     clear: "Clear",
-    cols: { status: "Status", project: "Project", repo: "Repository", line: "Line", time: "Time", actor: "Actor", type: "Type", subject: "Subject", establishedBy: "Established by", detail: "Detail" },
+    cols: { status: "Status", signature: "Signature", project: "Project", repo: "Repository", line: "Line", time: "Time", actor: "Actor", type: "Type", subject: "Subject", establishedBy: "Established by", detail: "Detail" },
     marks: { waits: "Waits for a person", failed: "Checks failed", merged: "Merged" },
     origin: { SOURCE: "Source: observed by an adapter", CLAIM: "Claim: sent by a session about itself", UNKNOWN: "Unknown kind" },
     builtIn: [
@@ -69,6 +69,13 @@ export const texts = {
       notPinned: "issuer not pinned",
     },
     showEvent: (what: string) => `Show event ${what}`,
+    /** #210: the control that opens the whole detail of a row in place. */
+    showDetail: (what: string) => `Show the whole detail of line ${what}`,
+    hideDetail: (what: string) => `Hide the whole detail of line ${what}`,
+    /** #210: what a signed row says of its signature; never more than the server's verdict. */
+    signature: { pinned: "signed, pinned issuer", open: "signed, issuer not pinned", fault: "signature does not hold" },
+    /** #210: a filter for a server with no pin. */
+    signedNotPinned: { name: "Signed, not pinned", expression: "has(event.sig)" },
     /** #190: the band of what needs a person, above the list. */
     band: {
       heading: (n: number, project: string | null) => `Needs a person · ${n}${project === null ? "" : ` · ${project}`}`,

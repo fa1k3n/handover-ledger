@@ -472,11 +472,40 @@ export function statusMark(item: Item): "◷" | "!" | "✓" | "" {
   return "";
 }
 
+/** #210: the longest detail a row shows; a longer one is cut with "…". */
+export const DETAIL_CUT = 80;
+
+/** #210: a row's detail for one line, and whether it was cut. The cut is by whole characters. */
+export function cutDetail(text: string): { text: string; cut: boolean } {
+  const chars = Array.from(text);
+  if (chars.length <= DETAIL_CUT) return { text, cut: false };
+  return { text: `${chars.slice(0, DETAIL_CUT).join("")}…`, cut: true };
+}
+
+/**
+ * #210: the mark of a row's signature, from the server's verdict alone. "pinned"
+ * only when the server holds a pin and the signature holds under it; an event the
+ * server gave no verdict for has none. `pinned` null (the ledger's state not read
+ * yet) is taken as not pinned, the weaker claim.
+ */
+export function signatureMark(item: Item, pinned: boolean | null): { kind: "pinned" | "open" | "fault" | "none"; glyph: string; text: string } {
+  const s = item.signed;
+  if (s === undefined) return { kind: "none", glyph: "", text: "" };
+  const t = texts.stream.signature;
+  if (!s.ok) return { kind: "fault", glyph: "!", text: t.fault };
+  return pinned === true ? { kind: "pinned", glyph: "●", text: t.pinned } : { kind: "open", glyph: "○", text: t.open };
+}
+
 export type SavedFilter = { name: string; expression: string };
 
 /** #189: the filters every reader has, in order. The first shows everything. */
 export function builtInFilters(): SavedFilter[] {
   return texts.stream.builtIn.map((f) => ({ name: f.name, expression: f.expression }));
+}
+
+/** #210: the built-in filters, with "Signed, not pinned" where the server is known to serve no pin. */
+export function filtersFor(pinned: boolean | null): SavedFilter[] {
+  return pinned === false ? [...builtInFilters(), { ...texts.stream.signedNotPinned }] : builtInFilters();
 }
 
 /** #189: the filters a reader saved, read from the stored text. A broken value gives none; a broken entry is left out. */
@@ -516,7 +545,7 @@ export function markText(mark: string): string {
 
 /** #189: whether a name is a built-in filter's. A saved name that is there is replaced, so it is not taken. */
 export function nameTaken(name: string, _saved: SavedFilter[]): boolean {
-  return builtInFilters().some((f) => f.name === name.trim());
+  return [...builtInFilters(), texts.stream.signedNotPinned].some((f) => f.name === name.trim());
 }
 
 /** #190: one item of the band of what needs a person. */
