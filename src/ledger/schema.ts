@@ -36,6 +36,21 @@ export function lineFaults(value: unknown): string[] {
   return faults(validateLine, value, "a line");
 }
 
+/** How many characters of a field's name a reason shows. */
+const SHOWN = 64;
+
+/**
+ * A field name from a line, as a reason shows it (#200): the name is the ledger's, not howl's, and reaches a terminal and a page. A plain
+ * name (letters, digits, `_`, `.` and `-`, at most 64) stands as it is. Any other is quoted, cut at 64 characters with `…`, and its control
+ * characters, the marks of direction and the line separators written as `\uXXXX`.
+ */
+export function shown(name: string): string {
+  if (/^[A-Za-z0-9_.-]{1,64}$/.test(name)) return name;
+  const chars = [...name];
+  const text = chars.slice(0, SHOWN).join("") + (chars.length > SHOWN ? "…" : "");
+  return JSON.stringify(text).replace(/[\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
 function faults(validate: ValidateFunction, value: unknown, what: string): string[] {
   if (validate(value)) return [];
   const found = (validate.errors ?? [])
@@ -46,7 +61,7 @@ function faults(validate: ValidateFunction, value: unknown, what: string): strin
       const at = (field: string) => [where, field].filter(Boolean).join(".");
       switch (e.keyword) {
         case "additionalProperties":
-          return `${at(e.params.additionalProperty)}: not a field of ${what}`;
+          return `${at(shown(e.params.additionalProperty))}: not a field of ${what}`;
         case "required":
           return `${at(e.params.missingProperty)}: missing`;
         case "not":

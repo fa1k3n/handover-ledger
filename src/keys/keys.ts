@@ -257,12 +257,15 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 
 /**
  * #200: why a line cannot be checked, or null when it can: a field this check reads is missing or of the wrong kind.
- * A line the schema refuses is a fault of that line and is never thrown; the readers pass such a line over before
- * they come here, and this holds when a caller does not.
+ * Such a line is a fault of that line and is never thrown. A key's issue or revocation is not asked: it is checked as
+ * it always was, whatever else the schema refuses in it, so that nothing can hide it by a field it does not know.
  */
 function unreadable(event: unknown): string | null {
   if (!isObject(event)) return "the line holds no event";
-  for (const field of ["id", "time", "type"]) if (typeof event[field] !== "string" || event[field] === "") return `${field}: ${event[field] === undefined ? "missing" : "not a text"}`;
+  for (const field of ["id", "time", "type"]) {
+    const value = event[field];
+    if (typeof value !== "string" || value === "") return `${field}: ${value === undefined ? "missing" : value === "" ? "empty" : "not a text"}`;
+  }
   const { source, sig } = event;
   if (source === undefined) return "source: missing";
   if (!isObject(source)) return "source: not an object";
@@ -283,9 +286,14 @@ function unreadable(event: unknown): string | null {
  * its revocation, and the key's agent, task and change. A key's issue needs
  * an issuer key that is a key of Ed25519 and hashes to the issuer the line
  * names (#199), the issuer's signature, a public key of Ed25519, and a window
- * whose ends are ISO times with a zone. A line that lacks a field this check
- * reads, or holds it of the wrong kind, is a fault of that line (#200): it is
- * named, has no verdict, and changes none of another line's.
+ * whose ends are ISO times with a zone. It is given every line that parses to
+ * an event, also one that the readers leave out of their lists because the
+ * schema refuses it (#200): a key's issue or revocation is checked as it
+ * always was, whatever else is wrong with it, so that a revocation or the first
+ * issuer cannot be hidden by a field the schema refuses. Any other line that
+ * lacks a field this check reads, or holds it of the wrong kind, is a fault of
+ * that line: it is named, has no verdict, takes no id, and changes none of
+ * another line's.
  */
 export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?: string): SignatureCheck {
   const keys = new Map<string, { data: Record<string, string>; line: number; revokedAt?: number }>();
@@ -302,7 +310,8 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
   const byLine: SignatureCheck["byLine"] = new Map();
 
   for (const { n, event } of lines) {
-    const faulty = unreadable(event);
+    const keyLine = isObject(event) && (event.type === "key.issued" || event.type === "key.revoked");
+    const faulty = keyLine ? null : unreadable(event);
     if (faulty !== null) {
       // Left out: not counted, and its id is not taken, so that no good line is read as a copy of it.
       faults.push({ line: n, reason: `the line cannot be checked: ${faulty}` });

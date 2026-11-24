@@ -385,7 +385,7 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
                     continue;
                 }
                 if additional.always == Some(false) {
-                    found.push(format!("{}: not a field of {what}", field(key)));
+                    found.push(format!("{}: not a field of {what}", field(&shown(key))));
                 } else {
                     let mut inner = at.to_vec();
                     inner.push(key);
@@ -425,6 +425,46 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
     } else if one == Some(Type::Object) {
         found.push(type_fault());
     }
+}
+
+/// A field name from a line, as a reason shows it (#200): the name is the ledger's, not howl's, and reaches a terminal and a page. A
+/// plain name (letters, digits, `_`, `.` and `-`, at most 64) stands as it is. Any other is quoted as JSON writes a text, cut at 64
+/// characters with `…`, and its control characters, the marks of direction and the line separators are written as `\uXXXX`.
+fn shown(name: &str) -> String {
+    let count = name.chars().count();
+    if (1..=64).contains(&count)
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+    {
+        return name.to_string();
+    }
+    let mut out = String::from("\"");
+    for c in name.chars().take(64) {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{0}'..='\u{1f}'
+            | '\u{7f}'..='\u{9f}'
+            | '\u{200e}'
+            | '\u{200f}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{2069}' => out.push_str(&format!("\\u{:04x}", c as u32)),
+            _ => out.push(c),
+        }
+    }
+    if count > 64 {
+        out.push('…');
+    }
+    out.push('"');
+    out
 }
 
 /// Whether `value` holds against `node`, with no faults kept.

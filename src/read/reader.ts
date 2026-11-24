@@ -95,7 +95,7 @@ export class Tail {
  * of a ledger that is left out is added to `faulty` (#200): an event is read only when the event schema accepts it,
  * so that no reader meets an event that lacks a field it expects. A line of the activity file is left out unnamed.
  */
-function parseLines(raws: string[], from: Read["from"], before = 0, faulty: FaultyLine[] = []): Read[] {
+function parseLines(raws: string[], from: Read["from"], before = 0, faulty: FaultyLine[] = [], parsed?: Checkable[]): Read[] {
   const found: Read[] = [];
   const left = (i: number, reason: string) => {
     if (from === "ledger") faulty.push({ line: before + i + 1, reason });
@@ -110,11 +110,31 @@ function parseLines(raws: string[], from: Read["from"], before = 0, faulty: Faul
     }
     const event = from === "ledger" ? value?.event : value;
     if (event === null || typeof event !== "object" || Array.isArray(event)) return left(i, "the line holds no event");
-    const faults = eventFaults(event);
+    // #200: the check of signatures is given every line that parses to an event, also one that is left out: a key's issue or revocation whose
+    // `sig` alone was changed still has its effect, and no field the schema refuses can hide it.
+    parsed?.push({ n: before + i + 1, event });
+    // #200: a line is also held to the shape of the line where a reader copies it on: `hash` a text, `prev` a text or null.
+    const shape = from === "ledger" ? shapeFaults(value) : [];
+    const faults = [...shape, ...eventFaults(event)];
     if (faults.length > 0) return left(i, reasonOf(faults));
     // The keys in the order the server has always sent them.
     found.push(from === "ledger" ? { n: before + i + 1, from, hash: value!.hash, prev: value!.prev, event, raw } : { from, event, raw });
   });
+  return found;
+}
+
+/** A line of the ledger as the check of signatures is given it. */
+export interface Checkable {
+  n: number;
+  event: LedgerEvent;
+}
+
+/** What is wrong with the shape of a line that a reader copies on: `hash` is no text, or `prev` is no text or null. A text that is no hash is read: `howl verify` names it. */
+function shapeFaults(value: unknown): string[] {
+  const line = value as { hash?: unknown; prev?: unknown };
+  const found: string[] = [];
+  if (typeof line.hash !== "string") found.push(line.hash === undefined ? "line: hash: missing" : "line: hash: not a text");
+  if (line.prev !== null && typeof line.prev !== "string") found.push(line.prev === undefined ? "line: prev: missing" : "line: prev: not a text or null");
   return found;
 }
 
@@ -125,6 +145,8 @@ export interface Whole {
   lines: Read[];
   /** The lines it left out, and why (#200). */
   faulty: FaultyLine[];
+  /** Every line that parses to an event, those left out too: what the check of signatures is given (#200). */
+  parsed: Checkable[];
 }
 
 /**
@@ -135,13 +157,15 @@ export interface Whole {
 export function readWhole(ledger: string): Whole {
   const bytes = wholeLines(readFileSync(ledger));
   const faulty: FaultyLine[] = [];
+  const parsed: Checkable[] = [];
   const lines = parseLines(
     bytes.map((b) => b.toString("utf8")),
     "ledger",
     0,
     faulty,
+    parsed,
   );
-  return { bytes, lines, faulty };
+  return { bytes, lines, faulty, parsed };
 }
 
 /**
@@ -153,10 +177,11 @@ export function ledgerLines(ledger: string, options: { first?: boolean } = {}): 
   return readLedger(ledger, options).lines;
 }
 
-/** `ledgerLines`, with the lines it left out (#200). */
-export function readLedger(ledger: string, options: { first?: boolean } = {}): { lines: Read[]; faulty: FaultyLine[] } {
-  const { lines, faulty } = readWhole(ledger);
-  return { lines: options.first ? lines : lines.filter((r) => r.event.type !== "ledger.created"), faulty };
+/** `ledgerLines`, with the lines it left out, and the lines the check of signatures is given (#200): those of the list, and those left out. */
+export function readLedger(ledger: string, options: { first?: boolean } = {}): { lines: Read[]; faulty: FaultyLine[]; parsed: Checkable[] } {
+  const { lines, faulty, parsed } = readWhole(ledger);
+  const kept = (e: { type?: unknown }) => options.first || e.type !== "ledger.created";
+  return { lines: lines.filter((r) => kept(r.event)), faulty, parsed: parsed.filter((p) => kept(p.event)) };
 }
 
 /** The lines of the activity file beside a ledger, in the order of the file. None when there is no file. */
