@@ -173,3 +173,78 @@ test("#203 B: an observer started again over its ledger passes over its observe.
   assert.deepEqual(rawLines(ws.ledger), before);
   assert.ok(!existsSync(join(ws.inbox, "rejected")));
 });
+
+/** A change of the local host with what a test changes. */
+const change = (over: Record<string, unknown> = {}) =>
+  ({ number: 10, branch: "feature", openedAt: at(2), openedBy: { login: "agent-bot" }, head: { sha: SHA.a, at: at(2) }, tasks: [], reviews: [], updatedAt: at(2), ...over }) as never;
+
+const rejectedOf = (ws: Workspace) => (existsSync(join(ws.inbox, "rejected")) ? readdirSync(join(ws.inbox, "rejected")).sort() : []);
+const typesOf = (ws: Workspace) => lines(ws.ledger).map((l) => l.event.type);
+
+test("#203 B: a task that the host links to a change after it was written is not a plant: no warning, nothing refused, nothing new", () => {
+  const { ws, host } = setup();
+  const review = { id: "r-1", by: { login: "bob" }, state: "approved", at: at(5), sha: SHA.a };
+  host.change(change({ reviews: [review], updatedAt: at(5) }));
+  assert.equal(observe(ws).status, 0);
+  const before = rawLines(ws.ledger);
+  // The text of the change is edited to name task 7: the host now links it, and the change is updated.
+  host.change(change({ tasks: [7], reviews: [review], updatedAt: at(40) }));
+  const again = observe(ws);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.stderr, "");
+  assert.deepEqual(rejectedOf(ws), []);
+  assert.deepEqual(rawLines(ws.ledger), before);
+});
+
+test("#203 B: the end of a commit's checks under a planted id is warned of, not passed over in silence", () => {
+  // The control: the same change without the plant gets its checks.none.
+  const control = setup();
+  control.host.change(change({ mergedAt: at(30), mergedBy: { login: "carol" }, closedAt: at(30), updatedAt: at(30) }));
+  assert.equal(observe(control.ws).status, 0);
+  assert.ok(typesOf(control.ws).includes("checks.none"), "without a plant checks.none is written");
+
+  const { ws, host } = setup();
+  host.change(change({ mergedAt: at(30), mergedBy: { login: "carol" }, closedAt: at(30), updatedAt: at(30) }));
+  const id = `local:4242:checks:${SHA.a}:none`;
+  plant(ws, claim({ id }));
+  const result = observe(ws);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, new RegExp(id));
+  assert.equal(rejectedOf(ws).length, 2);
+  assert.ok(typesOf(ws).includes("change.merged"), "the round went on");
+  assert.equal(lines(ws.ledger).find((l) => l.event.id === id)?.event.type, "session.started");
+});
+
+test("#203 B: a review the host no longer lists, under a planted id, is warned of, not passed over in silence", () => {
+  const dismissed = { id: "d1", review: "r-9", state: "changes_requested", by: { login: "carol" }, at: at(15), reviewed: { by: { login: "bob" }, at: at(10), sha: SHA.a } };
+  const control = setup();
+  control.host.change(change({ dismissals: [dismissed], updatedAt: at(15) }));
+  assert.equal(observe(control.ws).status, 0);
+  assert.ok(lines(control.ws.ledger).some((l) => l.event.id === "local:4242:review:r-9" && l.event.type === "review.changes_requested"), "without a plant the review is written");
+
+  const { ws, host } = setup();
+  host.change(change({ dismissals: [dismissed], updatedAt: at(15) }));
+  const id = "local:4242:review:r-9";
+  plant(ws, claim({ id }));
+  const result = observe(ws);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, new RegExp(id));
+  assert.equal(rejectedOf(ws).length, 2);
+  assert.ok(typesOf(ws).includes("review.dismissed"), "the round went on");
+});
+
+test("#203 B: the warning says whether the line is of this host and observed, and in what it differs", () => {
+  const foreign = setup();
+  plant(foreign.ws, claim({ id: ID }));
+  const a = observe(foreign.ws);
+  assert.match(a.stderr, /not of this host and observed/);
+  assert.match(a.stderr, /claude-code-hook/);
+
+  const own = setup();
+  plant(own.ws, claim({ id: ID, type: "change.merged", time: at(99), source: { adapter: "local", kind: "observed" }, change: "10" }));
+  const b = observe(own.ws);
+  assert.match(b.stderr, /of this host, observed/);
+  assert.match(b.stderr, /differs in time/);
+  const reason = readdirSync(join(own.ws.inbox, "rejected")).find((n) => n.endsWith(".reason"))!;
+  assert.match(readFileSync(join(own.ws.inbox, "rejected", reason), "utf8"), /differs in time/);
+});
