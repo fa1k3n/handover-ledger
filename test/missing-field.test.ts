@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { checkSignatures, issueKey, readKey, revokeKey, signEvent } from "../src/keys/keys.ts";
 import { eventHash } from "../src/ledger/fixed.ts";
-import { hashLine, type LedgerEvent } from "../src/ledger/ledger.ts";
+import { hashLine, openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
 import { activityBeside, activityLines, ledgerLines, readAll, readWhole, Tail } from "../src/read/reader.ts";
 import { startServer } from "../src/serve/server.ts";
 import { event, folder, howl, PROJECT, rawLines, writeLines } from "./helpers.ts";
@@ -240,6 +240,175 @@ test("#200: no field of a line, left out or of the wrong kind, makes the check o
   }
   assert.ok(tried > 200);
 });
+
+test("#200: the reader gives the check of signatures every line that parses to an object with an event, also one it leaves out", () => {
+  const ledger = damaged(DAMAGED, (e) => delete e.source);
+  const whole = readWhole(ledger);
+  assert.ok(whole.parsed.some((p) => p.n === DAMAGED), "the refused line is given to the check of signatures");
+  assert.ok(!whole.lines.some((r) => r.n === DAMAGED), "and left out of the lines");
+  assert.equal(whole.parsed.length, rawLines(ledger).length);
+});
+
+test("#200: a line that lacks a field the check reads and is no key's issue or revocation gives its reason, and an empty id is said to be empty", () => {
+  const { lines } = signed("after");
+  const bad = lines.map((l) => (l.n === 4 ? { n: 4, event: { ...l.event, id: "" } as LedgerEvent } : l));
+  const check = checkSignatures(bad);
+  assert.match(check.faults.find((f) => f.line === 4)?.reason ?? "", /id: empty/);
+});
+
+// --- a line left out never changes what a key's issue or revocation did -------------------------------------------
+
+/** A key issued (line 2), a claim signed in time (3), the key revoked (4), a claim signed after the revocation (5). */
+function revoked(): string {
+  const dir = folder();
+  const places = { configDir: join(dir, "config"), keysDir: join(dir, "keys") };
+  const issued = issueKey(PROJECT, { actor: "agent-1", hours: 24 }, places, new Date("2026-01-02T00:00:00Z"));
+  const key = readKey(issued.file);
+  const claim = (time: string) => signEvent(event({ type: "session.started", source: { adapter: "test", kind: "claimed" }, actor: { kind: "agent", id: "agent-1" }, time }), key);
+  const ledger = join(dir, "ledger.jsonl");
+  const w = openLedger(ledger, { project: PROJECT });
+  w.append(issued.event);
+  w.append(claim("2026-01-02T01:00:00Z"));
+  w.append(revokeKey(PROJECT, issued.keyId, places, new Date("2026-01-02T02:00:00Z")));
+  w.append(claim("2026-01-02T03:00:00Z"));
+  w.close();
+  return ledger;
+}
+
+/** Issuer A's issue of a key (line 2), issuer B's issue of another key for the same agent (3), a claim signed with B's key (4). */
+function swapped(): string {
+  const dir = folder();
+  const a = issueKey(PROJECT, { actor: "agent-1", hours: 24 }, { configDir: join(dir, "config-a"), keysDir: join(dir, "keys-a") }, new Date("2026-01-02T00:00:00Z"));
+  const b = issueKey(PROJECT, { actor: "agent-1", hours: 24 }, { configDir: join(dir, "config-b"), keysDir: join(dir, "keys-b") }, new Date("2026-01-02T00:00:00Z"));
+  const claim = signEvent(event({ type: "session.started", source: { adapter: "test", kind: "claimed" }, actor: { kind: "agent", id: "agent-1" }, time: "2026-01-02T01:00:00Z" }), readKey(b.file));
+  const ledger = join(dir, "ledger.jsonl");
+  const w = openLedger(ledger, { project: PROJECT });
+  w.append(a.event);
+  w.append(b.event);
+  w.append(claim);
+  w.close();
+  return ledger;
+}
+
+const sigOf = (e: Record<string, unknown>) => e.sig as Record<string, unknown>;
+
+for (const [name, change] of [
+  ["a field the schema does not know added to its sig", (e: Record<string, unknown>) => (e.sig = { ...sigOf(e), x: 1 })],
+  ["its sig key in capitals", (e: Record<string, unknown>) => (e.sig = { ...sigOf(e), key: String(sigOf(e).key).toUpperCase() })],
+] as const) {
+  test(`#200: a revocation with ${name} still revokes: the claim after it is not valid, as without the change`, async () => {
+    const base = revoked();
+    const ledger = damaged(4, change, base);
+    await withServer({ ledger }, async (url) => {
+      const events = await get<{ events: (Listed & { signed?: { ok: boolean; reason?: string } })[] }>(url, "/api/events");
+      assert.equal(events.status, 200, events.body.error);
+      const later = events.body.events.find((i) => i.n === 5)!;
+      assert.equal(later.signed?.ok, false, "signed after the key was revoked");
+      assert.match(later.signed?.reason ?? "", /revoked/);
+      assert.equal(events.body.events.find((i) => i.n === 3)!.signed?.ok, true, "the claim before it still holds");
+      assert.ok(!events.body.events.some((i) => i.n === 4), "the line itself is left out of the list");
+      assert.deepEqual(
+        events.body.faulty?.map((f) => f.line),
+        [4],
+      );
+      const one = await get<{ signature: { ok: boolean; reason?: string } }>(url, "/api/line?line=5");
+      assert.equal(one.status, 200, one.body.error);
+      assert.equal(one.body.signature.ok, false);
+      assert.match(one.body.signature.reason ?? "", /revoked/);
+    });
+  });
+}
+
+test("#200: an issue with a field added to its sig is not left out of the issuer: a key another issuer made has no valid issue", async () => {
+  const ledger = damaged(2, (e) => (e.sig = { ...sigOf(e), x: 1 }), swapped());
+  await withServer({ ledger }, async (url) => {
+    const events = await get<{ events: (Listed & { signed?: { ok: boolean; reason?: string } })[] }>(url, "/api/events");
+    assert.equal(events.status, 200, events.body.error);
+    const claim = events.body.events.find((i) => i.n === 4)!;
+    assert.equal(claim.signed?.ok ?? false, false, "not valid");
+    const one = await get<{ signature: { ok: boolean; reason?: string } }>(url, "/api/line?line=4");
+    assert.equal(one.body.signature.ok, false);
+    assert.match(one.body.signature.reason ?? "", /no valid issue/);
+  });
+});
+
+// --- a field name from the ledger is quoted, escaped and cut ------------------------------------------------------
+
+const ESCAPES = "\u001b[2J\u001b[31mFORGED\u001b[0m\nhowl: ok\u009b\u2028";
+const LONG = "x".repeat(200_000);
+const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/;
+
+test("#200: a field name with escape sequences and a line break comes into a reason quoted and escaped, in the reader, the answers, the commands and verify", async () => {
+  const ledger = damaged(DAMAGED, (e) => ((e as Record<string, unknown>)[ESCAPES] = 1));
+  const reason = readWhole(ledger).faulty[0]!.reason;
+  assert.ok(!CONTROL.test(reason) && !reason.includes("\n"), JSON.stringify(reason));
+  assert.match(reason, /^"\\u001b\[2J/);
+  await withServer({ ledger }, async (url) => {
+    const text = await (await fetch(`${url}/api/events`)).text();
+    assert.ok(!CONTROL.test(text.replaceAll("\n", "")));
+  });
+  for (const args of [["status"], ["show", "12", "--utc"], ["watch", "--no-follow", "--utc"], ["verify"]]) {
+    const run = howl([...args, "--ledger", ledger]);
+    const said = args[0] === "verify" ? run.stdout : run.stderr;
+    assert.ok(!CONTROL.test(said), `${args[0]}: a raw control character`);
+    assert.ok(!said.split("\n").some((l) => l.startsWith("howl: ok")), `${args[0]}: a line of its own`);
+    assert.match(said, /not a field of an event/);
+  }
+});
+
+test("#200: a field name of 200,000 characters is cut in every answer and command", async () => {
+  const ledger = damaged(DAMAGED, (e) => ((e as Record<string, unknown>)[LONG] = 1));
+  const reason = readWhole(ledger).faulty[0]!.reason;
+  assert.ok(reason.length < 120, `${reason.length} characters`);
+  assert.ok(reason.includes("…"));
+  await withServer({ ledger }, async (url) => {
+    for (const path of ["/api/events", `/api/line?line=${DAMAGED}`, "/api/line?line=3", "/api/agents", "/api/overview"]) {
+      const text = await (await fetch(`${url}${path}`)).text();
+      assert.ok(text.length < 50_000, `${path}: ${text.length} characters`);
+    }
+  });
+  for (const args of [["status"], ["watch", "--no-follow", "--utc"]]) {
+    const run = howl([...args, "--ledger", ledger]);
+    assert.ok(run.stderr.length < 500, `${args[0]}: ${run.stderr.length} characters`);
+  }
+  const verify = howl(["verify", "--ledger", ledger]);
+  assert.ok(verify.stdout.length < 1000, `verify: ${verify.stdout.length} characters`);
+});
+
+// --- the line's own shape -----------------------------------------------------------------------------------------
+
+for (const [name, change, reason] of [
+  ["a hash that is a number", (l: Record<string, unknown>) => (l.hash = 5), /hash/],
+  ["a prev that is an object", (l: Record<string, unknown>) => (l.prev = {}), /prev/],
+  ["no hash", (l: Record<string, unknown>) => delete l.hash, /hash/],
+] as const) {
+  test(`#200: a line with ${name} is left out and named, and the answers are 200`, async () => {
+    const ledger = writeStory();
+    const raws = rawLines(ledger);
+    const line = JSON.parse(raws[6]!);
+    change(line);
+    raws[6] = JSON.stringify(line);
+    writeLines(ledger, raws);
+    const whole = readWhole(ledger);
+    assert.deepEqual(
+      whole.faulty.map((f) => f.line),
+      [7],
+    );
+    assert.match(whole.faulty[0]!.reason, reason);
+    assert.ok(!whole.lines.some((r) => r.n === 7));
+    await withServer({ ledger }, async (url) => {
+      for (const path of ["/api/events", "/api/line?line=3", "/api/overview", "/api/agents"]) {
+        const a = await get(url, path);
+        assert.equal(a.status, 200, path);
+        assert.deepEqual(
+          a.body.faulty?.map((f) => f.line),
+          [7],
+          path,
+        );
+      }
+    });
+  });
+}
 
 // --- the server ----------------------------------------------------------------------------------------------
 
