@@ -1,8 +1,8 @@
 // The schema check, the check of a ledger and of its signatures, and the place of the ledger (#140).
 // The conformance of the whole text of `howl verify` with the TypeScript is test/verify-faults.test.ts.
 // @code_class tests
-use howl::cli::args::parse_args;
 use ed25519_dalek::SigningKey;
+use howl::cli::args::parse_args;
 use howl::keys::sign::{public_of, sign_event};
 use howl::keys::{base64_decode, check_signatures, date_parse, public_key_fault};
 use howl::ledger::json::parse_json;
@@ -478,11 +478,17 @@ fn ed25519_at_its_edges_small_order_and_non_canonical_keys_are_refused() {
         ),
         (
             "noncanon-A",
-            &[(2, "key k2: the issuer key is refused: not in its canonical form")],
+            &[(
+                2,
+                "key k2: the issuer key is refused: not in its canonical form",
+            )],
         ),
         (
             "negzero-A",
-            &[(2, "key k2: the issuer key is refused: not in its canonical form")],
+            &[(
+                2,
+                "key k2: the issuer key is refused: not in its canonical form",
+            )],
         ),
         (
             "noncanon-R",
@@ -578,7 +584,10 @@ fn a_forged_issuer_key_under_the_pinned_id_is_refused() {
     ];
     let pinned = check_signatures(&numbered(&events), Some(ISSUER));
     assert_eq!(pinned.faults, want);
-    assert_eq!((pinned.signed, pinned.unmatched, pinned.pinned), (2, 2, true));
+    assert_eq!(
+        (pinned.signed, pinned.unmatched, pinned.pinned),
+        (2, 2, true)
+    );
     assert_eq!(pinned.issuer.as_deref(), Some(ISSUER));
     let free = check_signatures(&numbered(&events), None);
     assert_eq!(free.faults, want);
@@ -590,7 +599,10 @@ fn a_ledger_whose_issuer_matches_the_pin_holds() {
     let events = signed_events();
     let pinned = check_signatures(&numbered(&events), Some(ISSUER));
     assert!(pinned.faults.is_empty(), "{:?}", pinned.faults);
-    assert_eq!((pinned.signed, pinned.unmatched, pinned.pinned), (2, 0, true));
+    assert_eq!(
+        (pinned.signed, pinned.unmatched, pinned.pinned),
+        (2, 0, true)
+    );
     let free = check_signatures(&numbered(&events), None);
     assert!(free.faults.is_empty(), "{:?}", free.faults);
     assert!(!free.pinned);
@@ -601,10 +613,18 @@ fn a_key_whose_window_cannot_be_read_is_refused() {
     let issuer = SigningKey::from_bytes(&[9; 32]);
     let (id, public) = public_of(&issuer);
     let cases = [
-        ("from", json!("2026-11-23T14:00:29"), "from 2026-11-23T14:00:29"),
+        (
+            "from",
+            json!("2026-11-23T14:00:29"),
+            "from 2026-11-23T14:00:29",
+        ),
         ("from", json!("2026-11-23"), "from 2026-11-23"),
         ("until", json!("Jan 1 2030"), "until Jan 1 2030"),
-        ("until", json!("2026-02-30T00:00:00Z"), "until 2026-02-30T00:00:00Z"),
+        (
+            "until",
+            json!("2026-02-30T00:00:00Z"),
+            "until 2026-02-30T00:00:00Z",
+        ),
         ("until", json!(1795000000000_u64), "until 1795000000000"),
     ];
     for (field, value, named) in cases {

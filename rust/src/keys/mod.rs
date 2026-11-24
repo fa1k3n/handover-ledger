@@ -149,13 +149,17 @@ impl Signatures {
                 let hash = Value::String(hex(&Sha256::digest(raw)));
                 if !same(Some(&hash), d.get("issuer")) {
                     self.unmatched.extend(Key::of(d.get("key")));
-                    let reason = format!("key {named}: the issuer key does not hash to the issuer it names");
+                    let reason =
+                        format!("key {named}: the issuer key does not hash to the issuer it names");
                     self.fault(n, reason);
                     return;
                 }
                 let signer = sig.and_then(|s| s.get("key"));
                 if !signature_holds(event, by) || !same(signer, d.get("issuer")) {
-                    self.fault(n, format!("key {named}: the issuer's signature does not hold"));
+                    self.fault(
+                        n,
+                        format!("key {named}: the issuer's signature does not hold"),
+                    );
                     return;
                 }
                 if let Some(weak) = key_fault(d.get("public")) {
