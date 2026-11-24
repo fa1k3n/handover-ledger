@@ -9,7 +9,7 @@
 
 Audit-ready ledger of handovers in mixed teams of people and AI agents. The command is `howl`.
 
-**Status: early, and a trial.** This is version 0. The event schema may still change, nothing is published as a package, and a ledger written today is not evidence. What is built runs from a checkout, beside a team whose agents already work, and only records ([docs/observation.md](docs/observation.md)). The levels of autonomy and the rules around them are written down, not built.
+**Status: early, and a trial.** This is version 0.1.0. The event schema may still change, nothing is published as a package, and a ledger written today is not evidence. What is built runs from a checkout, beside a team whose agents already work, and only records ([docs/observation.md](docs/observation.md)). The levels of autonomy and the rules around them are written down, not built.
 
 ## The idea in short
 
