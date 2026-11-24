@@ -253,6 +253,29 @@ export interface SignatureCheck {
   byLine: Map<number, SignedBy>;
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * #200: why a line cannot be checked, or null when it can: a field this check reads is missing or of the wrong kind.
+ * A line the schema refuses is a fault of that line and is never thrown; the readers pass such a line over before
+ * they come here, and this holds when a caller does not.
+ */
+function unreadable(event: unknown): string | null {
+  if (!isObject(event)) return "the line holds no event";
+  for (const field of ["id", "time", "type"]) if (typeof event[field] !== "string" || event[field] === "") return `${field}: ${event[field] === undefined ? "missing" : "not a text"}`;
+  const { source, sig } = event;
+  if (source === undefined) return "source: missing";
+  if (!isObject(source)) return "source: not an object";
+  if (source.kind !== "observed" && source.kind !== "claimed") return `source.kind: ${source.kind === undefined ? "missing" : "not observed or claimed"}`;
+  if (sig !== undefined) {
+    if (!isObject(sig)) return "sig: not an object";
+    if (typeof sig.key !== "string" || typeof sig.value !== "string") return "sig: key or value missing or not a text";
+  }
+  if (event.actor !== undefined && !isObject(event.actor)) return "actor: not an object";
+  if (event.data !== undefined && !isObject(event.data)) return "data: not an object";
+  return null;
+}
+
 /**
  * Checks the signatures of the ledger's events, in the order of their lines.
  * A signed event needs its key issued on an earlier line by the ledger's
@@ -260,7 +283,9 @@ export interface SignatureCheck {
  * its revocation, and the key's agent, task and change. A key's issue needs
  * an issuer key that is a key of Ed25519 and hashes to the issuer the line
  * names (#199), the issuer's signature, a public key of Ed25519, and a window
- * whose ends are ISO times with a zone.
+ * whose ends are ISO times with a zone. A line that lacks a field this check
+ * reads, or holds it of the wrong kind, is a fault of that line (#200): it is
+ * named, has no verdict, and changes none of another line's.
  */
 export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?: string): SignatureCheck {
   const keys = new Map<string, { data: Record<string, string>; line: number; revokedAt?: number }>();
@@ -277,6 +302,12 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
   const byLine: SignatureCheck["byLine"] = new Map();
 
   for (const { n, event } of lines) {
+    const faulty = unreadable(event);
+    if (faulty !== null) {
+      // Left out: not counted, and its id is not taken, so that no good line is read as a copy of it.
+      faults.push({ line: n, reason: `the line cannot be checked: ${faulty}` });
+      continue;
+    }
     const seen = ids.get(event.id);
     if (seen !== undefined) {
       const reason = `the event ${event.id} is already on line ${seen}`;
@@ -413,4 +444,4 @@ function info(d: Record<string, string>) {
   return { key: d.key!, actor: d.actor!, task: d.task, change: d.change, role: d.role, until: d.until! };
 }
 
-const short = (id: string | undefined) => (id ?? "?").slice(0, 12);
+const short = (id: unknown) => (typeof id === "string" ? id : "?").slice(0, 12);

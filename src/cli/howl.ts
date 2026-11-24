@@ -701,9 +701,12 @@ async function showCommand(args: string[]): Promise<number> {
   const [what] = positionals;
   if (what === undefined) throw new UsageError("show needs a task or a change: 12, task:12 or change:30");
   const ledger = await ledgerToRead(values);
-  const { activityFrom, readAll } = await import("../read/reader.ts");
+  const { activityFrom, readEverything } = await import("../read/reader.ts");
+  const { faultyNotes } = await import("../read/faulty.ts");
   const { parseAsked, render, show } = await import("../read/show.ts");
-  const reads = readAll(ledger);
+  const { reads, faulty } = readEverything(ledger);
+  // #200: a line that is left out is named, and the rest is shown.
+  for (const note of faultyNotes(faulty)) console.error(`howl: ${note}`);
   const shown = show(
     reads.map((r) => r.event),
     parseAsked(what),
@@ -874,11 +877,19 @@ async function statusCommand(args: string[]): Promise<number> {
   const ledger = await ledgerToRead(values);
   const { statSync } = await import("node:fs");
   statSync(ledger);
-  const { readAll } = await import("../read/reader.ts");
+  const { readEverything } = await import("../read/reader.ts");
+  const { faultyNotes } = await import("../read/faulty.ts");
   const { agentStates, renderStatus } = await import("../read/state.ts");
   const { presentTime } = await import("../read/now.ts");
   const agents = await knownAgents(values);
-  const rows = () => agentStates(readAll(ledger).map((r) => r.event), presentTime(), { agents });
+  // #200: a line that is left out is named, once, when it is first read.
+  const noted = new Set<number>();
+  const rows = () => {
+    const { reads, faulty } = readEverything(ledger);
+    for (const note of faultyNotes(faulty.filter((f) => !noted.has(f.line)))) console.error(`howl: ${note}`);
+    for (const f of faulty) noted.add(f.line);
+    return agentStates(reads.map((r) => r.event), presentTime(), { agents });
+  };
   if (values.json) {
     console.log(JSON.stringify(rows(), null, 2));
     return 0;

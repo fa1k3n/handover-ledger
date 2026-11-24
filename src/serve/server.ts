@@ -15,7 +15,8 @@ import { LEDGER_FILE } from "../ledger/names.ts";
 import { isProjectName } from "../ledger/place.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
 import { presentTime } from "../read/now.ts";
-import { activityBeside, activityFrom, activityLines, byTime, ledgerLines, lineCount, readAll, type Read } from "../read/reader.ts";
+import { activityBeside, activityFrom, activityLines, byTime, lineCount, readEverything, readLedger, type Read } from "../read/reader.ts";
+import { faultyAnswer, type FaultyLine } from "../read/faulty.ts";
 import { checkSignatures } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
 import { Kept } from "./kept.ts";
@@ -121,7 +122,7 @@ export async function startServer(options: ServeOptions): Promise<Served> {
   };
 
   // #85: the lines of each ledger and each activity file as the event log gives them, kept until the file changes.
-  const lines: Lines = { ledger: new Kept<Item[]>(), activity: new Kept<Item[]>(), provenance: new Kept<Prepared>() };
+  const lines: Lines = { ledger: new Kept<{ items: Item[]; faulty: FaultyLine[] }>(), activity: new Kept<Item[]>(), provenance: new Kept<Prepared>() };
 
   let port = options.port;
   const server = createServer((req, res) => {
@@ -238,8 +239,8 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     const served = url.searchParams.has("project") ? [projectFor(url.searchParams, options)] : projectsOf(options);
     if (served.length === 0) throw new LedgerError("no project with a ledger");
     const found = events(served, url.searchParams, options.ledger === undefined, lines);
-    // #82: what a filter could not work out is said only when there is something to say.
-    json(res, 200, found.failed === null ? { now: presentTime(), events: found.events } : { now: presentTime(), events: found.events, failed: found.failed });
+    // #82: what a filter could not work out is said only when there is something to say. So are the lines left out (#200).
+    json(res, 200, { now: presentTime(), events: found.events, ...(found.failed === null ? {} : { failed: found.failed }), ...faultyAnswer(found.faulty) });
     return;
   }
   const project = projectFor(url.searchParams, options);
@@ -248,20 +249,21 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   switch (url.pathname) {
     case "/api/agents": {
       const now = presentTime();
-      json(res, 200, { now, rows: agentStates(readAll(ledger).map((r) => r.event), now, { agents }) });
+      const read = readEverything(ledger);
+      json(res, 200, { now, rows: agentStates(read.reads.map((r) => r.event), now, { agents }), ...faultyAnswer(read.faulty) });
       return;
     }
     case "/api/overview": {
       const now = presentTime();
-      const items = ledgerLines(ledger);
-      json(res, 200, { now, figures: keyFigures(items.map((i) => i.event), now), handovers: handovers(items).slice(0, 50) });
+      const { lines: items, faulty } = readLedger(ledger);
+      json(res, 200, { now, figures: keyFigures(items.map((i) => i.event), now), handovers: handovers(items).slice(0, 50), ...faultyAnswer(faulty) });
       return;
     }
     case "/api/show": {
       const what = url.searchParams.get("what")?.trim() ?? "";
       if (!what) throw new LedgerError("give what: 12, task:12 or change:30");
       const asked = parseAsked(what);
-      const reads = readAll(ledger);
+      const { reads, faulty } = readEverything(ledger);
       const shown = show(
         reads.map((r) => r.event),
         asked,
@@ -271,7 +273,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
         json(res, 404, { error: `nothing in the ledger names ${what}` });
         return;
       }
-      json(res, 200, shown);
+      json(res, 200, { ...shown, ...faultyAnswer(faulty) });
       return;
     }
     case "/api/line": {
@@ -282,10 +284,12 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
       const prepared = lines.provenance.of(ledger, () => prepareLines(ledger));
       const found = lineProvenance(ledger, prepared, n, ledgerVerdict(ledger), options.ledger === undefined ? project.name : undefined);
       if (found === null) {
-        json(res, 404, { error: `the ledger has no line ${n} that howl can read` });
+        // #200: a line that is there and left out is named with why, not given as an event.
+        const left = prepared.whole.faulty.find((f) => f.line === n);
+        json(res, 404, { error: left === undefined ? `the ledger has no line ${n} that howl can read` : `line ${n} is left out: ${left.reason}` });
         return;
       }
-      json(res, 200, { now: presentTime(), ...found });
+      json(res, 200, { now: presentTime(), ...found, ...faultyAnswer(prepared.whole.faulty) });
       return;
     }
     case "/api/ledger": {
@@ -307,7 +311,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
  *
  * `after` is a line of one ledger: over several projects it is refused.
  */
-function events(projects: Project[], params: URLSearchParams, named: boolean, lines: Lines): { events: Item[]; failed: Failed | null } {
+function events(projects: Project[], params: URLSearchParams, named: boolean, lines: Lines): { events: Item[]; failed: Failed | null; faulty: FaultyLine[] } {
   const pairs = params.getAll("filter");
   const filters = readFilters(pairs);
   const after = Number(params.get("after") ?? 0) || 0;
@@ -315,15 +319,16 @@ function events(projects: Project[], params: URLSearchParams, named: boolean, li
   const limit = Math.max(1, Math.min(5000, Number(params.get("limit") ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
   const activity = params.get("activity") === "1" || wantsActivity(pairs);
 
-  const found = byTime(projects.flatMap((project) => itemsOf(project, after, activity, named, lines)))
+  const read = projects.map((project) => itemsOf(project, after, activity, named, lines));
+  const found = byTime(read.flatMap((r) => r.items))
     .filter((item) => filters.test(item.event))
     .slice(-limit);
-  return { events: found, failed: filters.failed() };
+  return { events: found, failed: filters.failed(), faulty: read.flatMap((r) => r.faulty) };
 }
 
 /** What the event log has read of the files, kept until a file changes (#85). */
 interface Lines {
-  ledger: Kept<Item[]>;
+  ledger: Kept<{ items: Item[]; faulty: FaultyLine[] }>;
   activity: Kept<Item[]>;
   /** #191: what /api/line reads of a ledger as a whole. */
   provenance: Kept<Prepared>;
@@ -332,13 +337,15 @@ interface Lines {
 /**
  * The ledger lines of one project after `after` (all when 0), then the lines of
  * its activity file when asked for. The items are those kept for the files as
- * they stand: they are shared by every answer and never changed.
+ * they stand: they are shared by every answer and never changed. With them, the
+ * lines of the ledger that were left out (#200), each with its project when named.
  */
-function itemsOf(project: Project, after: number, activity: boolean, named: boolean, lines: Lines): Item[] {
+function itemsOf(project: Project, after: number, activity: boolean, named: boolean, lines: Lines): { items: Item[]; faulty: FaultyLine[] } {
   const name = named ? project.name : undefined;
   const ledger = lines.ledger.of(project.ledger, () => {
     // Numbered by their place in the file, so a line howl cannot read still counts.
-    const all: Item[] = ledgerLines(project.ledger);
+    const read = readLedger(project.ledger);
+    const all: Item[] = read.lines;
     // Matched over the whole ledger, so a session before `after` still counts.
     const acting = actingAgents(all.map((i) => i.event));
     // #199: by line, so that a copy under a repeated id never shows another line's verdict.
@@ -350,16 +357,16 @@ function itemsOf(project: Project, after: number, activity: boolean, named: bool
       if (signed !== undefined) item.signed = signed;
       if (name !== undefined) item.project = name;
     }
-    return all;
+    return { items: all, faulty: name === undefined ? read.faulty : read.faulty.map((f) => ({ project: name, ...f })) };
   });
-  const items = after > 0 ? ledger.filter((r) => r.n! > after) : ledger;
-  if (!activity) return items;
+  const items = after > 0 ? ledger.items.filter((r) => r.n! > after) : ledger.items;
+  if (!activity) return { items, faulty: ledger.faulty };
   const tools = lines.activity.of(activityBeside(project.ledger), () => {
     const read: Item[] = activityLines(project.ledger);
     if (name !== undefined) for (const item of read) item.project = name;
     return read;
   });
-  return [...items, ...tools];
+  return { items: [...items, ...tools], faulty: ledger.faulty };
 }
 
 function file(res: ServerResponse, root: string, pathname: string): void {

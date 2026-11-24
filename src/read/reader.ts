@@ -2,14 +2,17 @@
 // server and the export read through it, so that a change of how the events
 // are kept touches this module. It reads without a lock, while a writer may be
 // appending. A last line without its line break is half written: it is left
-// for the next read. A line howl cannot read is passed over (`howl verify`
-// names it) and still counts in the numbers of the lines.
+// for the next read. A line howl cannot read (no JSON, no event, or an event
+// the event schema refuses) is left out of what is derived, named as a fault
+// of that line where the reader reports (#200), and still counts in the numbers
+// of the lines. It never makes a reader throw.
 // @code_class reading
 import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { wholeLines } from "../ledger/lines.ts";
 import { ACTIVITY_FILE } from "../ledger/names.ts";
-import type { LedgerEvent } from "../ledger/schema.ts";
+import { eventFaults, type LedgerEvent } from "../ledger/schema.ts";
+import { reasonOf, type FaultyLine } from "./faulty.ts";
 import { byTime } from "./order.ts";
 
 export { byTime };
@@ -46,6 +49,8 @@ export class Tail {
   private readonly from: Read["from"];
   /** Whether the last read started again from the beginning of a replaced file. */
   restarted = false;
+  /** The lines of the last read that were left out (#200). Only of a ledger: a line of the activity file has no number to name. */
+  faulty: FaultyLine[] = [];
 
   constructor(path: string, from: Read["from"]) {
     this.path = path;
@@ -54,6 +59,7 @@ export class Tail {
 
   read(): Read[] {
     this.restarted = false;
+    this.faulty = [];
     let fd: number;
     try {
       fd = openSync(this.path, "r");
@@ -75,7 +81,7 @@ export class Tail {
       const whole = bytes.subarray(0, n).lastIndexOf(0x0a) + 1;
       this.offset += whole;
       const raws = bytes.subarray(0, whole).toString("utf8").split("\n").slice(0, -1);
-      const found = parseLines(raws, this.from, this.lines);
+      const found = parseLines(raws, this.from, this.lines, this.faulty);
       this.lines += raws.length;
       return found;
     } finally {
@@ -84,21 +90,30 @@ export class Tail {
   }
 }
 
-/** The lines howl can read, of whole lines without their line breaks; the first of them is line `before + 1`. */
-function parseLines(raws: string[], from: Read["from"], before = 0): Read[] {
+/**
+ * The lines howl can read, of whole lines without their line breaks; the first of them is line `before + 1`. A line
+ * of a ledger that is left out is added to `faulty` (#200): an event is read only when the event schema accepts it,
+ * so that no reader meets an event that lacks a field it expects. A line of the activity file is left out unnamed.
+ */
+function parseLines(raws: string[], from: Read["from"], before = 0, faulty: FaultyLine[] = []): Read[] {
   const found: Read[] = [];
+  const left = (i: number, reason: string) => {
+    if (from === "ledger") faulty.push({ line: before + i + 1, reason });
+  };
   raws.forEach((raw, i) => {
-    if (raw === "") return;
+    if (raw === "") return left(i, "the line is empty");
+    let value: ({ prev?: string | null; hash?: string; event?: LedgerEvent } & LedgerEvent) | null;
     try {
-      const value = JSON.parse(raw) as { prev?: string | null; hash?: string; event?: LedgerEvent } & LedgerEvent;
-      const event = from === "ledger" ? value.event : value;
-      if (event && typeof event === "object" && typeof event.time === "string" && typeof event.type === "string") {
-        // The keys in the order the server has always sent them.
-        found.push(from === "ledger" ? { n: before + i + 1, from, hash: value.hash, prev: value.prev, event, raw } : { from, event, raw });
-      }
+      value = JSON.parse(raw);
     } catch {
-      // Not a line howl can read: `howl verify` names it.
+      return left(i, "the line is not JSON");
     }
+    const event = from === "ledger" ? value?.event : value;
+    if (event === null || typeof event !== "object" || Array.isArray(event)) return left(i, "the line holds no event");
+    const faults = eventFaults(event);
+    if (faults.length > 0) return left(i, reasonOf(faults));
+    // The keys in the order the server has always sent them.
+    found.push(from === "ledger" ? { n: before + i + 1, from, hash: value!.hash, prev: value!.prev, event, raw } : { from, event, raw });
   });
   return found;
 }
@@ -108,6 +123,8 @@ export interface Whole {
   bytes: Buffer[];
   /** The lines howl can read, the first line too, in the order of the file. */
   lines: Read[];
+  /** The lines it left out, and why (#200). */
+  faulty: FaultyLine[];
 }
 
 /**
@@ -117,13 +134,14 @@ export interface Whole {
  */
 export function readWhole(ledger: string): Whole {
   const bytes = wholeLines(readFileSync(ledger));
-  return {
-    bytes,
-    lines: parseLines(
-      bytes.map((b) => b.toString("utf8")),
-      "ledger",
-    ),
-  };
+  const faulty: FaultyLine[] = [];
+  const lines = parseLines(
+    bytes.map((b) => b.toString("utf8")),
+    "ledger",
+    0,
+    faulty,
+  );
+  return { bytes, lines, faulty };
 }
 
 /**
@@ -132,8 +150,13 @@ export function readWhole(ledger: string): Whole {
  * unless asked for.
  */
 export function ledgerLines(ledger: string, options: { first?: boolean } = {}): Read[] {
-  const { lines } = readWhole(ledger);
-  return options.first ? lines : lines.filter((r) => r.event.type !== "ledger.created");
+  return readLedger(ledger, options).lines;
+}
+
+/** `ledgerLines`, with the lines it left out (#200). */
+export function readLedger(ledger: string, options: { first?: boolean } = {}): { lines: Read[]; faulty: FaultyLine[] } {
+  const { lines, faulty } = readWhole(ledger);
+  return { lines: options.first ? lines : lines.filter((r) => r.event.type !== "ledger.created"), faulty };
 }
 
 /** The lines of the activity file beside a ledger, in the order of the file. None when there is no file. */
@@ -151,8 +174,14 @@ export function lineCount(ledger: string): number {
 
 /** Everything in the ledger and the activity file beside it, in the order of time. Not the ledger's first line. */
 export function readAll(ledger: string): Read[] {
+  return readEverything(ledger).reads;
+}
+
+/** `readAll`, with the lines of the ledger it left out (#200). */
+export function readEverything(ledger: string): { reads: Read[]; faulty: FaultyLine[] } {
   statSync(ledger);
-  return byTime([...ledgerLines(ledger, { first: true }), ...activityLines(ledger)].filter((r) => r.event.type !== "ledger.created"));
+  const { lines, faulty } = readLedger(ledger, { first: true });
+  return { reads: byTime([...lines, ...activityLines(ledger)].filter((r) => r.event.type !== "ledger.created")), faulty };
 }
 
 /** The time of the oldest line of the activity file among `reads`, in the order of time; null when it holds none. */
