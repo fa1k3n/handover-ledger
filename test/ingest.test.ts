@@ -209,14 +209,17 @@ test("#203: the same event ingested twice is dropped as a duplicate, also when i
 
 test("#203: a pass over many files whose ids are taken reads the ledger once", async () => {
   const ws = workspace();
-  const writer = openLedger(ws.ledger, { project: PROJECT });
+  const first = openLedger(ws.ledger, { project: PROJECT });
   const real: LedgerEvent[] = [];
   for (let i = 0; i < 30; i++) {
     const planted = event({ id: `taken-${i}`, type: "session.stopped", session: "other" });
-    writer.append(planted);
+    first.append(planted);
     // Half of them are the same event again, half are another event under the id.
     real.push(i % 2 === 0 ? planted : { ...planted, type: "session.started" });
   }
+  first.close();
+  // A writer that opens the ledger as it stands: what it holds under an id it has to read.
+  const writer = openLedger(ws.ledger, { project: PROJECT });
   const before = readFileSync(ws.ledger);
   mkdirSync(ws.inbox, { recursive: true });
   real.forEach((e, i) => writeFileSync(join(ws.inbox, `${String(i).padStart(3, "0")}.json`), fixedForm(e)));
