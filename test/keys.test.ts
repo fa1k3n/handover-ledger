@@ -132,3 +132,11 @@ test("#23: a key from another issuer fails; with --issuer pinned to another, eve
   assert.equal(pinned.status, 1);
   assert.equal((pinned.stdout.match(/not issued by the ledger's issuer/g) ?? []).length, 2);
 });
+
+test("#199 (review): key issue refuses an --hours that runs the window past 9999-12-31T23:59:59Z, with 2, and writes nothing", () => {
+  const w = ws();
+  const r = run(w, ["key", "issue", "--actor", "agent-1", "--hours", "100000000"]);
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /^howl: --hours runs the key's window past 9999-12-31T23:59:59Z\n/);
+  assert.equal(inboxFiles(w.inbox).length, 0);
+});

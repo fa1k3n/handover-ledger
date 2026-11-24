@@ -341,11 +341,12 @@ function itemsOf(project: Project, after: number, activity: boolean, named: bool
     const all: Item[] = ledgerLines(project.ledger);
     // Matched over the whole ledger, so a session before `after` still counts.
     const acting = actingAgents(all.map((i) => i.event));
-    const signatures = checkSignatures(all.map((i) => ({ n: i.n ?? 0, event: i.event }))).byEvent;
+    // #199: by line, so that a copy under a repeated id never shows another line's verdict.
+    const signatures = checkSignatures(all.map((i) => ({ n: i.n ?? 0, event: i.event }))).byLine;
     for (const item of all) {
       const by = acting.get(item.event.id)?.agent;
       if (by !== undefined) item.by = by;
-      const signed = signatures.get(item.event.id);
+      const signed = signatures.get(item.n ?? 0);
       if (signed !== undefined) item.signed = signed;
       if (name !== undefined) item.project = name;
     }

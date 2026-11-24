@@ -164,7 +164,8 @@ export function lineProvenance(ledger: string, prepared: Prepared, n: number, ve
   const by = acting.get(read.event.id)?.agent;
   if (by !== undefined) item.by = by;
 
-  const signed = check.byEvent.get(read.event.id);
+  // #199: by line, so that a copy under a repeated id never shows another line's verdict.
+  const signed = check.byLine.get(n);
   if (signed !== undefined) item.signed = signed;
   let signature: LineSignature | null = null;
   if (read.event.sig !== undefined) {

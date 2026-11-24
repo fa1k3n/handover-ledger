@@ -10,7 +10,7 @@ const NAMED = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d
 const isLeap = (year: number): boolean => year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 
 /** Whether the day is on the calendar: no 30 February, no 29 February but in a leap year, no month 13. */
-function isDay(year: number, month: number, day: number): boolean {
+export function isDay(year: number, month: number, day: number): boolean {
   const days = [31, isLeap(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   return month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1]!;
 }

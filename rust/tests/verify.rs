@@ -1,8 +1,10 @@
 // The schema check, the check of a ledger and of its signatures, and the place of the ledger (#140).
 // The conformance of the whole text of `howl verify` with the TypeScript is test/verify-faults.test.ts.
 // @code_class tests
+use ed25519_dalek::SigningKey;
 use howl::cli::args::parse_args;
-use howl::keys::{base64_decode, check_signatures, date_parse};
+use howl::keys::sign::{public_of, sign_event};
+use howl::keys::{base64_decode, check_signatures, date_parse, public_key_fault};
 use howl::ledger::json::parse_json;
 use howl::ledger::pattern::Pattern;
 use howl::ledger::place::{ledger_path, Env};
@@ -466,16 +468,31 @@ fn the_arguments_are_read_as_node_s_parse_args_reads_them() {
 }
 
 #[test]
-fn ed25519_at_its_edges_as_dalek_s_verify_judges_it() {
-    // Cofactorless, S below the order, a small-order key let in: the steps of OpenSSL's ref10. Node's verdict on a
-    // small-order key depends on the OpenSSL it is built with, so the first three are pinned here only.
-    let cases: [(&str, &[(usize, &str)]); 6] = [
-        ("small-order", &[]),
-        ("noncanon-A", &[]),
-        ("negzero-A", &[]),
+fn ed25519_at_its_edges_small_order_and_non_canonical_keys_are_refused() {
+    // #199: a small-order or non-canonical key is refused by howl's own check, before dalek's verify sees it, so the
+    // verdict is the one the TypeScript gives on every Node build.
+    let cases: [(&str, &[(usize, &str)]); 7] = [
+        (
+            "small-order",
+            &[(2, "key k1: the issuer key is refused: of small order")],
+        ),
+        (
+            "noncanon-A",
+            &[(
+                2,
+                "key k2: the issuer key is refused: not in its canonical form",
+            )],
+        ),
+        (
+            "negzero-A",
+            &[(
+                2,
+                "key k2: the issuer key is refused: not in its canonical form",
+            )],
+        ),
         (
             "noncanon-R",
-            &[(2, "key k1: the issuer's signature does not hold")],
+            &[(2, "key k1: the issuer key is refused: of small order")],
         ),
         (
             "R-small",
@@ -486,6 +503,14 @@ fn ed25519_at_its_edges_as_dalek_s_verify_judges_it() {
         ),
         (
             "s-plus-L",
+            &[(
+                3,
+                "the signature does not hold: the event was changed after it was signed",
+            )],
+        ),
+        // A non-canonical R under a key of large order, with s = k·a: it holds for a verifier that decodes R first.
+        (
+            "noncanon-R-large",
             &[(
                 3,
                 "the signature does not hold: the event was changed after it was signed",
@@ -503,4 +528,275 @@ fn ed25519_at_its_edges_as_dalek_s_verify_judges_it() {
         let want: Vec<(usize, String)> = want.iter().map(|&(n, r)| (n, r.to_string())).collect();
         assert_eq!(faults, want, "{name}");
     }
+}
+
+/// Bytes from hex.
+fn unhex(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+#[test]
+fn a_public_key_is_refused_when_not_32_bytes_not_a_point_not_canonical_or_of_small_order() {
+    let vectors: Value =
+        serde_json::from_str(&std::fs::read_to_string(fixture("ed25519-keys.json")).unwrap())
+            .unwrap();
+    for v in vectors.as_array().unwrap() {
+        let raw = unhex(v["hex"].as_str().unwrap());
+        assert_eq!(
+            public_key_fault(&raw),
+            v["refused"].as_str(),
+            "{}",
+            v["what"]
+        );
+    }
+}
+
+const ISSUER: &str = "57dee94ab5fa8b0af3b365496f1f491236317de76867398da40ad065cbfa1445";
+
+/// The events of test/fixtures/ledger-signed.jsonl.
+fn signed_events() -> Vec<Value> {
+    let Verdict::Holds { events, .. } = verify(&fixture("ledger-signed.jsonl")).unwrap() else {
+        panic!("it does not hold");
+    };
+    events
+}
+
+fn numbered(events: &[Value]) -> Vec<(usize, &Value)> {
+    events.iter().enumerate().map(|(i, e)| (i + 1, e)).collect()
+}
+
+#[test]
+fn a_forged_issuer_key_under_the_pinned_id_is_refused() {
+    let forger = SigningKey::from_bytes(&[7; 32]);
+    let mut events = signed_events();
+    events[1]["data"]["issuer_public"] = json!(public_of(&forger).1);
+    let mut forged = sign_event(&events[1], &forger);
+    forged["sig"]["key"] = json!(ISSUER);
+    events[1] = forged;
+    let want = vec![
+        (
+            2,
+            "key 72e2d85be672: the issuer key does not hash to the issuer it names".to_string(),
+        ),
+        (
+            3,
+            "signed by key 72e2d85be672, which has no valid issue on a line before".to_string(),
+        ),
+        (
+            4,
+            "signed by key 72e2d85be672, which has no valid issue on a line before".to_string(),
+        ),
+    ];
+    let pinned = check_signatures(&numbered(&events), Some(ISSUER));
+    assert_eq!(pinned.faults, want);
+    assert_eq!(
+        (pinned.signed, pinned.unmatched, pinned.pinned),
+        (2, 2, true)
+    );
+    assert_eq!(pinned.issuer.as_deref(), Some(ISSUER));
+    let free = check_signatures(&numbered(&events), None);
+    assert_eq!(free.faults, want);
+    assert_eq!((free.unmatched, free.pinned), (2, false));
+}
+
+#[test]
+fn a_ledger_whose_issuer_matches_the_pin_holds() {
+    let events = signed_events();
+    let pinned = check_signatures(&numbered(&events), Some(ISSUER));
+    assert!(pinned.faults.is_empty(), "{:?}", pinned.faults);
+    assert_eq!(
+        (pinned.signed, pinned.unmatched, pinned.pinned),
+        (2, 0, true)
+    );
+    let free = check_signatures(&numbered(&events), None);
+    assert!(free.faults.is_empty(), "{:?}", free.faults);
+    assert!(!free.pinned);
+}
+
+#[test]
+fn a_key_whose_window_cannot_be_read_is_refused() {
+    let issuer = SigningKey::from_bytes(&[9; 32]);
+    let (id, public) = public_of(&issuer);
+    let cases = [
+        (
+            "from",
+            json!("2026-11-23T14:00:29"),
+            "from 2026-11-23T14:00:29",
+        ),
+        ("from", json!("2026-11-23"), "from 2026-11-23"),
+        ("until", json!("Jan 1 2030"), "until Jan 1 2030"),
+        (
+            "until",
+            json!("2026-02-30T00:00:00Z"),
+            "until 2026-02-30T00:00:00Z",
+        ),
+        ("until", json!(1795000000000_u64), "until 1795000000000"),
+    ];
+    for (field, value, named) in cases {
+        let mut events = signed_events();
+        let data = &mut events[1]["data"];
+        data["issuer"] = json!(id);
+        data["issuer_public"] = json!(public);
+        data[field] = value;
+        events[1] = sign_event(&events[1], &issuer);
+        let check = check_signatures(&numbered(&events), None);
+        let want = vec![
+            (
+                2,
+                format!("key 72e2d85be672: its window cannot be read: {named} is not an ISO time with a zone"),
+            ),
+            (
+                3,
+                "signed by key 72e2d85be672, which has no valid issue on a line before".to_string(),
+            ),
+            (
+                4,
+                "signed by key 72e2d85be672, which has no valid issue on a line before".to_string(),
+            ),
+        ];
+        assert_eq!(check.faults, want, "{named}");
+    }
+    // Without the field at all.
+    let mut events = signed_events();
+    let data = events[1]["data"].as_object_mut().unwrap();
+    data.remove("until");
+    data.insert("issuer".to_string(), json!(id));
+    data.insert("issuer_public".to_string(), json!(public));
+    events[1] = sign_event(&events[1], &issuer);
+    let check = check_signatures(&numbered(&events), None);
+    assert_eq!(
+        check.faults[0].1,
+        "key 72e2d85be672: its window cannot be read: until undefined is not an ISO time with a zone"
+    );
+    // An offset for the zone, and a fraction of nine digits, are read.
+    let mut events = signed_events();
+    let data = &mut events[1]["data"];
+    data["issuer"] = json!(id);
+    data["issuer_public"] = json!(public);
+    data["from"] = json!("2026-11-23T15:00:00+01:00");
+    data["until"] = json!("2026-11-23T22:00:00.123456789-02:30");
+    events[1] = sign_event(&events[1], &issuer);
+    let check = check_signatures(&numbered(&events), None);
+    assert!(check.faults.is_empty(), "{:?}", check.faults);
+}
+
+const REVIEW_PIN: &str = "42c7b2f97281307edcc424f8718bf974e0c6e091b6fbf3534b8c03a15b83aca4";
+
+/// The faults of a ledger of test/fixtures/key-lines, pinned to its issuer, and its count of signed events.
+fn key_lines(name: &str) -> (Vec<(usize, String)>, usize) {
+    let Verdict::Holds { events, .. } =
+        verify(&fixture(&format!("key-lines/{name}.jsonl"))).unwrap()
+    else {
+        panic!("{name} does not hold");
+    };
+    let check = check_signatures(&numbered(&events), Some(REVIEW_PIN));
+    (check.faults, check.signed)
+}
+
+fn owned(faults: &[(usize, &str)]) -> Vec<(usize, String)> {
+    faults.iter().map(|&(n, r)| (n, r.to_string())).collect()
+}
+
+#[test]
+fn a_key_issued_line_copied_again_after_its_revocation_is_refused() {
+    let want = owned(&[
+        (
+            5,
+            "the event 010f9cf6-6438-4817-859c-22b0db4db16f is already on line 2",
+        ),
+        (6, "signed after the key was revoked"),
+    ]);
+    assert_eq!(key_lines("issued-again-after-revocation"), (want, 2));
+}
+
+#[test]
+fn a_revocation_whose_at_cannot_be_read_is_refused_on_its_line() {
+    let want = owned(&[(3, "revocation of key 8242d7f2ebfb: its time cannot be read: at 2026-11-24 07:00 is not an ISO time with a zone")]);
+    assert_eq!(key_lines("revocation-at-unreadable"), (want, 1));
+}
+
+#[test]
+fn a_key_id_that_is_not_the_hash_of_its_public_key_is_refused() {
+    let want = owned(&[
+        (
+            3,
+            "key 8584df589866: its public key does not hash to its id",
+        ),
+        (
+            4,
+            "signed by key 5cabf08232c9, which has no valid issue on a line before",
+        ),
+        (
+            5,
+            "signed by key 8584df589866, which has no valid issue on a line before",
+        ),
+    ]);
+    assert_eq!(key_lines("key-id-not-its-public"), (want, 2));
+}
+
+/// A key.issued of `agent`'s key by `issuer`, with the event id `id`.
+fn issued_by(issuer: &SigningKey, agent: &SigningKey, id: &str) -> Value {
+    let (by, by_public) = public_of(issuer);
+    let (key, public) = public_of(agent);
+    let event = json!({
+        "v": 0, "id": id, "time": "2026-11-23T14:00:00.000Z", "type": "key.issued",
+        "source": {"adapter": "howl-key", "kind": "claimed"}, "project": "example",
+        "data": {"key": key, "public": public, "actor": "agent-1", "from": "2026-11-23T14:00:00.000Z",
+                 "until": "2026-11-23T22:00:00.000Z", "issuer": by, "issuer_public": by_public}
+    });
+    sign_event(&event, issuer)
+}
+
+/// A key.revoked of `agent`'s key at `at`, by `issuer`.
+fn revoked_by(issuer: &SigningKey, agent: &SigningKey, id: &str, at: &str) -> Value {
+    let event = json!({
+        "v": 0, "id": id, "time": at, "type": "key.revoked",
+        "source": {"adapter": "howl-key", "kind": "claimed"}, "project": "example",
+        "data": {"key": public_of(agent).0, "at": at, "issuer": public_of(issuer).0}
+    });
+    sign_event(&event, issuer)
+}
+
+#[test]
+fn a_key_issued_again_is_refused_and_its_earliest_revocation_stands() {
+    let issuer = SigningKey::from_bytes(&[9; 32]);
+    let agent = SigningKey::from_bytes(&[10; 32]);
+    let claim = json!({
+        "v": 0, "id": "c1", "time": "2026-11-23T15:00:00.000Z", "type": "session.started",
+        "source": {"adapter": "claude-code-hook", "kind": "claimed"}, "project": "example",
+        "actor": {"kind": "agent", "id": "agent-1"}, "session": "s1", "data": {"source": "startup"}
+    });
+    let events = [
+        signed_events()[0].clone(),
+        issued_by(&issuer, &agent, "i1"),
+        revoked_by(&issuer, &agent, "r1", "2026-11-23T14:30:00.000Z"),
+        issued_by(&issuer, &agent, "i2"),
+        revoked_by(&issuer, &agent, "r2", "2026-11-23T16:00:00.000Z"),
+        sign_event(&claim, &agent),
+    ];
+    let key = &public_of(&agent).0[..12];
+    let check = check_signatures(&numbered(&events), None);
+    let want = vec![
+        (4, format!("key {key}: the key is already issued on line 2")),
+        (6, "signed after the key was revoked".to_string()),
+    ];
+    assert_eq!(check.faults, want);
+}
+
+#[test]
+fn a_forged_issuer_key_that_is_also_weak_counts_as_on_an_issuer_that_does_not_match() {
+    let mut events = signed_events();
+    events[1]["data"]["issuer_public"] = json!("AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    let check = check_signatures(&numbered(&events), Some(ISSUER));
+    assert_eq!(
+        check.faults[0],
+        (
+            2,
+            "key 72e2d85be672: the issuer key is refused: of small order".to_string()
+        )
+    );
+    assert_eq!(check.unmatched, 2);
 }

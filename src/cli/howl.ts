@@ -135,7 +135,10 @@ async function verifyCommand(args: string[]): Promise<number> {
   const { ledgerLines } = await import("../read/reader.ts");
   const lines = ledgerLines(path, { first: true }).map((r) => ({ n: r.n!, event: r.event }));
   const sigs = checkSignatures(lines, values.issuer);
-  console.log(`signatures: ${sigs.signed} signed, ${sigs.unsigned} unsigned claimed${sigs.issuer ? `, issuer ${sigs.issuer}` : ""}`);
+  // #199: whether the issuer is pinned is said in every case, so that "holds" is never read as "holds for a known issuer".
+  const unmatched = sigs.unmatched > 0 ? `, ${sigs.unmatched} on an issuer that does not match` : "";
+  const by = sigs.pinned ? `, issuer ${sigs.issuer} (pinned)` : sigs.issuer ? `, issuer ${sigs.issuer} (taken from the ledger, not pinned)` : ", issuer not pinned";
+  console.log(`signatures: ${sigs.signed} signed, ${sigs.unsigned} unsigned claimed${unmatched}${by}`);
   for (const f of sigs.faults) console.log(`line ${f.line}: ${f.reason}`);
   let failed = sigs.faults.length > 0;
   // #18: the head held against a checkpoint kept elsewhere.
@@ -254,6 +257,12 @@ async function keyCommand(args: string[]): Promise<number> {
   const project = values.project ?? findProject(process.cwd())?.project;
   if (project === undefined) throw new UsageError("key needs --project, or a .howl/howl.yml above the working directory");
   const places = { configDir: configDir(project), keysDir: join(projectDir(project), "keys") };
+  if (sub === "issue" && values.hours !== undefined) {
+    // #199: a window past the year 9999 would be written in a form verify refuses.
+    const { LAST_WINDOW, PAST_LAST_WINDOW } = await import("../keys/keys.ts");
+    const hours = Number(values.hours);
+    if (hours > 0 && !(Date.now() + hours * 3600_000 <= LAST_WINDOW)) throw new UsageError(PAST_LAST_WINDOW);
+  }
   // #24: through keyd when it runs: it holds the keys; the session gets a token.
   const keyd = process.env.HOWL_KEYD;
   if (keyd) {
