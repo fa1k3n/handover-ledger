@@ -4,8 +4,13 @@
 // aside with the reason, and the pass goes on.
 //
 // If the process stops between writing an event and removing its file, the
-// next pass finds the id in the ledger and only removes the file. Activity has
-// no such check: a tool call can then be in the activity file twice.
+// next pass finds the same event in the ledger and only removes the file.
+// Activity has no such check: a tool call can then be in the activity file twice.
+//
+// An event is dropped as a duplicate only when the line in the ledger under its
+// id holds the same event (#203). An id can be predicted, so a line planted
+// under it first must never make the real event vanish: that event is moved
+// to rejected/ with the reason, for a person to look at.
 // @code_class recording
 import {
   appendFileSync,
@@ -35,7 +40,7 @@ export interface Pass {
   ledger: number;
   activity: number;
   rejected: number;
-  /** Events whose id was in the ledger already: their files are removed. */
+  /** Events that were in the ledger already, the same event under the same id: their files are removed. */
   duplicates: number;
   /** Activity lines removed for their age. */
   expired: number;
@@ -68,7 +73,12 @@ export function ingestPass(places: Places, writer: LedgerWriter, activityDays: n
     }
     try {
       const event = parse(text, places.project);
-      if (writer.has(event.id)) {
+      const held = writer.holds(event);
+      if (held === "other") {
+        throw new LedgerError(
+          `${event.id}: this id is taken in the ledger by a line holding another event; this event is not written and is kept here for a person to look at`,
+        );
+      } else if (held === "same") {
         pass.duplicates++;
       } else if (ACTIVITY_TYPES.has(event.type)) {
         appendFileSync(places.activity, Buffer.concat([fixedForm(event), Buffer.from("\n")]), { mode: 0o600 });
