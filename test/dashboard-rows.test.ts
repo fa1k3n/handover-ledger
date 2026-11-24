@@ -63,17 +63,32 @@ test("#210: the mark of a signature that does not hold is the fault mark, pin or
   }
 });
 
-test("#210: an unsigned event has no mark, and no verdict is never taken for a pin", () => {
-  for (const pinned of [true, false]) {
-    const m = signatureMark(signedItem(undefined, false), pinned);
-    assert.deepEqual(m, { kind: "none", glyph: "", text: "" });
-  }
-  // A signature the server gave no verdict for claims nothing.
-  assert.equal(signatureMark(signedItem(undefined, true), true).kind, "none");
+test("#210: an unsigned event has no mark", () => {
+  for (const pinned of [true, false, null]) assert.deepEqual(signatureMark(signedItem(undefined, false), pinned), { kind: "none", glyph: "", text: "" });
 });
 
-test("#210: the ledger's state not read yet is never taken for a pin", () => {
-  assert.equal(signatureMark(signedItem({ ok: true }), null).kind, "open");
+test("#210: a claim that carries a signature and has no verdict is a fault, never shown as unsigned", () => {
+  for (const pinned of [true, false, null]) {
+    const m = signatureMark(signedItem(undefined, true), pinned);
+    assert.equal(m.kind, "fault");
+    assert.equal(m.glyph, "!");
+    assert.equal(m.text, "signature does not hold: its key has no valid issue");
+  }
+});
+
+test("#210: a key's issue or revocation with no verdict has no mark", () => {
+  for (const type of ["key.issued", "key.revoked"]) {
+    const it = signedItem(undefined, true);
+    (it.event as { type: string }).type = type;
+    assert.equal(signatureMark(it, true).kind, "none");
+  }
+});
+
+test("#210: before the ledger's state is read a holding signature says the issuer is not read yet", () => {
+  const m = signatureMark(signedItem({ ok: true }), null);
+  assert.equal(m.kind, "unread");
+  assert.equal(m.glyph, "○");
+  assert.equal(m.text, "signed, issuer not read yet");
 });
 
 test("#210: the filter Signed, not pinned is there only where the server serves no pin", () => {
