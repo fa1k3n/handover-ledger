@@ -219,6 +219,10 @@ export function revokeKey(project: string, keyId: string, places: { configDir: s
   return signEvent(event, issuer.key);
 }
 
+/** #202: what a pin (`--issuer`) is: the SHA-256 of the issuer's raw public key, 64 lowercase hex digits, as `howl key issue` prints it. One rule for `verify`, `up` and `serve`. */
+export const PIN = /^[0-9a-f]{64}$/;
+export const PIN_REFUSED = "--issuer must be a key id: 64 hex digits";
+
 export interface SignatureFault {
   line: number;
   reason: string;

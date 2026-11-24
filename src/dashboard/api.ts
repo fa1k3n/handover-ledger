@@ -12,7 +12,8 @@ export interface Agents {
   rows: AgentRow[];
 }
 
-export type LedgerState = { ok: true; lines: number; head: string; trial: boolean } | { ok: false; lines: number; line: number; faults: string[] };
+/** #202: `pinned` says whether the server was given the issuer's pin (`--issuer`). */
+export type LedgerState = { ok: true; lines: number; head: string; trial: boolean; pinned: boolean } | { ok: false; lines: number; line: number; faults: string[]; pinned: boolean };
 
 /** The project every call asks for; set by the page. */
 let project: string | null = null;

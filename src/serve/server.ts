@@ -17,7 +17,7 @@ import { verify, type Verdict } from "../ledger/verify.ts";
 import { presentTime } from "../read/now.ts";
 import { activityBeside, activityFrom, activityLines, byTime, lineCount, readEverything, readLedger, type Read } from "../read/reader.ts";
 import { faultyAnswer, type FaultyLine } from "../read/faulty.ts";
-import { checkSignatures } from "../keys/keys.ts";
+import { checkSignatures, PIN, PIN_REFUSED } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
 import { Kept } from "./kept.ts";
 import { projectsWriting, writingOf } from "../read/writing.ts";
@@ -46,6 +46,8 @@ export interface ServeOptions {
   agents?: ReadonlySet<string>;
   /** #64: the writer behind this server. Without it the server only reads. */
   write?: Write;
+  /** #202: the pin (`--issuer`): the SHA-256 of the issuer's raw public key, as `howl key issue` prints it. Signatures are held to it. Without it nothing is pinned, as `howl verify` without `--issuer`. */
+  issuer?: string;
 }
 
 interface Project {
@@ -109,6 +111,7 @@ export async function startServer(options: ServeOptions): Promise<Served> {
   if (!LOOPBACK.has(host)) throw new LedgerError(`howl serve answers on 127.0.0.1 only, not on ${host}`);
   if (options.ledger !== undefined) statSync(options.ledger);
   else if (options.home === undefined) throw new LedgerError("howl serve needs a ledger or the folder of the projects");
+  if (options.issuer !== undefined && !PIN.test(options.issuer)) throw new LedgerError(PIN_REFUSED);
 
   // Verifying reads the whole ledger: keep each verdict until its file changes.
   const verdicts = new Map<string, { size: number; mtime: number; value: Verdict }>();
@@ -122,7 +125,8 @@ export async function startServer(options: ServeOptions): Promise<Served> {
   };
 
   // #85: the lines of each ledger and each activity file as the event log gives them, kept until the file changes.
-  const lines: Lines = { ledger: new Kept<{ items: Item[]; faulty: FaultyLine[] }>(), activity: new Kept<Item[]>(), provenance: new Kept<Prepared>() };
+  // #202: the pin does not change while the server runs, so what is kept for a file needs it in no key.
+  const lines: Lines = { ledger: new Kept<{ items: Item[]; faulty: FaultyLine[] }>(), activity: new Kept<Item[]>(), provenance: new Kept<Prepared>(), pin: options.issuer };
 
   let port = options.port;
   const server = createServer((req, res) => {
@@ -165,6 +169,11 @@ function pathOf(req: IncomingMessage): string {
   } catch {
     return "";
   }
+}
+
+/** #202: the names of the projects of a home that hold a ledger, as `howl up` shows them. */
+export function projectsServed(home: string): string[] {
+  return projectsOf({ home, port: 0, root: "" }).map((p) => p.name);
 }
 
 /** The projects served: the one ledger, the one project of the home (#54), or every folder of the home that holds a ledger, by name. */
@@ -281,7 +290,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
       const asked = url.searchParams.get("line") ?? "";
       if (!/^(0|[1-9][0-9]{0,14})$/.test(asked)) throw new LedgerError("give line: the number of a line of the ledger");
       const n = Number(asked);
-      const prepared = lines.provenance.of(ledger, () => prepareLines(ledger));
+      const prepared = lines.provenance.of(ledger, () => prepareLines(ledger, lines.pin));
       const found = lineProvenance(ledger, prepared, n, ledgerVerdict(ledger), options.ledger === undefined ? project.name : undefined);
       if (found === null) {
         // #200: a line that is there and left out is named with why, not given as an event.
@@ -294,7 +303,9 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     }
     case "/api/ledger": {
       const v = ledgerVerdict(ledger);
-      json(res, 200, v.ok ? { ok: true, lines: v.lines, head: v.head, trial: v.trial } : { ok: false, lines: v.lines, line: v.line, faults: v.faults });
+      // #202: whether the issuer is pinned, for the page's status bar. The same for every ledger: the server has one pin.
+      const pinned = lines.pin !== undefined;
+      json(res, 200, v.ok ? { ok: true, lines: v.lines, head: v.head, trial: v.trial, pinned } : { ok: false, lines: v.lines, line: v.line, faults: v.faults, pinned });
       return;
     }
     default:
@@ -332,6 +343,8 @@ interface Lines {
   activity: Kept<Item[]>;
   /** #191: what /api/line reads of a ledger as a whole. */
   provenance: Kept<Prepared>;
+  /** #202: the pin the signatures are held to, when the server was given one. */
+  pin: string | undefined;
 }
 
 /**
@@ -349,7 +362,7 @@ function itemsOf(project: Project, after: number, activity: boolean, named: bool
     // Matched over the whole ledger, so a session before `after` still counts.
     const acting = actingAgents(all.map((i) => i.event));
     // #199: by line, so that a copy under a repeated id never shows another line's verdict.
-    const signatures = checkSignatures(read.parsed).byLine;
+    const signatures = checkSignatures(read.parsed, lines.pin).byLine;
     for (const item of all) {
       const by = acting.get(item.event.id)?.agent;
       if (by !== undefined) item.by = by;

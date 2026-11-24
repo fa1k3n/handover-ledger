@@ -65,6 +65,8 @@ export const texts = {
       evidenceOnly: "evidence only",
       withTools: "with tool calls",
       people: "people by pseudonym · no figure per person",
+      pinned: "issuer pinned",
+      notPinned: "issuer not pinned",
     },
     showEvent: (what: string) => `Show event ${what}`,
     /** #190: the band of what needs a person, above the list. */
@@ -137,13 +139,23 @@ export const texts = {
       noActor: "no actor named",
       signature: "Signature",
       notSigned: "not signed",
-      valid: (key: string) => `valid for key ${key}, issued in this ledger on an earlier line`,
-      validIssuer: (key: string) => `valid for the issuer key this line names (${key}), taken as the ledger's issuer from its first key line, as given`,
+      // #202: under which issuer a valid signature holds: the pin, or only the issuer the ledger names.
+      valid: {
+        pinned: (key: string, pin: string) => `valid for key ${key}, under the pinned issuer ${pin}`,
+        open: (key: string) => `valid for key ${key}, under the issuer the ledger names (not pinned)`,
+      },
+      validIssuer: {
+        pinned: (key: string, pin: string) => `valid for the issuer key this line names (${key}), under the pinned issuer ${pin}`,
+        open: (key: string) => `valid for the issuer key this line names (${key}), under the issuer the ledger names (not pinned)`,
+      },
       invalid: (reason: string) => `not valid: ${reason}`,
       tool: "not checked: a tool call is outside the chain",
       observed: "Read by howl's adapter from the team's tool. The event does not record how that tool authenticated the actor.",
-      limit:
-        "A valid signature shows the event was sent with that key, unchanged since, not that what it says is so: what a signed claim says stays a claim. The key's issue is checked against the issuer key this ledger names itself; it does not show that the issuer is one kept apart from the ledger.",
+      limit: {
+        open: "A valid signature shows the event was sent with that key, unchanged since, not that what it says is so: what a signed claim says stays a claim. The key's issue is checked against the issuer key this ledger names itself; it does not show that the issuer is one kept apart from the ledger.",
+        pinned:
+          "A valid signature shows the event was sent with that key, unchanged since, not that what it says is so: what a signed claim says stays a claim. The key's issue is checked against the pin this server was started with (--issuer); that the pin is the right one is for whoever keeps it to say.",
+      },
     },
     integrity: {
       line: "Line",
@@ -183,6 +195,13 @@ export const texts = {
       tool: "Related events are given for a line of the ledger.",
     },
     reading: "Worked out by howl from parts 1 to 6, and can be worked out again from them.",
+    // #202: what part 7's signature row says beside "valid", and for a key that has no valid issue.
+    signatureRow: {
+      pinned: (pin: string) => `pinned issuer ${pin}`,
+      notPinned: "issuer not pinned",
+      unread: "issuer not read yet",
+      noValidIssue: "its key has no valid issue on a line before",
+    },
   },
   overview: {
     title: "Overview",
