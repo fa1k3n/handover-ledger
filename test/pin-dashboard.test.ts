@@ -320,16 +320,16 @@ test("#202 (review, 2): under a pin, a key issued by another issuer reads as hav
   });
 });
 
-test("#202 (review, 3): part 3 names the issuer the line holds (data.issuer) for a key's revocation, never the sig.key it carries", async () => {
+test("#202 (review, 3), #207: a key's revocation with a forged sig.key never shows that key: /api/line names data.issuer, and part 3 reads not valid with the fault", async () => {
   const { ledger, issuer } = ledgerOfForgedRevocation();
   for (const pin of [undefined, issuer]) {
     await withServer({ ledger, issuer: pin }, async (url) => {
       const a = (await (await fetch(`${url}/api/line?line=3`)).json()) as Answer & { item: Item };
-      assert.equal(a.signature?.key, "f".repeat(64), "the answer gives the sig.key as the line carries it");
+      // #207: the answer names data.issuer too, and the forged sig.key is a fault on the line; the key is still revoked.
+      assert.equal(a.signature?.key, issuer, "the answer names the issuer the line names, never the sig.key it carries");
       const id = partIdentity(a.item, a.signature, a.issuer).signature;
-      assert.ok(id.includes(`(${issuer.slice(0, 12)})`), id);
       assert.ok(!id.includes("ffffffffffff"), id);
-      assert.match(id, pin === undefined ? /under the issuer the ledger names \(not pinned\)$/ : new RegExp(`under the pinned issuer ${issuer}$`));
+      assert.match(id, /^not valid: revocation of key [0-9a-f]{12}: the revocation is not signed by the issuer it names; the key is revoked all the same$/);
     });
   }
 });
