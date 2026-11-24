@@ -115,32 +115,33 @@ test("#191: part 5 says what was dropped or not kept for each kind, and shows th
   assert.equal(partKept(KINDS.claim).data, null, "no data: none is shown");
 });
 
-test("#191: part 3 says not signed, valid for the key in the ledger, or why not; never that the issuer is known", () => {
+test("#191: part 3 says not signed, valid for the key under an issuer (#202: pinned or not), or why not; never that the issuer is known", () => {
   const claim = KINDS.claim;
-  assert.equal(partIdentity(claim, null).signature, "not signed");
+  const open = { id: "e".repeat(64), pinned: false };
+  assert.equal(partIdentity(claim, null, open).signature, "not signed");
   const key = "a".repeat(64);
-  const valid = partIdentity(claim, { key, ok: true });
+  const valid = partIdentity(claim, { key, ok: true }, open);
   assert.match(valid.signature, /^valid for key aaaaaaaaaaaa/);
-  assert.match(valid.signature, /in this ledger/);
-  assert.doesNotMatch(valid.signature, /trusted|known issuer|pinned/i);
-  assert.equal(valid.limit, texts.provenance.identity.limit, "a signed event carries the limit of what a signature shows");
+  assert.match(valid.signature, /under the issuer the ledger names \(not pinned\)/);
+  assert.doesNotMatch(valid.signature, /trusted|known issuer|pinned issuer/i);
+  assert.equal(valid.limit, texts.provenance.identity.limit.open, "a signed event carries the limit of what a signature shows");
   assert.match(valid.limit!, /stays a claim/);
   assert.match(valid.limit!, /sent with that key, unchanged since/);
   assert.match(valid.limit!, /does not show that the issuer/);
-  const wrong = partIdentity(claim, { key, ok: false, reason: "the signature does not hold: the event was changed after it was signed" });
+  const wrong = partIdentity(claim, { key, ok: false, reason: "the signature does not hold: the event was changed after it was signed" }, open);
   assert.match(wrong.signature, /^not valid: the signature does not hold/);
-  assert.equal(partIdentity(claim, null).limit, null, "an unsigned event has no limit to say");
-  assert.equal(partIdentity(KINDS.http, undefined).signature, texts.provenance.identity.tool, "a tool call is not checked here");
-  assert.match(partIdentity(KINDS.hook, null).actor, /agent|person|no actor/);
+  assert.equal(partIdentity(claim, null, open).limit, null, "an unsigned event has no limit to say");
+  assert.equal(partIdentity(KINDS.http, undefined, open).signature, texts.provenance.identity.tool, "a tool call is not checked here");
+  assert.match(partIdentity(KINDS.hook, null, open).actor, /agent|person|no actor/);
 });
 
 test("#191 (review): part 3 says a key's issue or revocation is valid for the issuer key the line names, never issued on an earlier line", () => {
   const key = "b".repeat(64);
   for (const type of ["key.issued", "key.revoked"] as const) {
     const it = item({ type, source: { adapter: "howl-key", kind: "claimed" }, data: { key: "c".repeat(64), issuer: key } });
-    const id = partIdentity(it, { key, ok: true });
+    const id = partIdentity(it, { key, ok: true }, { id: key, pinned: false });
     assert.match(id.signature, /issuer key this line names \(bbbbbbbbbbbb\)/, type);
-    assert.match(id.signature, /taken as the ledger's issuer from its first key line/, type);
+    assert.match(id.signature, /under the issuer the ledger names \(not pinned\)/, type);
     assert.doesNotMatch(id.signature, /earlier line/, type);
   }
 });
