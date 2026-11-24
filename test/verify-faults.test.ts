@@ -344,6 +344,8 @@ test("#199: Ed25519 at its edges: the same verdict from both versions on all six
     ["noncanon-R", `0 signed, 0 unsigned claimed, ${notPinned("b".repeat(64))}`, ["line 2: key k1: the issuer key is refused: of small order"]],
     ["R-small", `1 signed, 0 unsigned claimed, ${notPinned(issuer)}`, [`line 3: ${changed}`]],
     ["s-plus-L", `1 signed, 0 unsigned claimed, ${notPinned(issuer)}`, [`line 3: ${changed}`]],
+    // A non-canonical R (the identity as y = p + 1) under a key of large order, with s = k·a: it holds for a verifier that decodes R first.
+    ["noncanon-R-large", `1 signed, 0 unsigned claimed, ${notPinned("10ba682c8ad13513971e8b56881aab8bd702bb807796eca81932c735a94d6e6d")}`, [`line 3: ${changed}`]],
   ];
   for (const [name, signatures, faults] of edges) {
     const path = fileURLToPath(new URL(`./fixtures/ed25519-edges/${name}.jsonl`, import.meta.url));
@@ -493,9 +495,89 @@ test("#199: an issued key that is not 32 bytes, not a point, not canonical or of
   const issuer = ed25519();
   const events = vectors.map((v, i) => issued(issuer, { key: `k${i}`, public: Buffer.from(v.hex, "hex").toString("base64url") }));
   const r = howl(["verify", "--ledger", chained(events)]);
-  const want = vectors.flatMap((v, i) => (v.refused === null ? [] : [`line ${i + 2}: key k${i}: its public key is refused: ${v.refused}`]));
+  // A key that is a key reaches the next check (#199, after the review): its id k<n> is not the hash of its public key.
+  const want = vectors.map((v, i) => `line ${i + 2}: key k${i}: ${v.refused === null ? "its public key does not hash to its id" : `its public key is refused: ${v.refused}`}`);
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.deepEqual(tailOf(r).slice(1), want);
+});
+
+/** A key.revoked of `agent`'s key at `at`, signed by `issuer`. */
+function revoked(issuer: KeyObject, agent: KeyObject, at: string): LedgerEvent {
+  const e: LedgerEvent = {
+    v: 0,
+    id: randomUUID(),
+    time: at,
+    type: "key.revoked",
+    source: { adapter: "howl-key", kind: "claimed" },
+    project: PROJECT,
+    data: { key: publicOf(agent).id, at, issuer: publicOf(issuer).id },
+  };
+  return signEvent(e, issuer);
+}
+
+/** A ledger of the review of #201, in test/fixtures/key-lines, made with `howl key issue` and an appender; its issuer. */
+const keyLines = (name: string) => fileURLToPath(new URL(`./fixtures/key-lines/${name}.jsonl`, import.meta.url));
+const REVIEW_PIN = "42c7b2f97281307edcc424f8718bf974e0c6e091b6fbf3534b8c03a15b83aca4";
+
+test("#199 (review): a key.issued line copied again after its revocation is refused, and the key stays revoked", () => {
+  // Issue, a claim, the honest revocation, an exact copy of the issue line, then a claim after the revocation.
+  const r = howl(["verify", "--ledger", keyLines("issued-again-after-revocation"), "--issuer", REVIEW_PIN]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.deepEqual(tailOf(r), [
+    `signatures: 2 signed, 0 unsigned claimed, issuer ${REVIEW_PIN} (pinned)`,
+    "line 5: the event 010f9cf6-6438-4817-859c-22b0db4db16f is already on line 2",
+    "line 6: signed after the key was revoked",
+  ]);
+});
+
+test("#199 (review): a key issued again under a new event id is refused; its first issue and its earliest revocation stand", () => {
+  const issuer = ed25519();
+  const agent = ed25519();
+  const key = publicOf(agent).id.slice(0, 12);
+  const path = chained([
+    issued(issuer, {}, agent),
+    revoked(issuer, agent, "2026-11-23T14:30:00.000Z"),
+    issued(issuer, {}, agent),
+    revoked(issuer, agent, "2026-11-23T16:00:00.000Z"),
+    claim(agent),
+  ]);
+  const r = howl(["verify", "--ledger", path]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.deepEqual(tailOf(r).slice(1), [`line 4: key ${key}: the key is already issued on line 2`, "line 6: signed after the key was revoked"]);
+});
+
+test("#199 (review): a revocation whose at is not an ISO time with a zone is refused on its line, the same in both versions", () => {
+  const r = howl(["verify", "--ledger", keyLines("revocation-at-unreadable"), "--issuer", REVIEW_PIN]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.deepEqual(tailOf(r), [
+    `signatures: 1 signed, 0 unsigned claimed, issuer ${REVIEW_PIN} (pinned)`,
+    "line 3: revocation of key 8242d7f2ebfb: its time cannot be read: at 2026-11-24 07:00 is not an ISO time with a zone",
+  ]);
+});
+
+test("#199 (review): a key id that is not the hash of its public key is refused", () => {
+  const r = howl(["verify", "--ledger", keyLines("key-id-not-its-public"), "--issuer", REVIEW_PIN]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.deepEqual(tailOf(r), [
+    `signatures: 2 signed, 0 unsigned claimed, issuer ${REVIEW_PIN} (pinned)`,
+    "line 3: key 8584df589866: its public key does not hash to its id",
+    "line 4: signed by key 5cabf08232c9, which has no valid issue on a line before",
+    "line 5: signed by key 8584df589866, which has no valid issue on a line before",
+  ]);
+});
+
+test("#199 (review): a forged issuer key that is also weak counts as on an issuer that does not match", () => {
+  const path = signedWith((events) => {
+    events[1]!.data.issuer_public = Buffer.from("01".padEnd(64, "0"), "hex").toString("base64url");
+  });
+  const r = howl(["verify", "--ledger", path, "--issuer", ISSUER]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.deepEqual(tailOf(r), [
+    `signatures: 2 signed, 1 unsigned claimed, 2 on an issuer that does not match, issuer ${ISSUER} (pinned)`,
+    "line 2: key 72e2d85be672: the issuer key is refused: of small order",
+    "line 3: signed by key 72e2d85be672, which has no valid issue on a line before",
+    "line 4: signed by key 72e2d85be672, which has no valid issue on a line before",
+  ]);
 });
 
 test("#140: an inbox file with a lone surrogate is refused by howl ingest as not JSON, and nothing is written", () => {
