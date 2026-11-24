@@ -835,7 +835,10 @@ fn a_revocation_with_a_forged_sig_key_is_a_fault_on_its_line_and_still_revokes()
     ];
     let pin = public_of(&issuer).0;
     assert_eq!(check_signatures(&numbered(&events), None).faults, want);
-    assert_eq!(check_signatures(&numbered(&events), Some(&pin)).faults, want);
+    assert_eq!(
+        check_signatures(&numbered(&events), Some(&pin)).faults,
+        want
+    );
 }
 
 #[test]
