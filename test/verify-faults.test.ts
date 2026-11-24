@@ -3,6 +3,7 @@
 // @code_class tests
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -10,6 +11,8 @@ import { fileURLToPath } from "node:url";
 import { eventHash, fixedForm } from "../src/ledger/fixed.ts";
 import { parseJson } from "../src/ledger/json.ts";
 import { hashLine, openLedger } from "../src/ledger/ledger.ts";
+import type { LedgerEvent } from "../src/ledger/schema.ts";
+import { publicOf, signEvent } from "../src/keys/keys.ts";
 import { event, folder, howl, PROJECT, rawLines, workspace } from "./helpers.ts";
 
 /** A ledger of its first line and `line` as line 2, written as it stands. */
@@ -201,7 +204,7 @@ test("#140: the whole text of a ledger that holds, and of one that does not", ()
   writeFileSync(path, `${rawLines(path)[0]!}\n`);
   const ok = howl(["verify", "--ledger", path]);
   assert.equal(ok.status, 0);
-  assert.match(ok.stdout, new RegExp(`^${path}\\nok: 1 line checked, head [0-9a-f]{64}\\na trial: it does not count as evidence\\nsignatures: 0 signed, 0 unsigned claimed\\n$`));
+  assert.match(ok.stdout, new RegExp(`^${path}\\nok: 1 line checked, head [0-9a-f]{64}\\na trial: it does not count as evidence\\nsignatures: 0 signed, 0 unsigned claimed, issuer not pinned\\n$`));
   const hash = hashLine(Buffer.from(rawLines(path)[0]!));
   assert.equal(ok.stdout.split("head ")[1]!.slice(0, 64), hash);
   writeFileSync(path, `${rawLines(path)[0]!}\n{}`);
@@ -317,7 +320,7 @@ test("#140: base64 is read as Node reads it: the low byte of each code unit, and
   });
   const held = howl(["verify", "--ledger", moved]);
   assert.equal(held.status, 0, held.stdout + held.stderr);
-  assert.match(held.stdout, new RegExp(`\\nsignatures: 2 signed, 1 unsigned claimed, issuer ${ISSUER}\\n$`));
+  assert.match(held.stdout, new RegExp(`\\nsignatures: 2 signed, 1 unsigned claimed, issuer ${ISSUER} \\(taken from the ledger, not pinned\\)\\n$`));
   // The high surrogate of an emoji has the low byte of "=": the signature ends there, and does not hold.
   const cut = signedWith((events) => {
     const value = events[3]!.sig.value as string;
@@ -328,16 +331,19 @@ test("#140: base64 is read as Node reads it: the low byte of each code unit, and
   assert.match(failed.stdout, /\nline 4: the signature does not hold: the event was changed after it was signed\n$/);
 });
 
-test("#140: Ed25519 at its edges that every build refuses is refused by both versions (test/fixtures/ed25519-edges)", () => {
-  // A small-order public key (small-order, noncanon-A, negzero-A) is not here: Node's verdict on it depends on the
-  // OpenSSL it was built with (Fedora's 3.5.9 lets it hold, the build of CI refuses it). rust/tests/verify.rs pins
-  // what Rust says of those.
+test("#199: Ed25519 at its edges: the same verdict from both versions on all six, small-order and non-canonical keys refused (test/fixtures/ed25519-edges)", () => {
+  // Before #199 a small-order key was left to the crypto library, and Node's verdict on it depended on its OpenSSL.
+  // Now it is refused by a check of howl's own before any signature is checked against it, so all six are compared.
   const issuer = "60eeb62f21e16e73e7353791b6603aecdfa264b690a202f2eff1e081ffa3e6c7";
   const changed = "the signature does not hold: the event was changed after it was signed";
+  const notPinned = (id: string) => `issuer ${id} (taken from the ledger, not pinned)`;
   const edges: [string, string, string[]][] = [
-    ["noncanon-R", "0 signed, 0 unsigned claimed, issuer " + "b".repeat(64), ["line 2: key k1: the issuer's signature does not hold"]],
-    ["R-small", `1 signed, 0 unsigned claimed, issuer ${issuer}`, [`line 3: ${changed}`]],
-    ["s-plus-L", `1 signed, 0 unsigned claimed, issuer ${issuer}`, [`line 3: ${changed}`]],
+    ["small-order", `0 signed, 0 unsigned claimed, ${notPinned("b".repeat(64))}`, ["line 2: key k1: the issuer key is refused: of small order"]],
+    ["noncanon-A", `0 signed, 0 unsigned claimed, ${notPinned("c".repeat(64))}`, ["line 2: key k2: the issuer key is refused: not in its canonical form"]],
+    ["negzero-A", `0 signed, 0 unsigned claimed, ${notPinned("c".repeat(64))}`, ["line 2: key k2: the issuer key is refused: not in its canonical form"]],
+    ["noncanon-R", `0 signed, 0 unsigned claimed, ${notPinned("b".repeat(64))}`, ["line 2: key k1: the issuer key is refused: of small order"]],
+    ["R-small", `1 signed, 0 unsigned claimed, ${notPinned(issuer)}`, [`line 3: ${changed}`]],
+    ["s-plus-L", `1 signed, 0 unsigned claimed, ${notPinned(issuer)}`, [`line 3: ${changed}`]],
   ];
   for (const [name, signatures, faults] of edges) {
     const path = fileURLToPath(new URL(`./fixtures/ed25519-edges/${name}.jsonl`, import.meta.url));
@@ -346,6 +352,150 @@ test("#140: Ed25519 at its edges that every build refuses is refused by both ver
     const tail = r.stdout.split("\n").slice(3, -1);
     assert.deepEqual(tail, [`signatures: ${signatures}`, ...faults], name);
   }
+});
+
+/** A ledger of these events, each on a line of its own after a first line, with `prev` and `hash` right. */
+function chained(events: LedgerEvent[]): string {
+  const first = (JSON.parse(readFileSync(new URL("./fixtures/ledger-signed.jsonl", import.meta.url), "utf8").split("\n")[0]!) as { event: LedgerEvent }).event;
+  let prev: string | null = null;
+  const out: string[] = [];
+  for (const e of [first, ...events]) {
+    const line: string = `{"prev":${JSON.stringify(prev)},"hash":"${eventHash(e)}","event":${fixedForm(e).toString("utf8")}}`;
+    out.push(line);
+    prev = hashLine(Buffer.from(line));
+  }
+  const path = join(folder(), "ledger.jsonl");
+  writeFileSync(path, out.map((l) => `${l}\n`).join(""));
+  return path;
+}
+
+const ed25519 = (): KeyObject => generateKeyPairSync("ed25519").privateKey;
+
+/** A key.issued for agent-1 by `issuer`, of a new key or the one given, with `over` in its data (a field undefined there is left out); signed by the issuer. */
+function issued(issuer: KeyObject, over: Record<string, unknown> = {}, agent: KeyObject = ed25519()): LedgerEvent {
+  const own = publicOf(agent);
+  const by = publicOf(issuer);
+  const data = { key: own.id, public: own.public, actor: "agent-1", from: "2026-11-23T14:00:00.000Z", until: "2026-11-23T22:00:00.000Z", issuer: by.id, issuer_public: by.public, ...over };
+  for (const [k, v] of Object.entries(data)) if (v === undefined) delete (data as Record<string, unknown>)[k];
+  const e: LedgerEvent = { v: 0, id: randomUUID(), time: "2026-11-23T14:00:00.000Z", type: "key.issued", source: { adapter: "howl-key", kind: "claimed" }, project: PROJECT, data };
+  return signEvent(e, issuer);
+}
+
+/** A session.started of agent-1, signed by `key`. */
+function claim(key: KeyObject): LedgerEvent {
+  const e: LedgerEvent = {
+    v: 0,
+    id: randomUUID(),
+    time: "2026-11-23T15:00:00.000Z",
+    type: "session.started",
+    source: { adapter: "claude-code-hook", kind: "claimed" },
+    project: PROJECT,
+    actor: { kind: "agent", id: "agent-1" },
+    session: "s1",
+    data: { source: "startup" },
+  };
+  return signEvent(e, key);
+}
+
+/** The lines of `howl verify` after the first three: the signatures line and the faults. */
+const tailOf = (r: { stdout: string }) => r.stdout.split("\n").slice(3, -1);
+
+test("#199: a forged issuer key under the pinned issuer's id is refused, naming the line, with or without --issuer", () => {
+  // Someone who can append to the file writes a key.issued that names the real issuer, but carries a key of their own and is signed by it.
+  const forger = ed25519();
+  const path = signedWith((events) => {
+    const e = events[1]!;
+    e.data.issuer_public = publicOf(forger).public;
+    delete e.sig;
+    e.sig = { key: ISSUER, value: signEvent(e as LedgerEvent, forger).sig!.value };
+  });
+  const faults = [
+    "line 2: key 72e2d85be672: the issuer key does not hash to the issuer it names",
+    "line 3: signed by key 72e2d85be672, which has no valid issue on a line before",
+    "line 4: signed by key 72e2d85be672, which has no valid issue on a line before",
+  ];
+  const pinned = howl(["verify", "--ledger", path, "--issuer", ISSUER]);
+  assert.equal(pinned.status, 1, pinned.stdout + pinned.stderr);
+  assert.deepEqual(tailOf(pinned), [`signatures: 2 signed, 1 unsigned claimed, 2 on an issuer that does not match, issuer ${ISSUER} (pinned)`, ...faults]);
+  const free = howl(["verify", "--ledger", path]);
+  assert.equal(free.status, 1, free.stdout + free.stderr);
+  assert.deepEqual(tailOf(free), [`signatures: 2 signed, 1 unsigned claimed, 2 on an issuer that does not match, issuer ${ISSUER} (taken from the ledger, not pinned)`, ...faults]);
+});
+
+test("#199: a ledger of another issuer's keys holds only unpinned, and says so; pinned to the real issuer it fails", () => {
+  const other = ed25519();
+  const agent = ed25519();
+  const path = chained([issued(other, {}, agent), claim(agent)]);
+  const id = publicOf(other).id;
+  const free = howl(["verify", "--ledger", path]);
+  assert.equal(free.status, 0, free.stdout + free.stderr);
+  assert.deepEqual(tailOf(free), [`signatures: 1 signed, 0 unsigned claimed, issuer ${id} (taken from the ledger, not pinned)`]);
+  const pinned = howl(["verify", "--ledger", path, "--issuer", ISSUER]);
+  assert.equal(pinned.status, 1, pinned.stdout + pinned.stderr);
+  const key = publicOf(agent).id.slice(0, 12);
+  assert.deepEqual(tailOf(pinned), [
+    `signatures: 1 signed, 0 unsigned claimed, 1 on an issuer that does not match, issuer ${ISSUER} (pinned)`,
+    `line 2: key ${key}: not issued by the ledger's issuer`,
+    `line 3: signed by key ${key}, which has no valid issue on a line before`,
+  ]);
+});
+
+test("#199: a ledger whose issuer matches the pin holds, with 0, and the line says it is pinned", () => {
+  const path = signedWith(() => {});
+  const r = howl(["verify", "--ledger", path, "--issuer", ISSUER]);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(tailOf(r), [`signatures: 2 signed, 1 unsigned claimed, issuer ${ISSUER} (pinned)`]);
+});
+
+test("#199: without --issuer the signatures line says the issuer is not pinned", () => {
+  const path = signedWith(() => {});
+  const r = howl(["verify", "--ledger", path]);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(tailOf(r), [`signatures: 2 signed, 1 unsigned claimed, issuer ${ISSUER} (taken from the ledger, not pinned)`]);
+  assert.doesNotMatch(r.stdout, /known|trusted/);
+  const empty = chained([]);
+  const none = howl(["verify", "--ledger", empty]);
+  assert.equal(none.status, 0, none.stdout + none.stderr);
+  assert.deepEqual(tailOf(none), ["signatures: 0 signed, 0 unsigned claimed, issuer not pinned"]);
+});
+
+test("#199: a key whose from or until is not an ISO time with a zone is refused, and its signatures do not hold", () => {
+  const cases: [Record<string, unknown>, string][] = [
+    [{ from: "2026-11-23T14:00:00" }, "from 2026-11-23T14:00:00 is not an ISO time with a zone"],
+    [{ from: "2026-11-23" }, "from 2026-11-23 is not an ISO time with a zone"],
+    [{ from: "2026-11-23T14:00Z" }, "from 2026-11-23T14:00Z is not an ISO time with a zone"],
+    [{ until: "Jan 1 2030" }, "until Jan 1 2030 is not an ISO time with a zone"],
+    [{ until: "2026-02-30T00:00:00Z" }, "until 2026-02-30T00:00:00Z is not an ISO time with a zone"],
+    [{ until: "2026-11-23T24:00:00Z" }, "until 2026-11-23T24:00:00Z is not an ISO time with a zone"],
+    [{ until: "2026-11-23T22:00:00+24:00" }, "until 2026-11-23T22:00:00+24:00 is not an ISO time with a zone"],
+    [{ until: 1795000000000 }, "until 1795000000000 is not an ISO time with a zone"],
+    [{ until: undefined }, "until undefined is not an ISO time with a zone"],
+  ];
+  const issuer = ed25519();
+  for (const [over, why] of cases) {
+    const agent = ed25519();
+    const e = issued(issuer, over, agent);
+    const path = chained([e, claim(agent)]);
+    const r = howl(["verify", "--ledger", path]);
+    const key = publicOf(agent).id.slice(0, 12);
+    assert.equal(r.status, 1, `${why}: ${r.stdout}${r.stderr}`);
+    assert.deepEqual(tailOf(r).slice(1), [`line 2: key ${key}: its window cannot be read: ${why}`, `line 3: signed by key ${key}, which has no valid issue on a line before`], why);
+  }
+  // A zone written as an offset, and a fraction of up to nine digits, are read.
+  const agent = ed25519();
+  const held = chained([issued(issuer, { from: "2026-11-23T15:00:00+01:00", until: "2026-11-23T22:00:00.123456789-02:30" }, agent), claim(agent)]);
+  const r = howl(["verify", "--ledger", held]);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+test("#199: an issued key that is not 32 bytes, not a point, not canonical or of small order is refused (test/fixtures/ed25519-keys.json)", () => {
+  const vectors = JSON.parse(readFileSync(new URL("./fixtures/ed25519-keys.json", import.meta.url), "utf8")) as { what: string; hex: string; refused: string | null }[];
+  const issuer = ed25519();
+  const events = vectors.map((v, i) => issued(issuer, { key: `k${i}`, public: Buffer.from(v.hex, "hex").toString("base64url") }));
+  const r = howl(["verify", "--ledger", chained(events)]);
+  const want = vectors.flatMap((v, i) => (v.refused === null ? [] : [`line ${i + 2}: key k${i}: its public key is refused: ${v.refused}`]));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.deepEqual(tailOf(r).slice(1), want);
 });
 
 test("#140: an inbox file with a lone surrogate is refused by howl ingest as not JSON, and nothing is written", () => {
