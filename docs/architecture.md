@@ -165,7 +165,7 @@ In two places ([commissioning.md](commissioning.md)). A `.howl/` folder in the r
 - The chain holds evidence. Activity, such as an agent's tool calls, is kept in a file of its own without a chain and is removed after a time.
 - A person is named by a label per subject, and a team by a team label ([The actor](#the-actor-which-person-and-where)). The key that resolves a label is kept at the organisation, never in the repository. `howl verify` names the first line that does not match.
 - A chain shows a changed or removed line, not lines cut off the end, and a file that one party both writes and keeps proves little. Signing the lines, or keeping the last hash somewhere else, is needed before it counts as evidence.
-- Only one writer at a time.
+- Only one writer at a time. This is what is built today; with #27, each machine that runs sessions has its own writer, each event is a file named by its hash, and the logs merge by union ([decisions.md](decisions.md), "The log that follows the repository, settled", 2026-11-24).
 - Configurable retention and export ([traceability.md](traceability.md)).
 
 ## Dashboard views

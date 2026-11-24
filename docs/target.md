@@ -59,16 +59,17 @@ This stays, with `howl` recording and checking only:
 
 ## A log that follows the repository
 
-- The log can live with the code, in a git reference of its own and not in the working tree. `.howl/` holds only configuration.
+- The log can live with the code, on a branch of its own, `howl/log`, and not in the working tree. `.howl/` holds only configuration.
 - It then follows the code, works offline and in closed networks, and a supplier can hand over the repository with its log for the client to check.
 - Each event is a file named by its hash, so that two clones merge without conflict. This is why an event does not know its place in a ledger.
-- Events are signed when they are made. The signed root is sent upwards at every push, so that a rewrite shows. The repository's log is the source; the level of the organisation is the witness and the index.
-- Only evidence goes there. Activity such as tool calls stays local and expires.
+- Claims are signed when they are made, and each commit to the log is signed with the key of the machine that wrote it. The signed root is sent upwards at every push, so that a rewrite shows. The repository's log is the source of what sessions claim; the level of the organisation is the witness and the index.
+- Only what sessions claim goes there, and no person's data. What the code host shows is observed by the one instance and kept there. Activity such as tool calls stays local and expires.
+- Decided in its details on 2026-11-24 ([decisions.md](decisions.md), "The log that follows the repository, settled").
 
 ## People
 
 - Data protection law applies in full to what the ledger holds about employees. The client is the controller.
 - Agents are measured one by one; people only as a team. Traceability needs an identity, figures do not.
-- People are named in the ledger by labels that hold within one subject only, and the work by the team that owns the code. The key that resolves a label is kept at the organisation, never in the repository, and every look is recorded. A stable pseudonym would let one person be followed across months and copies; this matters most where the log is copied to every clone ([architecture.md](architecture.md#the-actor-which-person-and-where)).
+- People are named in the ledger by labels that hold within one subject only, and the work by the team that owns the code. The key that resolves a label is kept at the organisation, never in the repository, and every look is recorded. A stable pseudonym would let one person be followed across months and copies; this matters most where the log is copied to every clone ([architecture.md](architecture.md#the-actor-which-person-and-where)). The log that is copied holds no person's data: what names a person is kept at the instance ([decisions.md](decisions.md), "The log that follows the repository, settled", 2026-11-24).
 - Who looks at the ledger is itself recorded.
 - A system that can watch how employees work may need an impact assessment and a negotiation with the employees' representatives before it is brought in. Templates for both are a delivery with the product. A lawyer reviews before the first client.

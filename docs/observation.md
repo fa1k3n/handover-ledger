@@ -21,7 +21,7 @@ An event from a hook is a claim by the agent's own session; an event read from t
 
 ## The parts
 
-1. **The schema and the ledger.** The event schema as JSON Schema, a ledger file with a hash chain kept outside the repository, and `howl verify`. An event does not know its place: the hash of the line before belongs to the line, not to the event.
+1. **The schema and the ledger.** The event schema as JSON Schema, a ledger file with a hash chain, and `howl verify`. Today the ledger is kept outside the repository; what comes, the claims on a branch `howl/log` of the repository, is decided on 2026-11-24 ([decisions.md](decisions.md), "The log that follows the repository, settled") and built in #27. An event does not know its place: the hash of the line before belongs to the line, not to the event.
 2. **`howl hook`.** Reads the hook's JSON and puts an event in an inbox. Several sessions write at once, so only one process brings the events into the chain. `howl emit` lets a script do the same.
 3. **`howl observe`.** The reader of the code host. It also empties the inbox.
 4. **`howl watch` and `howl show <task>`.** The stream in the terminal, and the timeline of one assignment from the hand-over to the merge. `howl watch` shows the handovers of the ledger; `--activity` adds the tool calls. Both print local time; `--utc` prints the times as stored.
@@ -48,7 +48,7 @@ project: example
 - **This is a trial.** Where the agents run as the same user that keeps the ledger, it serves observation but is not evidence. The ledger says so in its first line.
 - **Evidence and activity are kept apart.** The chain holds the handovers: a session's start and end, a wait for a person, and what the code host shows. Tool calls are activity: many, kept in a file of their own without a chain, and removed after a time.
 - **People are not measured one by one.** A person is named by a label that holds within one subject only, and the work by the team that owns the code ([architecture.md](architecture.md#the-actor-which-person-and-where)). The key that resolves a label is kept at the organisation, never in the repository. No figure is given per person. Today `howl` still names a person by a pseudonym kept beside the ledger, until the step that first writes a label.
-- **One writer.** Hooks and scripts never write to the chain. They leave one file per event in an inbox, and one process brings them in. When that process runs as `howl up`, the hook hands the event to it over HTTP on the same machine, and the writer leaves it in the inbox itself; the file is the way when the writer cannot be reached.
+- **One writer.** Hooks and scripts never write to the chain. They leave one file per event in an inbox, and one process brings them in. When that process runs as `howl up`, the hook hands the event to it over HTTP on the same machine, and the writer leaves it in the inbox itself; the file is the way when the writer cannot be reached. This is what is built today. With #27, each machine that runs sessions has its own writer, and the logs merge by union ([decisions.md](decisions.md), "The log that follows the repository, settled", 2026-11-24).
 - **A hook never disturbs the session.** It is quick, prints nothing and always ends without an error, also when the ledger cannot be reached.
 - **No repository, no event.** Without a `.howl/` folder above the working directory the hook does nothing.
 
