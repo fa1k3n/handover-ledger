@@ -3,12 +3,12 @@
 // covers it and the signature's result. Read only.
 // @code_class tests
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { eventHash } from "../src/ledger/fixed.ts";
+import { eventHash, fixedForm } from "../src/ledger/fixed.ts";
 import { hashLine, openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
-import { issueKey, readKey, signEvent } from "../src/keys/keys.ts";
+import { checkSignatures, issueKey, readKey, signEvent } from "../src/keys/keys.ts";
 import { startServer } from "../src/serve/server.ts";
 import { event, folder, ledgerWith, lines, PROJECT, rawLines, writeLines } from "./helpers.ts";
 
@@ -275,5 +275,47 @@ test("#191 (review): a line number past a safe integer is refused", async () => 
   await withServer({ ledger }, async (url) => {
     assert.equal((await line(url, "9999999999999999")).status, 400);
     assert.equal((await line(url, "999999999999999")).status, 404);
+  });
+});
+
+/** The review's D1: the signed ledger of the fixtures, then a copy of its signed claim on line 3 with data changed, the same id and sig. */
+function copiedClaim(): { ledger: string; events: LedgerEvent[] } {
+  const events = readFileSync(new URL("./fixtures/ledger-signed.jsonl", import.meta.url), "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => (JSON.parse(l) as { event: LedgerEvent }).event);
+  events.push({ ...events[2]!, data: { source: "resume" } });
+  let prev: string | null = null;
+  const out: string[] = [];
+  for (const e of events) {
+    const text: string = `{"prev":${JSON.stringify(prev)},"hash":"${eventHash(e)}","event":${fixedForm(e).toString("utf8")}}`;
+    out.push(text);
+    prev = hashLine(Buffer.from(text));
+  }
+  const ledger = join(folder(), "ledger.jsonl");
+  writeFileSync(ledger, out.map((l) => `${l}\n`).join(""));
+  return { ledger, events };
+}
+
+test("#199 (second look): a changed copy of a signed claim, with the same id and sig, is never read as valid", async () => {
+  const { ledger, events } = copiedClaim();
+  const id = events[2]!.id;
+  const repeat = `the event ${id} is already on line 3`;
+  const check = checkSignatures(events.map((event, i) => ({ n: i + 1, event })));
+  assert.equal(check.byEvent.get(id)?.ok, false, "keyed by id, the repeated id is not valid");
+  assert.equal(check.byEvent.get(id)?.reason, repeat);
+  await withServer({ ledger }, async (url) => {
+    // The dashboard's items: the copy on line 6 is not valid; the claim on line 3 is.
+    const items = ((await (await fetch(`${url}/api/events`)).json()) as { events: { n: number; signed?: { ok: boolean; reason?: string } }[] }).events;
+    assert.equal(items.find((i) => i.n === 6)?.signed?.ok, false, "the copy");
+    assert.equal(items.find((i) => i.n === 6)?.signed?.reason, repeat);
+    assert.equal(items.find((i) => i.n === 3)?.signed?.ok, true, "the claim itself");
+    // /api/line: item.signed agrees with the signature of the line.
+    const copy = await line(url, 6);
+    const signed = (copy.body.item as { signed?: { ok: boolean } }).signed;
+    assert.equal(signed?.ok, false);
+    assert.equal(copy.body.signature?.ok, false);
+    const first = await line(url, 3);
+    assert.equal((first.body.item as { signed?: { ok: boolean } }).signed?.ok, true);
   });
 });
