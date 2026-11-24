@@ -800,3 +800,58 @@ fn a_forged_issuer_key_that_is_also_weak_counts_as_on_an_issuer_that_does_not_ma
     );
     assert_eq!(check.unmatched, 2);
 }
+
+/// #207: the fault of a revocation whose sig.key is not the issuer it names.
+const NOT_BY_ITS_ISSUER: &str =
+    "the revocation is not signed by the issuer it names; the key is revoked all the same";
+
+/// The first line of the signed fixture, `agent`'s key issued by `issuer`, `revocation`, and a claim after it.
+fn revoked_ledger(issuer: &SigningKey, agent: &SigningKey, revocation: Value) -> Vec<Value> {
+    let claim = json!({
+        "v": 0, "id": "c1", "time": "2026-11-23T15:00:00.000Z", "type": "session.started",
+        "source": {"adapter": "claude-code-hook", "kind": "claimed"}, "project": "example",
+        "actor": {"kind": "agent", "id": "agent-1"}, "session": "s1", "data": {"source": "startup"}
+    });
+    vec![
+        signed_events()[0].clone(),
+        issued_by(issuer, agent, "i1"),
+        revocation,
+        sign_event(&claim, agent),
+    ]
+}
+
+#[test]
+fn a_revocation_with_a_forged_sig_key_is_a_fault_on_its_line_and_still_revokes() {
+    let issuer = SigningKey::from_bytes(&[11; 32]);
+    let agent = SigningKey::from_bytes(&[12; 32]);
+    let mut forged = revoked_by(&issuer, &agent, "r1", "2026-11-23T14:30:00.000Z");
+    // The signed payload leaves out the whole sig, so the issuer's signature still holds.
+    forged["sig"]["key"] = json!("f".repeat(64));
+    let events = revoked_ledger(&issuer, &agent, forged);
+    let key = &public_of(&agent).0[..12];
+    let want = vec![
+        (3, format!("revocation of key {key}: {NOT_BY_ITS_ISSUER}")),
+        (4, "signed after the key was revoked".to_string()),
+    ];
+    let pin = public_of(&issuer).0;
+    assert_eq!(check_signatures(&numbered(&events), None).faults, want);
+    assert_eq!(
+        check_signatures(&numbered(&events), Some(&pin)).faults,
+        want
+    );
+}
+
+#[test]
+fn an_honest_revocation_is_no_fault_on_its_line() {
+    let issuer = SigningKey::from_bytes(&[11; 32]);
+    let agent = SigningKey::from_bytes(&[12; 32]);
+    let honest = revoked_by(&issuer, &agent, "r1", "2026-11-23T14:30:00.000Z");
+    let events = revoked_ledger(&issuer, &agent, honest);
+    let want = vec![(4, "signed after the key was revoked".to_string())];
+    let pin = public_of(&issuer).0;
+    assert_eq!(check_signatures(&numbered(&events), None).faults, want);
+    assert_eq!(
+        check_signatures(&numbered(&events), Some(&pin)).faults,
+        want
+    );
+}

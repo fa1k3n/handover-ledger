@@ -303,7 +303,9 @@ impl Signatures {
     }
 
     /// A key.revoked's effect, and why it has none: the key must be issued, the issuer must be the ledger's and its signature must hold,
-    /// and the time must be readable. The earliest revocation stands.
+    /// and the time must be readable. The earliest revocation stands. A revocation that has its effect is a fault still when its
+    /// sig.key is not the issuer it names (#207): the signed payload leaves out the sig, so nothing else holds it, and revoking is
+    /// the safe direction.
     fn revoke(&mut self, n: usize, event: &Value, d: &Map<String, Value>) -> Option<String> {
         let key = Key::of(Some(
             d.get("key")
@@ -321,7 +323,13 @@ impl Signatures {
             Some(known) if holds => match window_time(at) {
                 Some(t) => {
                     known.revoked_at = Some(known.revoked_at.map_or(t, |r| r.min(t)));
-                    None
+                    let signer = event.get("sig").and_then(|s| s.get("key"));
+                    (!same(signer, d.get("issuer"))).then(|| {
+                        format!(
+                            "revocation of key {}: the revocation is not signed by the issuer it names; the key is revoked all the same",
+                            short(d.get("key"))
+                        )
+                    })
                 }
                 None => Some(format!(
                     "revocation of key {}: its time cannot be read: at {} is not an ISO time with a zone",

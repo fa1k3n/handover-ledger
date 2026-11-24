@@ -180,7 +180,10 @@ export function lineProvenance(ledger: string, prepared: Prepared, n: number, ve
   if (read.event.sig !== undefined) {
     const fault = check.faults.find((f) => f.line === n);
     // Every signed line that fails has its fault; a key's issue or revocation that holds is in no other list.
-    signature = fault !== undefined ? { key: read.event.sig.key, ok: false, reason: fault.reason } : { key: read.event.sig.key, ok: true };
+    // #207: a revocation names the issuer it names, never the sig.key it carries, which nothing but #207's fault holds to it.
+    const named = (read.event.data as Record<string, unknown> | undefined)?.issuer;
+    const key = read.event.type === "key.revoked" && typeof named === "string" ? named : read.event.sig.key;
+    signature = fault !== undefined ? { key, ok: false, reason: fault.reason } : { key, ok: true };
   }
 
   const unproven = firstUnproven(verdict);

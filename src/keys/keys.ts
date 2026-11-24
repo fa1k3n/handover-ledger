@@ -300,7 +300,9 @@ function unreadable(event: unknown): string | null {
  * another line's. A line `left` out by the reader takes no id and is not held
  * to one that is taken. A revocation whose issuer's signature holds revokes the
  * key even when its id is already taken (its line is still a fault): otherwise
- * a line that took the id first would keep the key from being revoked.
+ * a line that took the id first would keep the key from being revoked. A
+ * revocation whose sig.key is not the issuer it names is a fault on its line,
+ * and still revokes (#207).
  */
 export function checkSignatures(lines: { n: number; event: LedgerEvent; left?: boolean }[], pin?: string): SignatureCheck {
   const keys = new Map<string, { data: Record<string, string>; line: number; revokedAt?: number }>();
@@ -318,7 +320,9 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent; left?: b
 
   /**
    * A key.revoked's effect, and why it has none: the key must be issued, the issuer must be the ledger's and its signature must hold,
-   * and the time must be readable. The earliest revocation stands.
+   * and the time must be readable. The earliest revocation stands. A revocation that has its effect is a fault still when its
+   * sig.key is not the issuer it names (#207): the signed payload leaves out the sig, so nothing else holds it, and revoking is
+   * the safe direction.
    */
   const revoke = (event: LedgerEvent, d: Record<string, string>): string | null => {
     const known = keys.get(d.key ?? "");
@@ -330,6 +334,7 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent; left?: b
     const t = windowTime(at);
     if (Number.isNaN(t)) return `revocation of key ${short(d.key)}: its time cannot be read: at ${at} is not an ISO time with a zone`;
     if (known.revokedAt === undefined || t < known.revokedAt) known.revokedAt = t;
+    if (event.sig?.key !== d.issuer) return `revocation of key ${short(d.key)}: the revocation is not signed by the issuer it names; the key is revoked all the same`;
     return null;
   };
 

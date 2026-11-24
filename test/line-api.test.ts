@@ -3,12 +3,13 @@
 // covers it and the signature's result. Read only.
 // @code_class tests
 import assert from "node:assert/strict";
+import { generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { eventHash, fixedForm } from "../src/ledger/fixed.ts";
 import { hashLine, openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
-import { checkSignatures, issueKey, readKey, signEvent } from "../src/keys/keys.ts";
+import { checkSignatures, issueKey, publicOf, readKey, signEvent } from "../src/keys/keys.ts";
 import { startServer } from "../src/serve/server.ts";
 import { event, folder, ledgerWith, lines, PROJECT, rawLines, writeLines } from "./helpers.ts";
 
@@ -317,5 +318,49 @@ test("#199 (second look): a changed copy of a signed claim, with the same id and
     assert.equal(copy.body.signature?.ok, false);
     const first = await line(url, 3);
     assert.equal((first.body.item as { signed?: { ok: boolean } }).signed?.ok, true);
+  });
+});
+
+/** The first line of the signed fixture, a key of agent-1 issued by a new issuer, its revocation with sig.key forged, and a claim after it. */
+function forgedRevocation(): { ledger: string; issuer: string } {
+  const first = (JSON.parse(readFileSync(new URL("./fixtures/ledger-signed.jsonl", import.meta.url), "utf8").split("\n")[0]!) as { event: LedgerEvent }).event;
+  const issuer: KeyObject = generateKeyPairSync("ed25519").privateKey;
+  const agent: KeyObject = generateKeyPairSync("ed25519").privateKey;
+  const by = publicOf(issuer);
+  const own = publicOf(agent);
+  const base = { v: 0 as const, project: first.project, source: { adapter: "howl-key", kind: "claimed" as const } };
+  const issued = signEvent(
+    { ...base, id: randomUUID(), time: "2026-11-23T14:00:00.000Z", type: "key.issued", data: { key: own.id, public: own.public, actor: "agent-1", from: "2026-11-23T14:00:00.000Z", until: "2026-11-23T22:00:00.000Z", issuer: by.id, issuer_public: by.public } },
+    issuer,
+  );
+  const revoked = signEvent({ ...base, id: randomUUID(), time: "2026-11-23T14:30:00.000Z", type: "key.revoked", data: { key: own.id, at: "2026-11-23T14:30:00.000Z", issuer: by.id } }, issuer);
+  // The signed payload leaves out the whole sig, so the issuer's signature still holds.
+  revoked.sig = { ...revoked.sig!, key: "f".repeat(64) };
+  const claim = signEvent(
+    { ...base, id: randomUUID(), time: "2026-11-23T15:00:00.000Z", type: "session.started", source: { adapter: "test", kind: "claimed" }, actor: { kind: "agent", id: "agent-1" }, session: "s1", data: { source: "startup" } },
+    agent,
+  );
+  let prev: string | null = null;
+  const out: string[] = [];
+  for (const e of [first, issued, revoked, claim]) {
+    const text: string = `{"prev":${JSON.stringify(prev)},"hash":"${eventHash(e)}","event":${fixedForm(e).toString("utf8")}}`;
+    out.push(text);
+    prev = hashLine(Buffer.from(text));
+  }
+  const ledger = join(folder(), "ledger.jsonl");
+  writeFileSync(ledger, out.map((l) => `${l}\n`).join(""));
+  return { ledger, issuer: by.id };
+}
+
+test("#207: a revocation with a forged sig.key names the issuer it names, is not valid with the fault, and still revokes", async () => {
+  const { ledger, issuer } = forgedRevocation();
+  await withServer({ ledger }, async (url) => {
+    const revocation = await line(url, 3);
+    assert.equal(revocation.status, 200);
+    assert.equal(revocation.body.signature?.key, issuer, "data.issuer, never the sig.key the line carries");
+    assert.equal(revocation.body.signature?.ok, false);
+    assert.match(revocation.body.signature?.reason ?? "", /: the revocation is not signed by the issuer it names; the key is revoked all the same$/);
+    const after = await line(url, 4);
+    assert.equal((after.body.item as { signed?: { ok: boolean; reason?: string } }).signed?.reason, "signed after the key was revoked");
   });
 });
