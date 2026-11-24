@@ -30,10 +30,13 @@ const REFUSED: [string, Change, RegExp][] = [
   ["data not an object", (e) => (e.data = "text"), /data/],
 ];
 
-/** The story's ledger with line `n` changed by `change`; the chain is made again from that line on, so that only the schema refuses it. */
-function damaged(n: number, change: Change): string {
-  const ledger = writeStory();
-  const raws = rawLines(ledger);
+/**
+ * A copy of the story's ledger (or of `base`) with line `n` changed by `change`; the chain is made again from that
+ * line on, so that only the schema refuses it.
+ */
+function damaged(n: number, change: Change, base = writeStory()): string {
+  const ledger = join(folder(), "ledger.jsonl");
+  const raws = rawLines(base);
   let prev: string | null = n === 1 ? null : hashLine(Buffer.from(raws[n - 2]!));
   for (let i = n - 1; i < raws.length; i++) {
     const line = JSON.parse(raws[i]!);
@@ -243,7 +246,7 @@ test("#200: no field of a line, left out or of the wrong kind, makes the check o
 for (const [name, change, reason] of REFUSED) {
   test(`#200: a line ${name}: /api/events, /api/line, /api/agents and /api/overview answer 200, the good lines read as before, and the line is named`, async () => {
     const baseline = writeStory();
-    const ledger = damaged(DAMAGED, change);
+    const ledger = damaged(DAMAGED, change, baseline);
     await withServer({ ledger: baseline }, async (url) => {
       const before = (await get<{ events: Listed[] }>(url, "/api/events")).body.events;
       await withServer({ ledger }, async (url2) => {
@@ -394,6 +397,18 @@ test("#200: howl show and howl status on a ledger with no faulty line say nothin
     assert.equal(run.stderr, "");
   }
 });
+
+for (const [name, change, reason] of REFUSED.slice(0, 3)) {
+  test(`#200: howl watch on a ledger with a line ${name} shows the other lines, names the line, and ends without a stack`, () => {
+    const ledger = damaged(DAMAGED, change);
+    const run = howl(["watch", "--no-follow", "--utc", "--ledger", ledger]);
+    assert.equal(run.status, 0, run.stderr);
+    assert.ok(!/\n\s+at /.test(run.stderr) && !/TypeError|Cannot read/.test(run.stderr), run.stderr);
+    assert.match(run.stderr, new RegExp(`line ${DAMAGED} is left out`));
+    assert.match(run.stderr, reason);
+    assert.equal(run.stdout.trim().split("\n").length, rawLines(ledger).length - 2, "every line but the first and the faulty one");
+  });
+}
 
 test("#200: howl verify still names the line the schema refuses, and fails", () => {
   const ledger = damaged(DAMAGED, (e) => delete e.source);
