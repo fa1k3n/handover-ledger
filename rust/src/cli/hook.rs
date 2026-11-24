@@ -16,6 +16,7 @@ use crate::keys::js::truthy;
 use crate::keys::keyd::{parse_keyd_key, request, Answer};
 use crate::keys::sign::{read_key, sign_event};
 use crate::ledger::place::{inbox_path, project_dir, Env};
+use crate::ledger::schema::event_faults;
 use serde_json::{json, Value};
 use std::io::Read;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -109,14 +110,14 @@ fn sign(key: &str, project: &Project, event: &Value, places: &Env) -> Option<Val
         }
         Answer::Reply(Value::Object(answer)) => {
             if truthy(answer.get("ok")) {
-                // Only a signature in form is taken: the key's id and the signature, both text.
+                // Only a signature the writer takes: the event with it must pass the schema check, which holds `sig`
+                // to a key id in hex, a value, and no other member. Else the event goes unsigned.
                 let sig = answer.get("sig")?.as_object()?;
-                let both = sig.get("key")?.is_string() && sig.get("value")?.is_string();
                 let mut signed = event.clone();
                 signed
                     .as_object_mut()?
                     .insert("sig".to_string(), Value::Object(sig.clone()));
-                both.then_some(signed)
+                event_faults(&signed).is_empty().then_some(signed)
             } else {
                 // keyd's own words say it is not there, as `request` of the TypeScript does when it gives up.
                 if truthy(answer.get("unreachable")) {
