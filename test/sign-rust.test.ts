@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { signatureHolds } from "../src/keys/keys.ts";
+import { readKey, signEvent, signatureHolds } from "../src/keys/keys.ts";
 import { VERSIONS, binary, hookJson, leftIn, run, runAsync } from "./binary.ts";
 import { folder, howl, PROJECT, startHowl, workspace, type Workspace } from "./helpers.ts";
 
@@ -83,7 +83,9 @@ test("#142: a key the hook cannot read leaves the event unsigned, silently, as t
     ["an empty file", empty],
     ["garbage", garbage],
     ["a folder", dir],
-    ["a key of another kind", `${FIXTURES}rsa.pem`],
+    ["a key of another kind: RSA", `${FIXTURES}rsa.pem`],
+    ["a key of another kind: EC", `${FIXTURES}ec.pem`],
+    ["a key of another kind: Ed448", `${FIXTURES}ed448.pem`],
     ["a keyd key that is cut short", `keyd:${join(dir, "k.sock")}#${KEY}`],
   ];
   for (const [label, key] of keys) {
@@ -233,18 +235,43 @@ test("#142: a keyd that never answers: the first call ends within 1 s, a second 
   assert.ok(existsSync(downFile(w)));
 });
 
-test("#142: an answer from keyd that is not a signature never makes a signature", { skip: binary }, async () => {
-  for (const answer of ['{"ok":true}', '{"ok":true,"sig":"x"}', '{"ok":true,"sig":{"key":1,"value":"v"}}', '{"ok":true,"sig":{"key":"k"}}', "null", "[]", '"yes"', "hello"]) {
-    const fake = await socketAnswering(answer);
+test("#142: an answer from keyd that is not a signature the writer takes never makes a signature, in either version", { skip: binary }, async () => {
+  const answers = [
+    '{"ok":true}',
+    '{"ok":true,"sig":"x"}',
+    '{"ok":true,"sig":{"key":1,"value":"v"}}',
+    '{"ok":true,"sig":{"key":"k"}}',
+    // In form for a text, not for the schema: the writer refuses these events.
+    '{"ok":true,"sig":{"key":"k","value":"v"}}',
+    `{"ok":true,"sig":{"key":"${KEY}","value":""}}`,
+    `{"ok":true,"sig":{"key":"${KEY}","value":"v","extra":1}}`,
+    `{"ok":true,"sig":{"key":"${KEY.toUpperCase()}","value":"v"}}`,
+    "null",
+    "[]",
+    '"yes"',
+    "hello",
+  ];
+  for (const version of VERSIONS) {
+    for (const answer of answers) {
+      const fake = await socketAnswering(answer);
+      const w = workspace();
+      silent(await runAsync(version, ["hook"], w.root, { ...w.env, HOWL_KEY: `keyd:${fake.socket}#${KEY}:${TOKEN}` }, hookJson(w)), `${version}: ${answer}`);
+      const files = leftIn(w.home);
+      assert.equal(files.length, 1, `${version}: ${answer}`);
+      assert.equal(files[0]!.event.sig, undefined, `${version}: ${answer}`);
+    }
+    // And one that the schema takes is passed on as keyd made it.
+    const fake = await socketAnswering(`{"ok":true,"sig":{"key":"${KEY}","value":"v"}}`);
     const w = workspace();
-    silent(await runAsync("rust", ["hook"], w.root, { ...w.env, HOWL_KEY: `keyd:${fake.socket}#${KEY}:${TOKEN}` }, hookJson(w)), answer);
-    const files = leftIn(w.home);
-    assert.equal(files.length, 1, answer);
-    assert.equal(files[0]!.event.sig, undefined, answer);
+    silent(await runAsync(version, ["hook"], w.root, { ...w.env, HOWL_KEY: `keyd:${fake.socket}#${KEY}:${TOKEN}` }, hookJson(w)), `${version}: a signature`);
+    assert.deepEqual(leftIn(w.home)[0]!.event.sig, { key: KEY, value: "v" }, version);
   }
-  // And one that is a signature in form is passed on as keyd made it.
-  const fake = await socketAnswering('{"ok":true,"sig":{"key":"k","value":"v"}}');
-  const w = workspace();
-  silent(await runAsync("rust", ["hook"], w.root, { ...w.env, HOWL_KEY: `keyd:${fake.socket}#${KEY}:${TOKEN}` }, hookJson(w)), "a signature");
-  assert.deepEqual(leftIn(w.home)[0]!.event.sig, { key: "k", value: "v" });
+});
+
+test("#142: a key that is not Ed25519 never signs: the TypeScript refuses it as the binary does", () => {
+  const event = { v: 0, id: "a", time: "2026-01-02T03:04:05.000Z", type: "session.stopped", source: { adapter: "claude-code-hook", kind: "claimed" }, project: PROJECT } as never;
+  for (const file of ["ec.pem", "rsa.pem", "ed448.pem"]) {
+    assert.throws(() => signEvent(event, readKey(`${FIXTURES}${file}`)), file);
+  }
+  assert.ok(signEvent(event, readKey(`${FIXTURES}key.pem`)).sig, "an Ed25519 key signs");
 });

@@ -126,7 +126,7 @@ fn a_key_that_cannot_be_read_is_an_error_not_a_key() {
         assert!(read_key(path.to_str().unwrap()).is_err(), "{label}");
     }
     // Keys of other kinds: no signature of theirs is one howl verify accepts.
-    for other in ["ec.pem", "rsa.pem"] {
+    for other in ["ec.pem", "rsa.pem", "ed448.pem"] {
         assert!(read_key(&fixture(other)).is_err(), "{other}");
     }
     assert!(read_key(dir.join("missing.pem").to_str().unwrap()).is_err());
