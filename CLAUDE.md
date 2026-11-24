@@ -36,8 +36,8 @@ Handover Ledger: an audit-ready ledger of handovers in teams of people and AI ag
 - Test vectors that must match byte for byte, escapes included, are kept in `test/fixtures/`, not written into the tests.
 - The chain holds evidence. Activity (tool calls) goes to a file of its own without a chain and expires.
 - Only an agent's session is recorded. A person is named by a pseudonym kept beside the ledger, and no figure is given per person.
-- Kept outside the repository, never under the working directory.
-- One writer at a time. Hooks and scripts never write to the chain; they leave events in an inbox.
+- Today the ledger is kept outside the repository, never under the working directory. What comes is decided on 2026-11-24 ([docs/decisions.md](docs/decisions.md), "The log that follows the repository, settled"): the claims on a branch `howl/log`, built in #27.
+- Today one writer at a time. Hooks and scripts never write to the chain; they leave events in an inbox. What comes is in the same decision: a writer on each machine, the logs merged by union.
 - An event the schema does not accept is refused and nothing is written.
 - Mark every event as observed (read from the team's tools) or claimed (sent by a session about itself).
 - Do not record all content: the tool, the target and the outcome, never keys, whole commands or answers, and no plain hash of an input, which a short input can be guessed from.

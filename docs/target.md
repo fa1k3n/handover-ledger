@@ -59,11 +59,12 @@ This stays, with `howl` recording and checking only:
 
 ## A log that follows the repository
 
-- The log can live with the code, in a git reference of its own and not in the working tree. `.howl/` holds only configuration.
+- The log can live with the code, on a branch of its own, `howl/log`, and not in the working tree. `.howl/` holds only configuration.
 - It then follows the code, works offline and in closed networks, and a supplier can hand over the repository with its log for the client to check.
 - Each event is a file named by its hash, so that two clones merge without conflict. This is why an event does not know its place in a ledger.
-- Events are signed when they are made. The signed root is sent upwards at every push, so that a rewrite shows. The repository's log is the source; the level of the organisation is the witness and the index.
-- Only evidence goes there. Activity such as tool calls stays local and expires.
+- Claims are signed when they are made, and each commit to the log is signed with the key of the machine that wrote it. The signed root is sent upwards at every push, so that a rewrite shows. The repository's log is the source of what sessions claim; the level of the organisation is the witness and the index.
+- Only what sessions claim goes there, and no person's data. What the code host shows is observed by the one instance and kept there. Activity such as tool calls stays local and expires.
+- Decided in its details on 2026-11-24 ([decisions.md](decisions.md), "The log that follows the repository, settled").
 
 ## People
 
