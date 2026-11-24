@@ -375,6 +375,139 @@ test("#200: a field name of 200,000 characters is cut in every answer and comman
   assert.ok(verify.stdout.length < 1000, `verify: ${verify.stdout.length} characters`);
 });
 
+// --- the second look: a line that takes a revocation's id --------------------------------------------------------
+
+/** The ledger `base` with `event` inserted as line `at`; the lines after it are chained again. */
+function inserted(base: string, at: number, event: Record<string, unknown>): string {
+  const ledger = join(folder(), "ledger.jsonl");
+  const raws = rawLines(base);
+  raws.splice(at - 1, 0, JSON.stringify({ prev: null, hash: "", event }));
+  let prev: string | null = hashLine(Buffer.from(raws[at - 2]!));
+  for (let i = at - 1; i < raws.length; i++) {
+    const line = JSON.parse(raws[i]!);
+    line.prev = prev;
+    line.hash = eventHash(line.event);
+    raws[i] = JSON.stringify(line);
+    prev = hashLine(Buffer.from(raws[i]!));
+  }
+  writeLines(ledger, raws);
+  return ledger;
+}
+
+/** A line J with the id of the revocation on line 4 of `revoked()`, to be put before it: three kinds. */
+const TAKES_THE_ID: [string, (id: string) => Record<string, unknown>, boolean][] = [
+  ["an unsigned session.started that the schema accepts", (id) => ({ v: 0, id, time: "2026-01-02T01:30:00Z", type: "session.started", source: { adapter: "test", kind: "claimed" }, project: PROJECT }), true],
+  ["the same with a field the schema refuses", (id) => ({ v: 0, id, time: "2026-01-02T01:30:00Z", type: "session.started", source: { adapter: "test", kind: "claimed" }, project: PROJECT, x: 1 }), false],
+  ["a key.revoked with no source", (id) => ({ v: 0, id, time: "2026-01-02T01:30:00Z", type: "key.revoked", project: PROJECT, data: {} }), false],
+];
+
+for (const [name, make, accepted] of TAKES_THE_ID) {
+  test(`#200 (second look): ${name} with the revocation's id, before the revocation, does not stop the key from being revoked`, async () => {
+    const base = revoked();
+    const id = (JSON.parse(rawLines(base)[3]!) as { event: { id: string } }).event.id;
+    const ledger = inserted(base, 4, make(id));
+    await withServer({ ledger }, async (url) => {
+      const events = await get<{ events: (Listed & { signed?: { ok: boolean; reason?: string } })[] }>(url, "/api/events");
+      assert.equal(events.status, 200, events.body.error);
+      const later = events.body.events.find((i) => i.n === 6)!;
+      assert.equal(later.signed?.ok, false, "the claim after the revocation is not valid");
+      assert.match(later.signed?.reason ?? "", /revoked/);
+      assert.equal(events.body.events.find((i) => i.n === 3)!.signed?.ok, true, "the claim before it still holds");
+      const one = await get<{ signature: { ok: boolean; reason?: string } }>(url, "/api/line?line=6");
+      assert.equal(one.body.signature.ok, false);
+      assert.match(one.body.signature.reason ?? "", /revoked/);
+    });
+    if (accepted) {
+      const run = howl(["verify", "--ledger", ledger]);
+      assert.equal(run.status, 1, run.stdout);
+      assert.match(run.stdout, /line 5: the event .* is already on line 4/, "the revocation's line still carries the fault");
+      assert.match(run.stdout, /line 6: signed after the key was revoked/);
+    }
+  });
+}
+
+test("#200 (second look): a revocation whose id is taken revokes at the earliest time, and its line is a fault", () => {
+  const dir = folder();
+  const places = { configDir: join(dir, "config"), keysDir: join(dir, "keys") };
+  const issued = issueKey(PROJECT, { actor: "agent-1", hours: 24 }, places, new Date("2026-01-02T00:00:00Z"));
+  const key = readKey(issued.file);
+  const claim = (time: string) => signEvent(event({ type: "session.started", source: { adapter: "test", kind: "claimed" }, actor: { kind: "agent", id: "agent-1" }, time }), key);
+  const late = revokeKey(PROJECT, issued.keyId, places, new Date("2026-01-02T05:00:00Z"));
+  const early = signEvent({ ...revokeKey(PROJECT, issued.keyId, places, new Date("2026-01-02T02:00:00Z")), id: late.id }, readKey(join(places.configDir, "issuer.key")));
+  const take = event({ id: late.id, type: "session.started", source: { adapter: "test", kind: "claimed" } });
+  const check = checkSignatures([
+    { n: 2, event: issued.event },
+    { n: 3, event: take },
+    { n: 4, event: late },
+    { n: 5, event: early },
+    { n: 6, event: claim("2026-01-02T03:00:00Z") },
+  ]);
+  assert.deepEqual(
+    check.faults.map((f) => f.line),
+    [4, 5, 6],
+    "both revocations carry the repeated id, and the claim is after the earliest",
+  );
+  assert.match(check.faults.find((f) => f.line === 6)!.reason, /revoked/);
+});
+
+test("#200 (second look): a line the reader leaves out takes no id, so a later line with the same id is no copy of it", () => {
+  const claimed = (id: string, extra: Record<string, unknown> = {}) => ({ ...event({ id, type: "session.started", source: { adapter: "test", kind: "claimed" } }), ...extra }) as LedgerEvent;
+  const check = checkSignatures([
+    { n: 2, event: claimed("shared", { x: 1 }), left: true },
+    { n: 3, event: claimed("shared") },
+  ]);
+  assert.deepEqual(check.faults, []);
+  assert.equal(check.unsigned, 2);
+});
+
+test("#200 (second look): the reader says which lines it left out, and a left-out revocation still revokes", async () => {
+  const ledger = damaged(4, (e) => (e.sig = { ...sigOf(e), x: 1 }), revoked());
+  const { parsed } = readWhole(ledger);
+  assert.deepEqual(
+    parsed.filter((p) => p.left === true).map((p) => p.n),
+    [4],
+  );
+  await withServer({ ledger }, async (url) => {
+    const events = await get<{ events: (Listed & { signed?: { ok: boolean } })[] }>(url, "/api/events");
+    assert.equal(events.body.events.find((i) => i.n === 5)!.signed?.ok, false);
+  });
+});
+
+// --- the second look: what a reason shows of a field name --------------------------------------------------------
+
+/** Every character of the general categories Cc, Cf, Zl and Zp, one to a name. */
+function marks(): string[] {
+  const out: string[] = [];
+  for (let c = 0; c <= 0x10ffff; c++) {
+    const ch = String.fromCodePoint(c);
+    if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(ch)) out.push(ch);
+  }
+  return out;
+}
+
+test("#200 (second look): a reason shows no character of the categories Cc, Cf, Zl or Zp, and a name with a dot is quoted", () => {
+  for (const mark of ["\u061c", "\u200b", "\ufeff"]) {
+    const reason = readWhole(damaged(DAMAGED, (e) => ((e as Record<string, unknown>)[`a${mark}b`] = 1))).faulty[0]!.reason;
+    assert.ok(!/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(reason), JSON.stringify(reason));
+    assert.ok(reason.includes(`\\u${mark.charCodeAt(0).toString(16).padStart(4, "0")}`), reason);
+  }
+  const dotted = readWhole(damaged(DAMAGED, (e) => ((e as Record<string, unknown>)["sig.key"] = 1))).faulty[0]!.reason;
+  assert.equal(dotted, '"sig.key": not a field of an event');
+});
+
+test("#200 (second look): every character of Cc, Cf, Zl and Zp is escaped in the reasons of howl verify, the same in both versions", () => {
+  const all = marks();
+  assert.ok(all.length > 150);
+  const ledger = damaged(DAMAGED, (e) => {
+    for (const mark of all) (e as Record<string, unknown>)[mark] = 1;
+  });
+  const run = howl(["verify", "--ledger", ledger]);
+  assert.equal(run.status, 1);
+  assert.ok(!/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(run.stdout.replaceAll("\n", "")), "a raw character");
+  assert.match(run.stdout, /"\\u061c": not a field of an event/);
+  assert.match(run.stdout, /"\\ud834\\udd73": not a field of an event/, "a character beyond the first plane is written as its two units");
+});
+
 // --- the line's own shape -----------------------------------------------------------------------------------------
 
 for (const [name, change, reason] of [
