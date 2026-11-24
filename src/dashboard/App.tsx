@@ -1,6 +1,6 @@
 // The dashboard page: the team right now and the event stream, read-only over howl serve.
 // @code_class reading
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Handover, KeyFigures } from "../read/overview.ts";
 import type { AgentRow, AgentState } from "../read/state.ts";
 import { concerns, detail, duration } from "../read/words.ts";
@@ -9,7 +9,7 @@ import type { Item } from "../serve/server.ts";
 import * as api from "./api.ts";
 import { ChangeView } from "./ChangeView.tsx";
 import { EventDialog } from "./EventDialog.tsx";
-import { answerWanted, barIssuer, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, needsPersonItems, waitFilter, waitRowKeys, statusMark, markText, nameTaken, builtInFilters, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
+import { answerWanted, barIssuer, neighbours, filterTexts, filterWith, handoverKey, handoverLink, hashFor, oneAtATime, itemKey, showsUnattributed, menuShown, needsInputHref, parseHash, stepText, STREAM_START, takenBackText, streamColumns, establishedBy, needsPersonItems, waitFilter, waitRowKeys, statusMark, markText, nameTaken, filtersFor, signatureMark, cutDetail, readSavedFilters, writeSavedFilters, SAVED_FILTERS_KEY, type SavedFilter, tabTitle, teamSince, teamWorksOn, whenShort, writingLines, type Question, type View } from "./format.ts";
 import { texts } from "./texts.ts";
 
 const POLL_MS = 2000;
@@ -466,6 +466,8 @@ function Stream({ agents, ledger, onError, project, served, unwritten }: { agent
   const [items, setItems] = useState<Item[]>([]);
   // #110: the event open in the dialog, kept as it was picked: the list moves on under it.
   const [picked, setPicked] = useState<Item | null>(null);
+  // #210: the rows whose whole detail is shown beneath them, by the key of the event.
+  const [opened, setOpened] = useState<Set<string>>(() => new Set());
   const filterLine = useRef<HTMLInputElement>(null);
   // #189: saved filters live in this browser; a browser that refuses storage still has the built-in ones.
   const [saved, setSaved] = useState<SavedFilter[]>(() => {
@@ -527,6 +529,11 @@ function Stream({ agents, ledger, onError, project, served, unwritten }: { agent
     setDraft(next);
     setFilters(filterTexts(next));
   };
+  // #210: "Signed, not pinned" is there where the server serves no pin.
+  // Under --all (several projects) no pin is possible, so it is known without the ledger.
+  const pin = ledger?.pinned ?? (served > 1 ? false : null);
+  const builtIn = filtersFor(pin);
+  const columns = 9 + (cols.project ? 1 : 0) + (cols.repo ? 1 : 0);
   const button = "min-h-11 cursor-pointer rounded-lg px-4 text-sm font-medium";
   const th = "px-3 py-2.5 font-medium";
 
@@ -577,8 +584,8 @@ function Stream({ agents, ledger, onError, project, served, unwritten }: { agent
         />
 
         <div role="group" aria-label={texts.stream.filtersLabel} className="flex flex-wrap items-center gap-2">
-          {[...builtInFilters(), ...saved].map((f, i) => {
-            const isSaved = i >= builtInFilters().length;
+          {[...builtIn, ...saved].map((f, i) => {
+            const isSaved = i >= builtIn.length;
             const on = applied === f.expression;
             return (
               <span key={`${i}:${f.name}`} className="flex items-center">
@@ -594,7 +601,7 @@ function Stream({ agents, ledger, onError, project, served, unwritten }: { agent
                   <button
                     type="button"
                     aria-label={texts.stream.removeSaved(f.name)}
-                    onClick={() => keep(saved.filter((_, j) => j !== i - builtInFilters().length))}
+                    onClick={() => keep(saved.filter((_, j) => j !== i - builtIn.length))}
                     className={`${button} rounded-l-none border border-l-0 border-pale bg-white px-3 text-ink`}
                   >
                     ×
@@ -696,6 +703,7 @@ function Stream({ agents, ledger, onError, project, served, unwritten }: { agent
               <thead className="sticky top-0 z-10">
                 <tr className="bg-[#f7f8fa] text-left font-sans text-xs tracking-wider text-mute uppercase">
                   <th scope="col" className={th}>{texts.stream.cols.status}</th>
+                  <th scope="col" className={th}>{texts.stream.cols.signature}</th>
                   {cols.project && <th scope="col" className={th}>{texts.stream.cols.project}</th>}
                   {cols.repo && <th scope="col" className={th}>{texts.stream.cols.repo}</th>}
                   <th scope="col" className={th}>{texts.stream.cols.line}</th>
@@ -718,81 +726,117 @@ function Stream({ agents, ledger, onError, project, served, unwritten }: { agent
                   const bg = `${isPicked ? "bg-picked font-medium outline-[1.5px] -outline-offset-[1.5px] outline-ink outline" : item.from === "activity" ? "bg-[#fafbfc] text-mute" : "bg-white"}${origin.claimed ? " italic" : ""}`;
                   const needsPerson = needing.has(itemKey(item));
                   const label = item.from === "ledger" ? String(item.n) : "·";
+                  const sig = signatureMark(item, pin);
+                  const whole = detail(item.event);
+                  const shortDetail = cutDetail(whole);
+                  const isOpen = opened.has(itemKey(item));
+                  const lineName = item.from === "ledger" ? label : item.event.type;
                   return (
-                    <tr
-                      key={itemKey(item)}
-                      // #110: a click anywhere on the row opens the event; a link in it goes where it leads.
-                      onClick={(e) => {
-                        if (!(e.target as HTMLElement).closest("a")) {
-                          fromBand.current = null;
-                          setPicked(item);
-                        }
-                      }}
-                      className={`cursor-pointer border-t border-line hover:bg-picked ${bg}`}
-                    >
-                      <td className={`px-3 py-2 text-center font-sans font-semibold ${needsPerson ? "border-l-[6px] border-l-ink" : ""}`} title={markText(mark) || undefined}>
-                        <span aria-hidden="true">{mark}</span>
-                        <span className="sr-only">{markText(mark)}</span>
-                      </td>
-                      {cols.project && (
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          {item.project !== undefined ? `${item.project}${unwritten.includes(item.project) ? texts.unwritten : ""}` : "–"}
+                    <Fragment key={itemKey(item)}>
+                      <tr
+                        // #110: a click anywhere on the row opens the event; a link in it goes where it leads.
+                        onClick={(e) => {
+                          if (!(e.target as HTMLElement).closest("a")) {
+                            fromBand.current = null;
+                            setPicked(item);
+                          }
+                        }}
+                        className={`cursor-pointer border-t border-line hover:bg-picked ${bg}`}
+                      >
+                        <td className={`px-3 py-2 text-center font-sans font-semibold ${needsPerson ? "border-l-[6px] border-l-ink" : ""}`} title={markText(mark) || undefined}>
+                          <span aria-hidden="true">{mark}</span>
+                          <span className="sr-only">{markText(mark)}</span>
                         </td>
-                      )}
-                      {cols.repo && (
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          {item.event.repo ?? "–"}
+                        <td className="px-3 py-2 text-center font-sans font-semibold" title={sig.text || undefined}>
+                          <span aria-hidden="true">{sig.glyph}</span>
+                          <span className="sr-only">{sig.text}</span>
                         </td>
+                        {cols.project && (
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {item.project !== undefined ? `${item.project}${unwritten.includes(item.project) ? texts.unwritten : ""}` : "–"}
+                          </td>
+                        )}
+                        {cols.repo && (
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {item.event.repo ?? "–"}
+                          </td>
+                        )}
+                        <td className="p-0">
+                          <button
+                            type="button"
+                            aria-label={texts.stream.showEvent(item.from === "ledger" ? label : item.event.type)}
+                            aria-haspopup="dialog"
+                            data-event={itemKey(item)}
+                            className="min-h-10 w-full cursor-pointer border-0 bg-transparent px-3 text-left font-[inherit] text-inherit"
+                          >
+                            {label}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">{whenShort(item.event.time, Date.now())}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {item.by ? (
+                            <>
+                              {item.by} <span className="text-mute">{item.event.actor ? texts.via(item.event.actor.id) : texts.matched}</span>
+                            </>
+                          ) : (
+                            (item.event.actor?.id ?? "–")
+                          )}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">{item.event.type}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {item.event.change !== undefined ? (
+                            <a href={hashFor("change", of, `change:${item.event.change}`)} className="text-ink">
+                              {concerns(item.event)}
+                            </a>
+                          ) : item.event.task !== undefined ? (
+                            <a href={hashFor("change", of, `task:${item.event.task}`)} className="text-ink">
+                              {concerns(item.event)}
+                            </a>
+                          ) : (
+                            concerns(item.event)
+                          )}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <span
+                            title={texts.stream.origin[origin.code]}
+                            className={`mr-2 inline-block rounded border-[1.5px] border-ink px-1.5 py-0.5 font-sans text-[11px] font-semibold tracking-wider ${origin.code === "SOURCE" ? "bg-ink text-white" : "bg-white text-ink"} ${origin.code === "UNKNOWN" ? "border-dashed" : ""}`}
+                          >
+                            <span aria-hidden="true">{origin.mark}</span> {origin.code}
+                          </span>
+                          <span className="text-mute">{item.event.source.adapter}</span>
+                        </td>
+                        <td className="px-3 py-2 font-sans whitespace-nowrap" title={shortDetail.cut ? whole : undefined}>
+                          {needsPerson && <strong className="mr-2 font-semibold">{texts.stream.needsPerson}</strong>}
+                          {shortDetail.text}
+                          {shortDetail.cut && (
+                            <button
+                              type="button"
+                              aria-expanded={isOpen}
+                              aria-label={isOpen ? texts.stream.hideDetail(lineName) : texts.stream.showDetail(lineName)}
+                              onClick={(e) => {
+                                // It opens the detail in place, not the dialog.
+                                e.stopPropagation();
+                                setOpened((prev) => {
+                                  const next = new Set(prev);
+                                  if (!next.delete(itemKey(item))) next.add(itemKey(item));
+                                  return next;
+                                });
+                              }}
+                              className="ml-2 inline-flex -my-1 min-h-6 min-w-6 cursor-pointer items-center justify-center rounded border border-pale bg-white px-1.5 font-sans text-xs text-ink"
+                            >
+                              <span aria-hidden="true">{isOpen ? "▴" : "▾"}</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {shortDetail.cut && isOpen && (
+                        <tr className="bg-[#f7f8fa]">
+                          <td colSpan={columns} className="px-3 py-2 font-sans break-words whitespace-pre-wrap">
+                            {whole}
+                          </td>
+                        </tr>
                       )}
-                      <td className="p-0">
-                        <button
-                          type="button"
-                          aria-label={texts.stream.showEvent(item.from === "ledger" ? label : item.event.type)}
-                          aria-haspopup="dialog"
-                          data-event={itemKey(item)}
-                          className="min-h-10 w-full cursor-pointer border-0 bg-transparent px-3 text-left font-[inherit] text-inherit"
-                        >
-                          {label}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">{whenShort(item.event.time, Date.now())}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.by ? (
-                          <>
-                            {item.by} <span className="text-mute">{item.event.actor ? texts.via(item.event.actor.id) : texts.matched}</span>
-                          </>
-                        ) : (
-                          (item.event.actor?.id ?? "–")
-                        )}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">{item.event.type}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.event.change !== undefined ? (
-                          <a href={hashFor("change", of, `change:${item.event.change}`)} className="text-ink">
-                            {concerns(item.event)}
-                          </a>
-                        ) : item.event.task !== undefined ? (
-                          <a href={hashFor("change", of, `task:${item.event.task}`)} className="text-ink">
-                            {concerns(item.event)}
-                          </a>
-                        ) : (
-                          concerns(item.event)
-                        )}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <span
-                          title={texts.stream.origin[origin.code]}
-                          className={`mr-2 inline-block rounded border-[1.5px] border-ink px-1.5 py-0.5 font-sans text-[11px] font-semibold tracking-wider ${origin.code === "SOURCE" ? "bg-ink text-white" : "bg-white text-ink"} ${origin.code === "UNKNOWN" ? "border-dashed" : ""}`}
-                        >
-                          <span aria-hidden="true">{origin.mark}</span> {origin.code}
-                        </span>
-                        <span className="text-mute">{item.event.source.adapter}</span>
-                      </td>
-                      <td className="px-3 py-2 font-sans">
-                        {needsPerson && <strong className="mr-2 font-semibold">{texts.stream.needsPerson}</strong>}
-                        {detail(item.event)}
-                      </td>
-                    </tr>
+                    </Fragment>
                   );
                 })}
               </tbody>
