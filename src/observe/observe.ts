@@ -795,9 +795,9 @@ export class Observer {
       if (!going) next(limit);
       return { events, ends: false };
     }
-    if (checks.runs.length === 0 && last === undefined && fresh.length === 0 && !this.heldAs(`checks:${w.sha}:none`, (t) => t === "checks.none", w.end)) {
+    if (checks.runs.length === 0 && last === undefined && fresh.length === 0 && !this.heldAs(`checks:${w.sha}:none`, (t) => t === "checks.none")) {
       events.push(this.event(`checks:${w.sha}:none`, "checks.none", w.end, undefined, of, seen));
-    } else if (going && !this.heldAs(`checks:${w.sha}:unfinished`, (t) => t === "checks.unfinished", new Date(limit).toISOString())) {
+    } else if (going && !this.heldAs(`checks:${w.sha}:unfinished`, (t) => t === "checks.unfinished")) {
       events.push(this.event(`checks:${w.sha}:unfinished`, "checks.unfinished", new Date(limit).toISOString(), undefined, { ...of, data: { unfinished: pendingNames(checks.runs), failed: latestFailed(checks.runs) } }, seen));
     }
     return { events, ends: true };
@@ -884,7 +884,8 @@ export class Observer {
   /**
    * #203: for a place that decides by an id before it makes the event: whether the ledger holds the id as the
    * observer's own, that is a line under it of this host, observed, of a type `type` accepts, and at `time` when that
-   * is known. Any other line is not the event: it is made, and the loop refuses it with the reason.
+   * is given (the gates of the end of checks give none: the time of an end moves when a change is closed again at the same
+   * head). Any other line is not the event: it is made, and the loop refuses it with the reason.
    */
   private heldAs(key: string, type: (type: unknown) => boolean, time?: string): boolean {
     return this.prefixes.some((p) =>
