@@ -2,10 +2,12 @@
 // @code_class tests
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports, createRequire } from "node:module";
 import { join } from "node:path";
 import { test } from "node:test";
 import { eventHash, fixedForm } from "../src/ledger/fixed.ts";
 import { openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
+import { ingestPass } from "../src/inbox/ingest.ts";
 import { ACTIVITY_TYPES } from "../src/ledger/schema.ts";
 import { event, howl, inboxFiles, lines, PROJECT, rawLines, startHowl, workspace, type Workspace } from "./helpers.ts";
 
@@ -202,6 +204,44 @@ test("#203: the same event ingested twice is dropped as a duplicate, also when i
   assert.match(result.stdout, /0 rejected/);
   assert.deepEqual(inboxFiles(ws.inbox), []);
   assert.ok(!existsSync(join(ws.inbox, "rejected")));
+  assert.deepEqual(readFileSync(ws.ledger), before);
+});
+
+test("#203: a pass over many files whose ids are taken reads the ledger once", async () => {
+  const ws = workspace();
+  const writer = openLedger(ws.ledger, { project: PROJECT });
+  const real: LedgerEvent[] = [];
+  for (let i = 0; i < 30; i++) {
+    const planted = event({ id: `taken-${i}`, type: "session.stopped", session: "other" });
+    writer.append(planted);
+    // Half of them are the same event again, half are another event under the id.
+    real.push(i % 2 === 0 ? planted : { ...planted, type: "session.started" });
+  }
+  const before = readFileSync(ws.ledger);
+  mkdirSync(ws.inbox, { recursive: true });
+  real.forEach((e, i) => writeFileSync(join(ws.inbox, `${String(i).padStart(3, "0")}.json`), fixedForm(e)));
+  const places = { project: PROJECT, inbox: ws.inbox, activity: ws.activity };
+
+  // Counts the reads of the ledger file: the live bindings of `node:fs` follow what is set on it.
+  const fs = createRequire(import.meta.url)("node:fs") as { readFileSync: (...args: unknown[]) => unknown };
+  const original = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = (...args: unknown[]) => {
+    if (args[0] === ws.ledger) reads++;
+    return original(...args);
+  };
+  syncBuiltinESMExports();
+  let pass;
+  try {
+    pass = ingestPass(places, writer, 30);
+  } finally {
+    fs.readFileSync = original;
+    syncBuiltinESMExports();
+    writer.close();
+  }
+  assert.equal(pass.duplicates, 15);
+  assert.equal(pass.rejected, 15);
+  assert.equal(reads, 1, "one read of the ledger for the whole pass");
   assert.deepEqual(readFileSync(ws.ledger), before);
 });
 

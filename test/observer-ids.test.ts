@@ -1,0 +1,175 @@
+// #203: the ids an observer makes are known beforehand, so the way in for a session never takes them (A), and the
+// observer never skips an id that a line of another event holds in silence (B).
+// @code_class tests
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { test } from "node:test";
+import { openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
+import { folder, howl, inboxFiles, lines, PROJECT, rawLines, workspace, type Workspace } from "./helpers.ts";
+import { at, LocalHost, SHA } from "./local-host.ts";
+import { send, up } from "./up-helpers.ts";
+
+const ID = "local:4242:change:10:merged";
+
+/** A repository of id 4242 with change 10, merged by carol, on a local host. */
+function setup() {
+  const dir = folder();
+  const ws = workspace({ yml: `project: ${PROJECT}\nhost: local\nlocal: ${dir}\nrepository: team/product\nagents: [agent-bot]\n` });
+  const host = new LocalHost(dir);
+  host.repository(4242);
+  host.change({
+    number: 10,
+    branch: "feature",
+    openedAt: at(2),
+    openedBy: { login: "agent-bot" },
+    head: { sha: SHA.a, at: at(2) },
+    tasks: [],
+    reviews: [],
+    mergedAt: at(30),
+    mergedBy: { login: "carol" },
+    closedAt: at(30),
+    updatedAt: at(30),
+  } as never);
+  return { ws, host };
+}
+
+function observe(ws: Workspace) {
+  return howl(["observe", "--once"], { cwd: ws.root, env: ws.env });
+}
+
+function leave(ws: Workspace, name: string, content: unknown): void {
+  mkdirSync(ws.inbox, { recursive: true });
+  writeFileSync(join(ws.inbox, name), JSON.stringify(content));
+}
+
+/** A claim as a session's hook would send it. */
+function claim(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    v: 0,
+    id: "claimed-1",
+    time: at(1),
+    type: "session.started",
+    source: { adapter: "claude-code-hook", kind: "claimed" },
+    project: PROJECT,
+    session: "x",
+    actor: { kind: "agent", id: "agent-bot" },
+    ...over,
+  };
+}
+
+/** What the observer would never take from a session: its ids, and its adapters' names. */
+const THEIRS: [string, Record<string, unknown>][] = [
+  ["an id of a local host", { id: ID }],
+  ["an id of a github host", { id: "github:123456:change:10:merged" }],
+  ["the adapter github", { source: { adapter: "github", kind: "claimed" } }],
+  ["the adapter local", { source: { adapter: "local", kind: "claimed" } }],
+  ["a checks.passed claimed to be observed by github", { id: "gh-x", type: "checks.passed", sha: SHA.a, source: { adapter: "github", kind: "observed" } }],
+];
+
+test("#203 A: the inbox refuses an event with the observer's id or adapter, with the reason, to rejected/", () => {
+  const ws = workspace();
+  THEIRS.forEach(([, over], i) => leave(ws, `000${i}.json`, claim(over)));
+  leave(ws, "0009.json", claim({ id: "fine" }));
+  const result = howl(["ingest"], { cwd: ws.root, env: ws.env });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /5 rejected/);
+  assert.deepEqual(inboxFiles(ws.inbox), []);
+  const rejected = join(ws.inbox, "rejected");
+  for (let i = 0; i < THEIRS.length; i++) {
+    assert.match(readFileSync(join(rejected, `000${i}.json.reason`), "utf8"), /this id is the observer's; the observer writes its own events, never through the inbox/);
+  }
+  assert.deepEqual(lines(ws.ledger).map((l) => l.event.id).slice(1), ["fine"]);
+});
+
+test("#203 A: POST /api/events refuses the same with 400 and the reason, and leaves nothing", async () => {
+  const running = await up();
+  try {
+    for (const [what, over] of THEIRS) {
+      const answer = await send(running.url, running.token, claim(over));
+      assert.equal(answer.status, 400, what);
+      assert.match(((await answer.json()) as { error: string }).error, /this id is the observer's; the observer writes its own events, never through the inbox/, what);
+    }
+    assert.equal((await send(running.url, running.token, claim({ id: "fine-over-http" }))).status, 200);
+    assert.deepEqual(inboxFiles(running.ws.inbox).length <= 1, true);
+    assert.ok(!existsSync(join(running.ws.inbox, "rejected")));
+  } finally {
+    await running.stop();
+  }
+});
+
+/** A line written straight into the ledger, as one that got past A or was there before it. */
+function plant(ws: Workspace, planted: Record<string, unknown>): void {
+  const writer = openLedger(ws.ledger, { project: PROJECT });
+  writer.append(planted as unknown as LedgerEvent);
+  writer.close();
+}
+
+test("#203 B: a planted line under the id of a merge is warned of, the made event is kept in rejected/, and the round goes on", () => {
+  const { ws } = setup();
+  plant(ws, claim({ id: ID }));
+  const result = observe(ws);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /local:4242:change:10:merged/);
+  assert.match(result.stderr, /another event/);
+
+  const all = lines(ws.ledger).map((l) => l.event);
+  assert.equal(all.find((e) => e.id === ID)?.type, "session.started", "the planted line is untouched");
+  assert.ok(all.some((e) => e.type === "change.opened"), "the round went on: the rest is written");
+  assert.ok(!all.some((e) => e.type === "change.merged"));
+
+  const rejected = join(ws.inbox, "rejected");
+  const names = readdirSync(rejected).sort();
+  assert.equal(names.length, 2, names.join(", "));
+  const [json, reason] = [names.find((n) => n.endsWith(".json"))!, names.find((n) => n.endsWith(".reason"))!];
+  assert.equal(reason, `${json}.reason`);
+  const made = JSON.parse(readFileSync(join(rejected, json), "utf8")) as LedgerEvent;
+  assert.equal(made.id, ID);
+  assert.equal(made.type, "change.merged");
+  assert.match(readFileSync(join(rejected, reason), "utf8"), /another event/);
+
+  // The next round says nothing more and adds nothing.
+  const before = rawLines(ws.ledger);
+  const again = observe(ws);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.stderr, "");
+  assert.deepEqual(readdirSync(rejected).sort(), names);
+  assert.deepEqual(rawLines(ws.ledger), before);
+});
+
+test("#203 B: a line of the observer's own adapter and kind that differs in its time is another event too", () => {
+  const { ws } = setup();
+  plant(ws, claim({ id: ID, type: "change.merged", time: at(99), source: { adapter: "local", kind: "observed" }, change: "10" }));
+  const result = observe(ws);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /local:4242:change:10:merged/);
+  assert.equal(readdirSync(join(ws.inbox, "rejected")).length, 2);
+});
+
+test("#203 B: a repeat round reads the observer's own events as its own: no warning, nothing in rejected/, nothing written", () => {
+  const { ws } = setup();
+  assert.equal(observe(ws).status, 0);
+  const before = rawLines(ws.ledger);
+  assert.ok(before.length > 2);
+  for (let i = 0; i < 2; i++) {
+    const again = observe(ws);
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(again.stderr, "");
+  }
+  assert.deepEqual(rawLines(ws.ledger), before);
+  assert.ok(!existsSync(join(ws.inbox, "rejected")));
+});
+
+test("#203 B: an observer started again over its ledger passes over its observe.started, made with a new time", () => {
+  const { ws } = setup();
+  assert.equal(howl(["observe", "--once", "--since", "2026-01-01T00:00:00Z"], { cwd: ws.root, env: ws.env }).status, 0);
+  assert.ok(lines(ws.ledger).some((l) => l.event.type === "observe.started"));
+  // Without its cursor the observer starts again, and makes observe.started again with the time of the round.
+  rmSync(join(dirname(ws.ledger), "observe.json"));
+  const before = rawLines(ws.ledger);
+  const again = howl(["observe", "--once", "--since", "2026-01-01T00:00:00Z"], { cwd: ws.root, env: ws.env });
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.stderr, "");
+  assert.deepEqual(rawLines(ws.ledger), before);
+  assert.ok(!existsSync(join(ws.inbox, "rejected")));
+});
