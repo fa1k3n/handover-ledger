@@ -6,6 +6,7 @@ import { presentTime } from "./now.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { readFilters, wantsActivity } from "./filter.ts";
 import { activityBeside, byTime, Tail, type Read } from "./reader.ts";
+import { faultyNotes } from "./faulty.ts";
 import { waitsForPerson } from "./wait.ts";
 import { concerns, detail } from "./words.ts";
 
@@ -113,7 +114,13 @@ export async function watch(ledger: string, options: WatchOptions, write: (line:
       if (shown(r)) print(r);
     }
   };
-  take(byTime(tails.flatMap((t) => t.read())));
+  // #200: a line of the ledger that is left out is named, once, when it is read.
+  const read = () => {
+    const reads = tails.flatMap((t) => t.read());
+    for (const note of faultyNotes(tails.flatMap((t) => t.faulty))) warn(note);
+    return reads;
+  };
+  take(byTime(read()));
   const failed = filters.failed();
   if (failed !== null) warn(`the filter could not be worked out for ${failed.events} event${failed.events === 1 ? "" : "s"}, which are left out: ${failed.reason}`);
   if (!options.follow) return;
@@ -134,7 +141,7 @@ export async function watch(ledger: string, options: WatchOptions, write: (line:
       wake = resolve;
       timer = setTimeout(resolve, options.interval * 1000);
     });
-    if (!stopped) take(tails.flatMap((t) => t.read()));
+    if (!stopped) take(read());
   }
   process.off("SIGINT", stop);
   process.off("SIGTERM", stop);

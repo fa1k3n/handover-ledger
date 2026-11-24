@@ -130,15 +130,20 @@ impl Signatures {
             .and_then(Value::as_object)
             .unwrap_or(&empty);
         let field = |name: &str| event.get(name);
+        let kind = field("type").and_then(Value::as_str).unwrap_or_default();
         if let Some(id) = field("id").and_then(Value::as_str) {
             if let Some(seen) = self.ids.get(id) {
                 let reason = format!("the event {id} is already on line {seen}");
+                // #200 (second look): a revocation still revokes when its id is taken, or a line that took the id first would keep the
+                // key from being revoked. Revoking is the safe direction, and its line carries the fault.
+                if kind == "key.revoked" {
+                    self.revoke(n, event, d);
+                }
                 self.fault(n, reason);
                 return;
             }
             self.ids.insert(id.to_string(), n);
         }
-        let kind = field("type").and_then(Value::as_str).unwrap_or_default();
         let sig = field("sig").filter(|s| truthy(Some(s)));
         if kind == "key.issued" || kind == "key.revoked" {
             // An issuer's own act: signed by the issuer it names.
@@ -224,44 +229,8 @@ impl Signatures {
                         },
                     );
                 }
-            } else {
-                let key = Key::of(Some(
-                    d.get("key")
-                        .filter(|k| !k.is_null())
-                        .unwrap_or(&Value::String(String::new())),
-                ));
-                let issuer = &self.issuer;
-                let known = key.and_then(|k| self.keys.get_mut(&k));
-                let holds = known.as_ref().is_some_and(|known| {
-                    let public = known.data.get("issuer_public");
-                    issuer.is(d.get("issuer"), n)
-                        && truthy(public)
-                        && signature_holds(event, public)
-                });
-                let at = d.get("at").filter(|a| !a.is_null()).or(field("time"));
-                match known {
-                    Some(known) if holds => match window_time(at) {
-                        // The earliest revocation stands.
-                        Some(t) => {
-                            known.revoked_at = Some(known.revoked_at.map_or(t, |r| r.min(t)));
-                        }
-                        None => {
-                            let reason = format!(
-                                "revocation of key {}: its time cannot be read: at {} is not an ISO time with a zone",
-                                short(d.get("key")),
-                                js_string(at)
-                            );
-                            self.fault(n, reason);
-                        }
-                    },
-                    _ => {
-                        let reason = format!(
-                            "revocation of key {}: the issuer's signature does not hold",
-                            short(d.get("key"))
-                        );
-                        self.fault(n, reason);
-                    }
-                }
+            } else if let Some(reason) = self.revoke(n, event, d) {
+                self.fault(n, reason);
             }
             return;
         }
@@ -330,6 +299,40 @@ impl Signatures {
         };
         if let Some(reason) = reason {
             self.fault(n, reason);
+        }
+    }
+
+    /// A key.revoked's effect, and why it has none: the key must be issued, the issuer must be the ledger's and its signature must hold,
+    /// and the time must be readable. The earliest revocation stands.
+    fn revoke(&mut self, n: usize, event: &Value, d: &Map<String, Value>) -> Option<String> {
+        let key = Key::of(Some(
+            d.get("key")
+                .filter(|k| !k.is_null())
+                .unwrap_or(&Value::String(String::new())),
+        ));
+        let issuer = &self.issuer;
+        let known = key.and_then(|k| self.keys.get_mut(&k));
+        let holds = known.as_ref().is_some_and(|known| {
+            let public = known.data.get("issuer_public");
+            issuer.is(d.get("issuer"), n) && truthy(public) && signature_holds(event, public)
+        });
+        let at = d.get("at").filter(|a| !a.is_null()).or(event.get("time"));
+        match known {
+            Some(known) if holds => match window_time(at) {
+                Some(t) => {
+                    known.revoked_at = Some(known.revoked_at.map_or(t, |r| r.min(t)));
+                    None
+                }
+                None => Some(format!(
+                    "revocation of key {}: its time cannot be read: at {} is not an ISO time with a zone",
+                    short(d.get("key")),
+                    js_string(at)
+                )),
+            },
+            _ => Some(format!(
+                "revocation of key {}: the issuer's signature does not hold",
+                short(d.get("key"))
+            )),
         }
     }
 

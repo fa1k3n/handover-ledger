@@ -133,7 +133,8 @@ export function prepareLines(ledger: string): Prepared {
   const whole = readWhole(ledger);
   return {
     whole,
-    signatures: checkSignatures(whole.lines.map((r) => ({ n: r.n ?? 0, event: r.event }))),
+    // #200: every line that parses to an event, those left out too.
+    signatures: checkSignatures(whole.parsed),
     acting: actingAgents(whole.lines.map((r) => r.event)),
   };
 }
