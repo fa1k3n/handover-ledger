@@ -21,13 +21,13 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { byUnits } from "../read/order.ts";
-import { isReviewComment, type Change, type CheckRun, type ChecksState, type CodeHost, type Comment, type Ref, type Task } from "./port.ts";
+import { isReviewComment, type HostName, type Change, type CheckRun, type ChecksState, type CodeHost, type Comment, type Ref, type Task } from "./port.ts";
 
 /** A comment as a file holds it: with `review`, or with a `body` the adapter tests and drops. */
 type FileComment = Omit<Comment, "review"> & { review?: boolean; body?: string };
 
 export class LocalHost implements CodeHost {
-  readonly name = "local";
+  readonly name = "local" satisfies HostName;
   readonly repository: string;
   private readonly dir: string;
   private readonly reviewCommentPattern: RegExp | undefined;

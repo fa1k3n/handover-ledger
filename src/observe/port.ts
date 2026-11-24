@@ -7,6 +7,13 @@
 // @code_class recording
 
 /**
+ * The names of the code hosts, which the ids and the adapters of an observer's events start with (#203). Each adapter's
+ * `name` must be in this list: the way in for a session refuses an id or an adapter that is one of them.
+ */
+export const HOST_NAMES = ["github", "local"] as const;
+export type HostName = (typeof HOST_NAMES)[number];
+
+/**
  * Who did a thing at the host. An account that no longer exists (#48) is `{ removed: true }`: the host tells no
  * one, and the ledger names no one for it. Every removed account is not one person.
  */
@@ -204,7 +211,7 @@ export interface Ref {
 
 export interface CodeHost {
   /** The adapter, as it stands in `source.adapter` and at the start of every id. */
-  readonly name: string;
+  readonly name: HostName;
   /** The repository, as `owner/name`: what people read, and what `repo` of an event holds. It can change. */
   readonly repository: string;
   /**

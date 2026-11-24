@@ -16,7 +16,8 @@
 // The cursor moves on only after a round in which every call went through.
 // Otherwise the next round reads the same span again.
 // @code_class recording
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync } from "node:fs";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ingestPass, type Pass, type Places } from "../inbox/ingest.ts";
@@ -28,6 +29,20 @@ import { checksOf, lastFinish, latestFailed, pendingNames, resultsOf, sameState,
 import type { Account, Change, ChecksState, CodeHost, Push, Task } from "./port.ts";
 import { happensBefore } from "./order.ts";
 import type { TraceResult } from "../howl/trace-read.ts";
+
+/**
+ * #203: what a line of the ledger under an id of this host says of its event. An id of the observer's can be known
+ * beforehand, so a line holding it is the observer's own only when this says it is.
+ */
+interface Held {
+  adapter?: unknown;
+  kind?: unknown;
+  type?: unknown;
+  time?: unknown;
+  change?: unknown;
+  task?: unknown;
+  sha?: unknown;
+}
 
 export interface ObserveSettings {
   project: string;
@@ -177,6 +192,8 @@ export class Observer {
   private prefix: string | undefined;
   /** #48: the starts of every id this repository's events have had, the lasting form first. */
   private prefixes: string[] = [];
+  /** #203: the lines of the ledger under an id that starts with the host's name, by id; read at the start. */
+  private readonly heldBy = new Map<string, Held[]>();
   private readonly taskPattern: RegExp | undefined;
   /** #46: the name of an agent by its account at the host. */
   private readonly names: Map<string, string>;
@@ -212,6 +229,7 @@ export class Observer {
     this.names = agentAccounts(settings.agents);
     this.taskPattern = settingPattern(settings, "task_from_branch");
     for (const e of ledgerEvents(parts.ledgerPath)) {
+      if (typeof e.id === "string" && e.id.startsWith(`${host.name}:`)) this.hold(e);
       if (e.source?.adapter !== host.name || e.source.kind !== "observed" || typeof e.id !== "string") continue;
       // An id made from a name starts with the name the event's `repo` held then.
       if (typeof e.repo === "string" && e.repo !== host.repository && e.id.startsWith(`${host.name}:${e.repo}:`)) this.oldNames.add(e.repo);
@@ -402,7 +420,13 @@ export class Observer {
     const stopped = new Set<string>();
     const giveUp = new Set<string>();
     for (const e of found) {
-      if (this.known(e.id.slice(this.prefix!.length))) continue;
+      const key = e.id.slice(this.prefix!.length);
+      // #203: an id the ledger holds is passed over in silence only when the line is this observer's own event.
+      if (this.known(key)) {
+        const same = this.compare(e, key);
+        if (!same.own) this.refuse(e, same.why);
+        continue;
+      }
       const ofChecks = e.type.startsWith("checks.") && e.sha !== undefined;
       if (ofChecks && stopped.has(e.sha!)) continue;
       try {
@@ -432,6 +456,7 @@ export class Observer {
         continue;
       }
       appended++;
+      this.hold(e);
       if (ofChecks) delete watch.get(e.sha!)?.refusedAt;
       if (refusedIds.has(e.id)) refusedHeads++;
       if (e.type === "change.opened" && e.sha) this.openedHeads.set(Number(e.change), e.sha);
@@ -496,7 +521,7 @@ export class Observer {
     let reads = 0;
     for (const [key, p] of this.pendingTrace) {
       const id = `trace:${p.change}:${p.sha}`;
-      if (this.known(id)) {
+      if (this.heldAs(id, (t) => t === "trace.read")) {
         this.pendingTrace.delete(key);
         continue;
       }
@@ -565,7 +590,7 @@ export class Observer {
     }
 
     // #38: what the tests of this head name is read once the round has its events: the head waits for that.
-    if (this.traceAt !== undefined && !this.known(`trace:${n}:${head}`)) {
+    if (this.traceAt !== undefined && !this.heldAs(`trace:${n}:${head}`, (t) => t === "trace.read")) {
       const task = this.taskOf(change);
       this.pendingTrace.set(`${n}:${head}`, { sha: head, change: n, branch: change.branch, ...(task !== undefined ? { task } : {}), at: heads.headAt, open: change.closedAt === undefined });
     }
@@ -585,7 +610,7 @@ export class Observer {
     const listed = new Set(change.reviews.map((r) => r.id));
     for (const d of change.dismissals ?? []) {
       let unseen = false;
-      if (d.review !== undefined && !listed.has(d.review) && !this.known(`review:${d.review}`)) {
+      if (d.review !== undefined && !listed.has(d.review) && !this.heldAs(`review:${d.review}`, (t) => typeof t === "string" && t.startsWith("review.") && t !== "review.dismissed")) {
         if (d.state !== undefined && d.reviewed !== undefined) {
           found.push(this.event(`review:${d.review}`, `review.${d.state}`, d.reviewed.at, d.reviewed.by, of(d.reviewed.sha ?? at(d.reviewed.at)), seen));
         } else unseen = true;
@@ -770,9 +795,9 @@ export class Observer {
       if (!going) next(limit);
       return { events, ends: false };
     }
-    if (checks.runs.length === 0 && last === undefined && fresh.length === 0 && !this.known(`checks:${w.sha}:none`)) {
+    if (checks.runs.length === 0 && last === undefined && fresh.length === 0 && !this.heldAs(`checks:${w.sha}:none`, (t) => t === "checks.none")) {
       events.push(this.event(`checks:${w.sha}:none`, "checks.none", w.end, undefined, of, seen));
-    } else if (going && !this.known(`checks:${w.sha}:unfinished`)) {
+    } else if (going && !this.heldAs(`checks:${w.sha}:unfinished`, (t) => t === "checks.unfinished")) {
       events.push(this.event(`checks:${w.sha}:unfinished`, "checks.unfinished", new Date(limit).toISOString(), undefined, { ...of, data: { unfinished: pendingNames(checks.runs), failed: latestFailed(checks.runs) } }, seen));
     }
     return { events, ends: true };
@@ -822,6 +847,77 @@ export class Observer {
   /** Whether the ledger has the thing already, under the lasting id or under an id made from a name (#48). */
   private known(key: string): boolean {
     return this.prefixes.some((p) => this.writer.has(`${p}${key}`));
+  }
+
+  /** #203: notes what the line of an event of this host says of it. */
+  private hold(e: Partial<LedgerEvent>): void {
+    const lines = this.heldBy.get(e.id!) ?? [];
+    lines.push({ adapter: e.source?.adapter, kind: e.source?.kind, type: e.type, time: e.time, change: e.change, task: e.task, sha: e.sha });
+    this.heldBy.set(e.id!, lines);
+  }
+
+  /**
+   * #203: whether a line of the ledger under the key, under any form of id, holds this event as the observer makes it:
+   * of this host, observed, and the same type, time, change and commit. Not `data`, `actor`, `repo` or `task`, which
+   * change between rounds. A comment is of one of two types by the project's pattern, and `observe.started` is made
+   * with the time of the round, so those differ in what they must. When it does not, `why` says what a person needs to
+   * tell a plant from a drift: whether the line is of this host and observed, and in what it differs.
+   */
+  private compare(e: LedgerEvent, key: string): { own: boolean; why: string } {
+    const comment = (type: unknown) => type === "review.commented" || type === "change.commented";
+    let why = "no line under it was read at the start of the observer";
+    for (const p of this.prefixes) {
+      for (const h of this.heldBy.get(`${p}${key}`) ?? []) {
+        const ofHost = h.adapter === this.host.name && h.kind === "observed";
+        const differs: string[] = [];
+        if (h.type !== e.type && !(comment(h.type) && comment(e.type))) differs.push("type");
+        if (e.type !== "observe.started" && !(typeof h.time === "string" && Date.parse(h.time) === Date.parse(e.time))) differs.push("time");
+        if (h.change !== e.change) differs.push("change");
+        if (h.sha !== e.sha) differs.push("commit");
+        if (ofHost && differs.length === 0) return { own: true, why: "" };
+        why = `the line there is ${ofHost ? "of this host, observed" : `of adapter ${JSON.stringify(h.adapter)}, kind ${JSON.stringify(h.kind)}, not of this host and observed`}${differs.length > 0 ? `, and differs in ${differs.join(", ")}` : ""}`;
+      }
+    }
+    return { own: false, why };
+  }
+
+  /**
+   * #203: for a place that decides by an id before it makes the event: whether the ledger holds the id as the
+   * observer's own, that is a line under it of this host, observed, of a type `type` accepts, and at `time` when that
+   * is given (the gates of the end of checks give none: the time of an end moves when a change is closed again at the same
+   * head). Any other line is not the event: it is made, and the loop refuses it with the reason.
+   */
+  private heldAs(key: string, type: (type: unknown) => boolean, time?: string): boolean {
+    return this.prefixes.some((p) =>
+      (this.heldBy.get(`${p}${key}`) ?? []).some(
+        (h) => h.adapter === this.host.name && h.kind === "observed" && type(h.type) && (time === undefined || (typeof h.time === "string" && Date.parse(h.time) === Date.parse(time))),
+      ),
+    );
+  }
+
+  /**
+   * #203: an event the ledger cannot take because a line of another event holds its id is never dropped in silence:
+   * it is kept in `rejected/` of the inbox with the reason, and said once. The file is made only when it is not
+   * there, so the next round has nothing to say. The round goes on.
+   */
+  private refuse(e: LedgerEvent, why: string): void {
+    const reason = `${e.id}: the ledger holds another event under this id, not the observer's own ${e.type} (${why}); the event is not written and is kept here for a person to look at`;
+    const directory = join(this.places.inbox, "rejected");
+    const name = `${e.id.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 100)}-${createHash("sha256").update(e.id).digest("hex").slice(0, 12)}.json`;
+    try {
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      try {
+        writeFileSync(join(directory, name), `${JSON.stringify(e)}\n`, { flag: "wx", mode: 0o600 });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") return;
+        throw err;
+      }
+      writeFileSync(join(directory, `${name}.reason`), `${reason}\n`, { mode: 0o600 });
+    } catch (err) {
+      this.warn(`${this.host.repository}: ${reason}; it could not be kept: ${(err as Error).message}`);
+      return;
+    }
+    this.warn(`${this.host.repository}: ${reason}, in ${join(directory, name)}`);
   }
 
   /** An agent is named by its account; a person by a pseudonym, never by the account. */

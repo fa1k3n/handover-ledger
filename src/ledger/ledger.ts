@@ -20,7 +20,7 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import { isCode, LedgerError } from "./errors.ts";
-import { fixedForm } from "./fixed.ts";
+import { eventHash, fixedForm } from "./fixed.ts";
 import { checkEventDepth } from "./json.ts";
 import { eventFaults, type LedgerEvent } from "./schema.ts";
 
@@ -30,11 +30,19 @@ export type { LedgerEvent };
 export interface LedgerWriter {
   /**
    * Adds one event to the end of the ledger. Returns the hash of the new line.
-   * An event whose id is already in the ledger is refused: an id is written once.
+   * An event whose id is already in the ledger is refused: an id is written once. The refusal says whether the line
+   * there holds this same event or another one (#203).
    */
   append(event: LedgerEvent): string;
-  /** Whether an event with this id is in the ledger. */
+  /** Whether an event with this id is in the ledger. It says nothing of what the line holds: see `holds`. */
   has(id: string): boolean;
+  /**
+   * #203: what the ledger holds under the id of `event`. `same`: a line with this very event, the same hash of its
+   * fixed form. `other`: the id is taken by a line holding another event. `none`: the id is free. Only `same` makes
+   * the event a duplicate that may be dropped; `other` is a fault for a person. Goes by the event in the line, never
+   * by the `hash` written beside it, which anyone who can append can write as they like.
+   */
+  holds(event: LedgerEvent): "none" | "same" | "other";
   /** Lets go of the lock. The writer writes no more. */
   close(): void;
 }
@@ -54,6 +62,10 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
   let fd: number | undefined;
   let head: string;
   const ids = new Set<string>();
+  // The hashes of the events held under each id. Read from the file once, the first time a taken id is asked about
+  // (#203): a pass with many taken ids reads the ledger once, and a ledger nobody repeats an id in is not hashed at all.
+  // Until then an event this writer appends is not entered: the file holds it.
+  let hashes: Map<string, Set<string>> | undefined;
   try {
     let created = true;
     try {
@@ -72,7 +84,7 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
         source: { adapter: "howl", kind: "observed" },
         project: options.project,
         data: { mode: "trial" },
-      });
+      }).head;
     } else {
       head = hashLine(lastLine(fd, path));
       for (const id of eventIds(path)) ids.add(id);
@@ -85,6 +97,25 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
 
   let open = true;
   const file = fd;
+  const holds = (event: LedgerEvent): "none" | "same" | "other" => {
+    if (!ids.has(event.id)) return "none";
+    if (hashes === undefined) {
+      hashes = new Map();
+      for (const e of events(path)) {
+        if (typeof e.id !== "string") continue;
+        try {
+          const hash = eventHash(e as LedgerEvent);
+          const held = hashes.get(e.id);
+          if (held === undefined) hashes.set(e.id, new Set([hash]));
+          else held.add(hash);
+        } catch {
+          // An event with no fixed form is not any event that is asked about.
+          if (!hashes.has(e.id)) hashes.set(e.id, new Set());
+        }
+      }
+    }
+    return hashes.get(event.id)?.has(eventHash(event)) ? "same" : "other";
+  };
   return {
     append(event) {
       if (!open) throw new LedgerError(`${path}: the writer is closed`);
@@ -93,13 +124,20 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
           `not an event of this ledger: project is ${JSON.stringify(event.project)}, the ledger is ${JSON.stringify(options.project)}`,
         );
       }
-      if (ids.has(event.id)) throw new LedgerError(`${event.id}: an event with this id is in the ledger already`);
-      head = write(file, fstatSync(file).size, head, event);
+      const held = holds(event);
+      if (held === "same") throw new LedgerError(`${event.id}: an event with this id is in the ledger already`);
+      if (held === "other") throw new LedgerError(`${event.id}: this id is taken by a line holding another event; this one is not written`);
+      const written = write(file, fstatSync(file).size, head, event);
+      head = written.head;
       ids.add(event.id);
+      hashes?.set(event.id, new Set([written.event]));
       return head;
     },
     has(id) {
       return ids.has(id);
+    },
+    holds(event) {
+      return holds(event);
     },
     close() {
       if (!open) return;
@@ -113,17 +151,17 @@ export function openLedger(path: string, options: { project: string }): LedgerWr
 /**
  * Writes one event as a line at `at`, after the line whose hash is `prev`.
  * Refuses an event the schema does not accept; nothing is written then.
- * Returns the hash of the line written.
+ * Returns the hash of the line written, and the hash of the event in it.
  */
-function write(fd: number, at: number, prev: string | null, event: LedgerEvent): string {
-  const line = toLine(prev, event);
+function write(fd: number, at: number, prev: string | null, event: LedgerEvent): { head: string; event: string } {
+  const { line, hash } = toLine(prev, event);
   writeSync(fd, line, 0, line.length, at);
   fsyncSync(fd);
-  return hashLine(line.subarray(0, -1));
+  return { head: hashLine(line.subarray(0, -1)), event: hash };
 }
 
-/** The bytes of the line for an event, line break included. */
-function toLine(prev: string | null, event: LedgerEvent): Buffer {
+/** The bytes of the line for an event, line break included, and the hash of the event. */
+function toLine(prev: string | null, event: LedgerEvent): { line: Buffer; hash: string } {
   // The event is checked as it will stand in the file, in its fixed form.
   const fixed = fixedForm(event);
   // The line holds the event one level down, and `howl verify` reads no line deeper than 128.
@@ -131,11 +169,12 @@ function toLine(prev: string | null, event: LedgerEvent): Buffer {
   const faults = eventFaults(JSON.parse(fixed.toString("utf8")));
   if (faults.length > 0) throw new LedgerError(`not a valid event: ${faults.join("; ")}`);
   const hash = createHash("sha256").update(fixed).digest("hex");
-  return Buffer.concat([
+  const line = Buffer.concat([
     Buffer.from(`{"prev":${JSON.stringify(prev)},"hash":"${hash}","event":`),
     fixed,
     Buffer.from("}\n"),
   ]);
+  return { line, hash };
 }
 
 /** The ids of the events in a ledger file. A line that cannot be read is passed over: `howl verify` names it. */

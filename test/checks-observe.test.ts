@@ -1,8 +1,8 @@
 // #47: the checks of a commit as they happened: each change of the result, which check failed, and none.
 // @code_class tests
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { LedgerError } from "../src/ledger/errors.ts";
 import { events as ledgerEvents, openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
@@ -506,6 +506,28 @@ test("#47: a head let go while a run of it is still going: checks.unfinished wit
   d.restart();
   assert.deepEqual(await d.round(clock(97)), []);
   assert.match(showText(d), /still running when it was let go: slow job/);
+  d.close();
+});
+
+test("#203: checks.unfinished under an id that a line of another event holds is warned of and kept in rejected/, not passed over in silence", async () => {
+  const d = direct();
+  change(d, merged(30));
+  d.host.runs(SHA.a, [run("r1", "unit", "passed", 1, 5), run("r2", "slow job", "pending", 2)]);
+  assert.deepEqual(checked(await d.round(clock(40))), []);
+  const id = `${ID}checks:${SHA.a}:unfinished`;
+  d.restart(() => {
+    const writer = openLedger(d.ledger, { project: PROJECT });
+    writer.append({ v: 0, id, time: at(1), type: "session.started", source: { adapter: "claude-code-hook", kind: "claimed" }, project: PROJECT, session: "x" });
+    writer.close();
+  });
+  const events = await d.round(clock(95));
+  assert.deepEqual(checked(events), [], "the planted id is not taken for the observer's event");
+  assert.match(d.said(), new RegExp(id));
+  assert.match(d.said(), /not of this host and observed/);
+  const rejected = join(dirname(d.ledger), "inbox", "rejected");
+  assert.equal(readdirSync(rejected).length, 2);
+  assert.deepEqual(await d.round(clock(96)), []);
+  assert.equal(d.said(), "", "said once");
   d.close();
 });
 
