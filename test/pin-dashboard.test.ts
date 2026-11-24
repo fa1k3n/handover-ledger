@@ -3,17 +3,17 @@
 // nothing is pinned and nothing reads as known.
 // @code_class tests
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { barIssuer, partIdentity } from "../src/dashboard/format.ts";
+import { barIssuer, decodedFields, partIdentity } from "../src/dashboard/format.ts";
 import { texts } from "../src/dashboard/texts.ts";
-import { issueKey, readKey, signEvent } from "../src/keys/keys.ts";
+import { issueKey, readKey, revokeKey, signEvent } from "../src/keys/keys.ts";
 import { openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
 import type { Item } from "../src/serve/server.ts";
 import { startServer } from "../src/serve/server.ts";
-import { event, folder, howl, PROJECT, startHowl } from "./helpers.ts";
-import { observed, up } from "./up-helpers.ts";
+import { event, folder, howl, PROJECT, startHowl, workspace } from "./helpers.ts";
+import { observed, until, up } from "./up-helpers.ts";
 
 /** A built page of its own, so the tests need no build. */
 function page(): string {
@@ -233,6 +233,9 @@ test("#202: howl up --issuer starts a server that holds signatures to the pin, a
     try {
       const body = (await (await fetch(`${running.url}/api/ledger`)).json()) as { pinned: boolean };
       assert.equal(body.pinned, pin !== undefined, `up ${pin ?? "without a pin"}`);
+      // #202 (review, 6): its start line says whether it holds a pin, and which.
+      const start = await until(() => running.output().split("\n").find((l) => l.startsWith("howl up: ")), 10_000, "the start line");
+      assert.match(start, pin === undefined ? /; issuer not pinned\)$/ : new RegExp(`; issuer pinned: ${pin}\\)$`), start);
     } finally {
       await running.stop();
     }
@@ -248,8 +251,11 @@ test("#202: howl serve --issuer starts a server that holds signatures to the pin
         let out = "";
         child.stdout.on("data", (d) => {
           out += d;
-          const m = /howl serve: (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
-          if (m) resolve(m[1]!);
+          const m = /^howl serve: (http:\/\/127\.0\.0\.1:\d+) .*$/m.exec(out);
+          if (!m) return;
+          // #202 (review, 6): the start line says whether it holds a pin, and which.
+          assert.match(m[0], pin === undefined ? /, issuer not pinned\)$/ : new RegExp(`, issuer pinned: ${pin}\\)$`), m[0]);
+          resolve(m[1]!);
         });
         child.on("close", (status) => reject(new Error(`howl serve ended with ${status}`)));
       });
@@ -261,4 +267,96 @@ test("#202: howl serve --issuer starts a server that holds signatures to the pin
       await new Promise((resolve) => child.once("close", resolve));
     }
   }
+});
+
+/** The key's issue, then its revocation with the issuer's signature but another `sig.key` (the review's forged-revocation ledger): line 2 and line 3. */
+function ledgerOfForgedRevocation(): { ledger: string; issuer: string } {
+  const dir = folder();
+  const ledger = join(dir, "ledger.jsonl");
+  const places = { configDir: join(dir, "config"), keysDir: join(dir, "keys") };
+  const issued = issueKey(PROJECT, { actor: "agent-1", hours: 24 }, places, new Date("2026-01-02T00:00:00Z"));
+  const revoked = revokeKey(PROJECT, issued.keyId, places, new Date("2026-01-02T01:00:00Z"));
+  const w = openLedger(ledger, { project: PROJECT });
+  w.append(issued.event);
+  w.append({ ...revoked, sig: { key: "f".repeat(64), value: revoked.sig!.value } });
+  w.close();
+  return { ledger, issuer: issued.issuerId };
+}
+
+test("#202 (review, 1): part 7's valid row says under which issuer, pinned or not; never a bare valid", async () => {
+  const { ledger, issuer } = ledgerOfIssuer();
+  for (const pin of [undefined, issuer]) {
+    await withServer({ ledger, issuer: pin }, async (url) => {
+      const a = (await (await fetch(`${url}/api/line?line=3`)).json()) as Answer & { item: Item };
+      const row = decodedFields(a.item, "UTC", a.issuer).find((f) => f.k === "Signature")?.v ?? "";
+      assert.match(row, /^valid · key [0-9a-f]{12} · agent-1 · until /);
+      if (pin === undefined) {
+        assert.match(row, / · issuer not pinned$/);
+        assert.doesNotMatch(row, /pinned issuer/);
+      } else {
+        assert.ok(row.endsWith(` · pinned issuer ${issuer}`), row);
+      }
+    });
+  }
+});
+
+test("#202 (review, 1): part 7's valid row says the issuer is not read yet before the answer of /api/line; a signature that does not hold names no issuer", () => {
+  const base = { from: "ledger", n: 3, hash: "h", prev: "p", raw: "{}", event: { ...sent("session.started"), sig: { key: "c".repeat(64), value: "v" } } };
+  const signed = { key: "c".repeat(64), actor: "agent-1", until: "2026-11-13T17:00:00Z" };
+  const row = (item: object, issuer?: { id: string | null; pinned: boolean }) => decodedFields(item as Item, "UTC", issuer).find((f) => f.k === "Signature")?.v;
+  assert.match(row({ ...base, signed: { ...signed, ok: true } })!, / · issuer not read yet$/);
+  assert.equal(row({ ...base, signed: { ...signed, ok: false, reason: "signed after the key was revoked" } }, { id: PIN, pinned: true }), "does not hold: signed after the key was revoked");
+  assert.equal(row({ ...base, signed: undefined }), "does not hold: its key has no valid issue on a line before");
+});
+
+test("#202 (review, 2): under a pin, a key issued by another issuer reads as having no valid issue on a line before, in part 7 as in part 3 and verify", async () => {
+  const forged = ledgerOfIssuer();
+  const real = ledgerOfIssuer().issuer;
+  await withServer({ ledger: forged.ledger, issuer: real }, async (url) => {
+    const a = (await (await fetch(`${url}/api/line?line=3`)).json()) as Answer & { item: Item };
+    assert.equal(a.item.signed, undefined);
+    assert.equal(decodedFields(a.item, "UTC", a.issuer).find((f) => f.k === "Signature")?.v, "does not hold: its key has no valid issue on a line before");
+    assert.match(a.signature?.reason ?? "", /has no valid issue on a line before/);
+  });
+});
+
+test("#202 (review, 3): part 3 names the issuer the line holds (data.issuer) for a key's revocation, never the sig.key it carries", async () => {
+  const { ledger, issuer } = ledgerOfForgedRevocation();
+  for (const pin of [undefined, issuer]) {
+    await withServer({ ledger, issuer: pin }, async (url) => {
+      const a = (await (await fetch(`${url}/api/line?line=3`)).json()) as Answer & { item: Item };
+      assert.equal(a.signature?.key, "f".repeat(64), "the answer gives the sig.key as the line carries it");
+      const id = partIdentity(a.item, a.signature, a.issuer).signature;
+      assert.ok(id.includes(`(${issuer.slice(0, 12)})`), id);
+      assert.ok(!id.includes("ffffffffffff"), id);
+      assert.match(id, pin === undefined ? /under the issuer the ledger names \(not pinned\)$/ : new RegExp(`under the pinned issuer ${issuer}$`));
+    });
+  }
+});
+
+test("#202 (review, 3): part 3 for a key line without a readable data.issuer falls back to the key the line carries", () => {
+  const it = asItem({ ...sent("key.revoked"), data: {} });
+  assert.match(partIdentity(it, { key: "b".repeat(64), ok: true }, { id: null, pinned: false }).signature, /\(bbbbbbbbbbbb\)/);
+});
+
+test("#202 (review, 4): howl serve --all refuses --issuer: a pin holds one project's issuer; usage, status 2, nothing started", () => {
+  const r = howl(["serve", "--all", "--issuer", PIN], { env: { HOWL_HOME: folder() } });
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /^howl: --issuer pins one project's issuer, and --all serves every project: serve one project, or leave the pin out\n\nusage:/);
+  assert.equal(r.stdout, "");
+});
+
+test("#202 (review, 4): howl up refuses --issuer when the home holds more than one project; usage, status 2, nothing written", () => {
+  const ws = workspace();
+  mkdirSync(join(ws.home, "other"));
+  openLedger(join(ws.home, "other", "ledger.jsonl"), { project: "other" }).close();
+  const r = howl(["up", "--issuer", PIN], { cwd: ws.root, env: ws.env });
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /^howl: --issuer pins one project's issuer, and howl up shows every project of the home \(example, other\): start it without --issuer, or with a home that holds this project alone\n\nusage:/);
+  assert.equal(r.stdout, "");
+  assert.equal(existsSync(ws.ledger), false, "the writer was never started");
+});
+
+test("#202 (review, 4): the usage says a pin holds one project's issuer", () => {
+  assert.match(howl(["help"]).stdout, /--issuer .* one project/s);
 });

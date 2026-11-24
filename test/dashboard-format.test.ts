@@ -144,8 +144,9 @@ test("#23: the decoded event says whether it is signed, by which key and for wha
       actor: { kind: "agent" as const, id: "agent-1" },
     },
   };
-  const sig = (s: object) => decodedFields({ ...base, signed: s } as never, "UTC").find((f) => f.k === "Signature")?.v;
-  assert.equal(sig({ key: "c".repeat(64), actor: "agent-1", change: "30", until: "2026-11-13T17:00:00Z", ok: true }), `valid · key ${"c".repeat(12)} · agent-1 · change 30 · until 2026-11-13 17:00:00 UTC`);
+  // #202: the valid row says under which issuer it holds.
+  const sig = (s: object) => decodedFields({ ...base, signed: s } as never, "UTC", { id: null, pinned: false }).find((f) => f.k === "Signature")?.v;
+  assert.equal(sig({ key: "c".repeat(64), actor: "agent-1", change: "30", until: "2026-11-13T17:00:00Z", ok: true }), `valid · key ${"c".repeat(12)} · agent-1 · change 30 · until 2026-11-13 17:00:00 UTC · issuer not pinned`);
   assert.equal(sig({ key: "c".repeat(64), actor: "agent-1", until: "2026-11-13T17:00:00Z", ok: false, reason: "signed after the key was revoked" }), "does not hold: signed after the key was revoked");
   assert.equal(decodedFields(base as never, "UTC").find((f) => f.k === "Signature")?.v, "unsigned");
 });
