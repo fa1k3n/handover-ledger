@@ -1,6 +1,6 @@
 {
   "name": "handover-ledger",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Audit-ready ledger of handovers in mixed teams of people and AI agents",
   "license": "Apache-2.0",
