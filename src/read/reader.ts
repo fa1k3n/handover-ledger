@@ -112,10 +112,10 @@ function parseLines(raws: string[], from: Read["from"], before = 0, faulty: Faul
     if (event === null || typeof event !== "object" || Array.isArray(event)) return left(i, "the line holds no event");
     // #200: the check of signatures is given every line that parses to an event, also one that is left out: a key's issue or revocation whose
     // `sig` alone was changed still has its effect, and no field the schema refuses can hide it.
-    parsed?.push({ n: before + i + 1, event });
     // #200: a line is also held to the shape of the line where a reader copies it on: `hash` a text, `prev` a text or null.
     const shape = from === "ledger" ? shapeFaults(value) : [];
     const faults = [...shape, ...eventFaults(event)];
+    parsed?.push(faults.length > 0 ? { n: before + i + 1, event, left: true } : { n: before + i + 1, event });
     if (faults.length > 0) return left(i, reasonOf(faults));
     // The keys in the order the server has always sent them.
     found.push(from === "ledger" ? { n: before + i + 1, from, hash: value!.hash, prev: value!.prev, event, raw } : { from, event, raw });
@@ -127,6 +127,8 @@ function parseLines(raws: string[], from: Read["from"], before = 0, faulty: Faul
 export interface Checkable {
   n: number;
   event: LedgerEvent;
+  /** The reader leaves the line out of its lists (#200): the check takes no id from it. */
+  left?: boolean;
 }
 
 /** What is wrong with the shape of a line that a reader copies on: `hash` is no text, or `prev` is no text or null. A text that is no hash is read: `howl verify` names it. */

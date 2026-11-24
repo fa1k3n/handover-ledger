@@ -427,15 +427,52 @@ fn check(node: &Node, value: &Value, at: &[&str], what: &str, found: &mut Vec<St
     }
 }
 
+/// The characters of the general category Cf (formats: the marks of direction, the zero-width ones, the byte order mark ...) as of
+/// Unicode 17, the version of Node 24. A test writes each one that the running Node knows as a field name, and holds the two
+/// versions of `howl verify` against each other.
+const FORMAT: [(u32, u32); 21] = [
+    (0xad, 0xad),
+    (0x600, 0x605),
+    (0x61c, 0x61c),
+    (0x6dd, 0x6dd),
+    (0x70f, 0x70f),
+    (0x890, 0x891),
+    (0x8e2, 0x8e2),
+    (0x180e, 0x180e),
+    (0x200b, 0x200f),
+    (0x202a, 0x202e),
+    (0x2060, 0x2064),
+    (0x2066, 0x206f),
+    (0xfeff, 0xfeff),
+    (0xfff9, 0xfffb),
+    (0x110bd, 0x110bd),
+    (0x110cd, 0x110cd),
+    (0x13430, 0x1343f),
+    (0x1bca0, 0x1bca3),
+    (0x1d173, 0x1d17a),
+    (0xe0001, 0xe0001),
+    (0xe0020, 0xe007f),
+];
+
+/// Whether `c` is of the general category Cc, Cf, Zl or Zp.
+fn unsafe_to_show(c: char) -> bool {
+    let code = c as u32;
+    c.is_control()
+        || code == 0x2028
+        || code == 0x2029
+        || FORMAT.iter().any(|&(from, to)| (from..=to).contains(&code))
+}
+
 /// A field name from a line, as a reason shows it (#200): the name is the ledger's, not howl's, and reaches a terminal and a page. A
-/// plain name (letters, digits, `_`, `.` and `-`, at most 64) stands as it is. Any other is quoted as JSON writes a text, cut at 64
-/// characters with `…`, and its control characters, the marks of direction and the line separators are written as `\uXXXX`.
+/// plain name (letters, digits, `_` and `-`, at most 64) stands as it is. Any other is quoted as JSON writes a text, cut at 64
+/// characters with `…`, and every character of the categories Cc, Cf, Zl and Zp is written as `\uXXXX`, one beyond the first plane
+/// as its two units. A name with a `.` is quoted, so that a dot in a reason always comes from howl's own path.
 fn shown(name: &str) -> String {
     let count = name.chars().count();
     if (1..=64).contains(&count)
         && name
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
     {
         return name.to_string();
     }
@@ -449,14 +486,11 @@ fn shown(name: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            '\u{0}'..='\u{1f}'
-            | '\u{7f}'..='\u{9f}'
-            | '\u{200e}'
-            | '\u{200f}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202a}'..='\u{202e}'
-            | '\u{2066}'..='\u{2069}' => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if unsafe_to_show(c) => {
+                for unit in c.encode_utf16(&mut [0; 2]) {
+                    out.push_str(&format!("\\u{unit:04x}"));
+                }
+            }
             _ => out.push(c),
         }
     }

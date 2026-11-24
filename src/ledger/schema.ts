@@ -41,14 +41,18 @@ const SHOWN = 64;
 
 /**
  * A field name from a line, as a reason shows it (#200): the name is the ledger's, not howl's, and reaches a terminal and a page. A plain
- * name (letters, digits, `_`, `.` and `-`, at most 64) stands as it is. Any other is quoted, cut at 64 characters with `…`, and its control
- * characters, the marks of direction and the line separators written as `\uXXXX`.
+ * name (letters, digits, `_` and `-`, at most 64) stands as it is. Any other is quoted, cut at 64 characters with `…`, and every character
+ * of the general categories Cc, Cf, Zl and Zp (controls, formats such as the marks of direction and the zero-width ones, the line and
+ * paragraph separators) is written as `\uXXXX`, a character beyond the first plane as its two units. A name with a `.` is quoted, so that a
+ * dot in a reason always comes from howl's own path.
  */
 export function shown(name: string): string {
-  if (/^[A-Za-z0-9_.-]{1,64}$/.test(name)) return name;
+  if (/^[A-Za-z0-9_-]{1,64}$/.test(name)) return name;
   const chars = [...name];
   const text = chars.slice(0, SHOWN).join("") + (chars.length > SHOWN ? "…" : "");
-  return JSON.stringify(text).replace(/[\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  return JSON.stringify(text).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (c) =>
+    Array.from({ length: c.length }, (_, i) => `\\u${c.charCodeAt(i).toString(16).padStart(4, "0")}`).join(""),
+  );
 }
 
 function faults(validate: ValidateFunction, value: unknown, what: string): string[] {

@@ -293,9 +293,12 @@ function unreadable(event: unknown): string | null {
  * issuer cannot be hidden by a field the schema refuses. Any other line that
  * lacks a field this check reads, or holds it of the wrong kind, is a fault of
  * that line: it is named, has no verdict, takes no id, and changes none of
- * another line's.
+ * another line's. A line `left` out by the reader takes no id and is not held
+ * to one that is taken. A revocation whose issuer's signature holds revokes the
+ * key even when its id is already taken (its line is still a fault): otherwise
+ * a line that took the id first would keep the key from being revoked.
  */
-export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?: string): SignatureCheck {
+export function checkSignatures(lines: { n: number; event: LedgerEvent; left?: boolean }[], pin?: string): SignatureCheck {
   const keys = new Map<string, { data: Record<string, string>; line: number; revokedAt?: number }>();
   /** The line of each event id seen (#199, after the review): a copied line is refused. */
   const ids = new Map<string, number>();
@@ -309,7 +312,24 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
   const byEvent: SignatureCheck["byEvent"] = new Map();
   const byLine: SignatureCheck["byLine"] = new Map();
 
-  for (const { n, event } of lines) {
+  /**
+   * A key.revoked's effect, and why it has none: the key must be issued, the issuer must be the ledger's and its signature must hold,
+   * and the time must be readable. The earliest revocation stands.
+   */
+  const revoke = (event: LedgerEvent, d: Record<string, string>): string | null => {
+    const known = keys.get(d.key ?? "");
+    const issuerPublic = known?.data.issuer_public;
+    if (!known || d.issuer !== issuer || !issuerPublic || !signatureHolds(event, issuerPublic)) {
+      return `revocation of key ${short(d.key)}: the issuer's signature does not hold`;
+    }
+    const at = d.at ?? event.time;
+    const t = windowTime(at);
+    if (Number.isNaN(t)) return `revocation of key ${short(d.key)}: its time cannot be read: at ${at} is not an ISO time with a zone`;
+    if (known.revokedAt === undefined || t < known.revokedAt) known.revokedAt = t;
+    return null;
+  };
+
+  for (const { n, event, left } of lines) {
     const keyLine = isObject(event) && (event.type === "key.issued" || event.type === "key.revoked");
     const faulty = keyLine ? null : unreadable(event);
     if (faulty !== null) {
@@ -317,10 +337,14 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
       faults.push({ line: n, reason: `the line cannot be checked: ${faulty}` });
       continue;
     }
-    const seen = ids.get(event.id);
+    // #200: a line the reader leaves out takes no id, and is not held to one that is taken.
+    const seen = left ? undefined : ids.get(event.id);
     if (seen !== undefined) {
       const reason = `the event ${event.id} is already on line ${seen}`;
       faults.push({ line: n, reason });
+      // #200 (second look): a revocation still revokes when its id is taken, or a line that took the id first would keep the key from being revoked.
+      // Revoking is the safe direction, and its line carries the fault above.
+      if (event.type === "key.revoked") revoke(event, (event.data ?? {}) as Record<string, string>);
       // No reader keyed by the id may read it as valid: a copy may differ from the line it copies.
       const first = byEvent.get(event.id);
       if (first !== undefined) {
@@ -329,7 +353,7 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
       }
       continue;
     }
-    ids.set(event.id, n);
+    if (!left) ids.set(event.id, n);
     const d = (event.data ?? {}) as Record<string, string>;
     if (event.type === "key.issued" || event.type === "key.revoked") {
       // An issuer's own act: signed by the issuer it names.
@@ -381,20 +405,8 @@ export function checkSignatures(lines: { n: number; event: LedgerEvent }[], pin?
         }
         keys.set(d.key!, { data: d, line: n });
       } else {
-        const known = keys.get(d.key ?? "");
-        const issuerPublic = known?.data.issuer_public;
-        if (!known || d.issuer !== issuer || !issuerPublic || !signatureHolds(event, issuerPublic)) {
-          faults.push({ line: n, reason: `revocation of key ${short(d.key)}: the issuer's signature does not hold` });
-          continue;
-        }
-        const at = d.at ?? event.time;
-        const t = windowTime(at);
-        if (Number.isNaN(t)) {
-          faults.push({ line: n, reason: `revocation of key ${short(d.key)}: its time cannot be read: at ${at} is not an ISO time with a zone` });
-          continue;
-        }
-        // The earliest revocation stands.
-        if (known.revokedAt === undefined || t < known.revokedAt) known.revokedAt = t;
+        const refused = revoke(event, d);
+        if (refused !== null) faults.push({ line: n, reason: refused });
       }
       continue;
     }
