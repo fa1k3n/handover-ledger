@@ -88,7 +88,7 @@ export const texts = {
     needsPerson: "needs a person",
     empty: "No events match.",
   },
-  decoded: { sub: "decoded", tool: "Tool call", line: (n: number) => `Line ${n}` },
+  decoded: { sub: "decoded", tool: "Tool call", line: (n: number) => `Line ${n}`, log: "On the log", onLog: "on the log: the branch howl/log of the repository" },
   raw: { heading: "Raw line", sub: "as stored, with line breaks and indents added" },
   /** #110: the dialog of one event of the event log. */
   dialog: {
@@ -157,6 +157,7 @@ export const texts = {
       },
       invalid: (reason: string) => `not valid: ${reason}`,
       tool: "not checked: a tool call is outside the chain",
+      onLog: "not checked here: the signature of an event on the log is not read by the page yet",
       observed: "Read by howl's adapter from the team's tool. The event does not record how that tool authenticated the actor.",
       limit: {
         open: "A valid signature shows the event was sent with that key, unchanged since, not that what it says is so: what a signed claim says stays a claim. The key's issue is checked against the issuer key this ledger names itself; it does not show that the issuer is one kept apart from the ledger.",
@@ -182,6 +183,10 @@ export const texts = {
       where:
         "The checkpoint read here is the one howl up or howl observe keeps beside the ledger, not apart from it: it shows only that the ledger agrees with the copy beside it. The checkpoint kept apart, in git, is not read here, nor one in a file.",
       tool: "Not in the chain: a tool call is kept in the activity file, without a chain, and expires.",
+      // #216: an event of the branch howl/log that no line of the ledger holds.
+      onLog: "on the log",
+      noPrev: "none: an event on the log has no line before it",
+      logWhere: "An event on the log is a file of the branch howl/log, named by the hash of the event. It is not a line of this machine's ledger, so it has no line number, no prev and no checkpoint here: howl verify checks the files of the branch.",
     },
     kept: {
       hook: "The tool's input and answer were dropped on the machine, with the rest of the hook's payload: only what the event holds was kept.",

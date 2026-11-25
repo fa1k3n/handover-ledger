@@ -209,3 +209,27 @@ export function lineProvenance(ledger: string, prepared: Prepared, n: number, ve
     related: relatedEvents(whole.lines, n),
   };
 }
+
+/**
+ * #216: the provenance of an event of the branch howl/log that no line of the ledger holds; null when there is none.
+ * It is on the log, not in the chain: it has no line, no `prev` and no checkpoint. Its signature and its related
+ * events are not read here yet: later pieces of #27 check the log's signatures.
+ */
+export function logProvenance(read: Read | undefined, prepared: Prepared, project?: string): Provenance | null {
+  if (read === undefined) return null;
+  const item: LineItem = { ...read };
+  if (project !== undefined) item.project = project;
+  const by = prepared.acting.get(read.event.id)?.agent;
+  if (by !== undefined) item.by = by;
+  return {
+    item,
+    intact: false,
+    broken: null,
+    doubted: false,
+    last: false,
+    checkpoint: null,
+    signature: null,
+    issuer: { id: prepared.signatures.issuer, pinned: prepared.signatures.pinned },
+    related: { before: [], after: [], beforeMore: 0, afterMore: 0 },
+  };
+}

@@ -7,24 +7,26 @@
 // of that line where the reader reports (#200), and still counts in the numbers
 // of the lines. It never makes a reader throw.
 // @code_class reading
-import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { wholeLines } from "../ledger/lines.ts";
+import { readLog } from "../ledger/log.ts";
 import { ACTIVITY_FILE } from "../ledger/names.ts";
 import { eventFaults, type LedgerEvent } from "../ledger/schema.ts";
 import { reasonOf, type FaultyLine } from "./faulty.ts";
-import { byTime } from "./order.ts";
+import { byTime, byTimeAndHash } from "./order.ts";
 
-export { byTime };
+export { byTime, byTimeAndHash };
 
 export interface Read {
   event: LedgerEvent;
-  /** The line as it stands in its file. */
+  /** The line as it stands in its file; of the log (#216), the file as it stands. */
   raw: string;
-  from: "ledger" | "activity";
+  /** #216: `log`, an event of the branch howl/log, which has no line number and no `prev`. */
+  from: "ledger" | "activity" | "log";
   /** Of a line of the ledger: its number in the file, counted over every line. */
   n?: number;
-  /** Of a line of the ledger: the hash of its event, and the hash of the line before. */
+  /** Of a line of the ledger: the hash of its event, and the hash of the line before. Of the log: the hash of its event. */
   hash?: string;
   prev?: string | null;
 }
@@ -204,11 +206,51 @@ export function readAll(ledger: string): Read[] {
   return readEverything(ledger).reads;
 }
 
-/** `readAll`, with the lines of the ledger it left out (#200). */
-export function readEverything(ledger: string): { reads: Read[]; faulty: FaultyLine[] } {
-  statSync(ledger);
-  const { lines, faulty } = readLedger(ledger, { first: true });
-  return { reads: byTime([...lines, ...activityLines(ledger)].filter((r) => r.event.type !== "ledger.created")), faulty };
+/**
+ * #216: the events of the branch howl/log of the repository `repo`, each with its hash; null when there is no such
+ * branch. A file that holds no event the schema accepts is left out: `howl verify` names it. Two files with one id
+ * and different content are both read.
+ */
+export function logReads(repo: string): Read[] | null {
+  const log = readLog(repo);
+  if (log === null) return null;
+  const seen = new Set<string>();
+  const found: Read[] = [];
+  for (const entry of log.entries) {
+    if (entry.event === undefined || seen.has(entry.hash)) continue;
+    seen.add(entry.hash);
+    found.push({ from: "log", hash: entry.hash, event: entry.event, raw: entry.raw });
+  }
+  return found;
+}
+
+/** #216: the lines of the ledger, then the events of the log that no line holds: the same event (by hash) is read once. */
+export function withLog(lines: Read[], log: Read[]): Read[] {
+  const held = new Set(lines.map((r) => r.hash));
+  return [...lines, ...log.filter((r) => !held.has(r.hash))];
+}
+
+/**
+ * `ledgerLines`, with the events of the log of `repo` that no line holds (#216). Without a branch howl/log it is
+ * `readLedger`; with one, a ledger file that is not there holds no line.
+ */
+export function readEvents(ledger: string, repo?: string): { lines: Read[]; faulty: FaultyLine[]; parsed: Checkable[]; log: boolean } {
+  const log = repo === undefined ? null : logReads(repo);
+  if (log === null) return { ...readLedger(ledger), log: false };
+  const read = existsSync(ledger) ? readLedger(ledger) : { lines: [], faulty: [], parsed: [] };
+  return { ...read, lines: withLog(read.lines, log), log: true };
+}
+
+/**
+ * `readAll`, with the lines of the ledger it left out (#200). With `repo` (#216), the events of its branch howl/log
+ * too, ordered by time, then hash; without that branch, as before.
+ */
+export function readEverything(ledger: string, repo?: string): { reads: Read[]; faulty: FaultyLine[] } {
+  const log = repo === undefined ? null : logReads(repo);
+  if (log === null) statSync(ledger);
+  const { lines, faulty } = log !== null && !existsSync(ledger) ? { lines: [], faulty: [] } : readLedger(ledger, { first: true });
+  const all = [...(log === null ? lines : withLog(lines, log)), ...activityLines(ledger)].filter((r) => r.event.type !== "ledger.created");
+  return { reads: log === null ? byTime(all) : byTimeAndHash(all), faulty };
 }
 
 /** The time of the oldest line of the activity file among `reads`, in the order of time; null when it holds none. */

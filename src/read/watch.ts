@@ -5,7 +5,8 @@ import { parseWhen, WHEN_FORMS } from "../ledger/time.ts";
 import { presentTime } from "./now.ts";
 import type { LedgerEvent } from "../ledger/schema.ts";
 import { readFilters, wantsActivity } from "./filter.ts";
-import { activityBeside, byTime, Tail, type Read } from "./reader.ts";
+import { logHead } from "../ledger/log.ts";
+import { activityBeside, byTime, byTimeAndHash, logReads, Tail, type Read } from "./reader.ts";
 import { faultyNotes } from "./faulty.ts";
 import { waitsForPerson } from "./wait.ts";
 import { concerns, detail } from "./words.ts";
@@ -22,6 +23,8 @@ export interface WatchOptions {
   /** Seconds between two looks at the files while following. */
   interval: number;
   colour: boolean;
+  /** #216: the repository whose branch howl/log is read beside the ledger. */
+  log?: string;
 }
 
 const RED = "\u001b[31m";
@@ -106,11 +109,21 @@ export async function watch(ledger: string, options: WatchOptions, write: (line:
 
   const tails = [new Tail(ledger, "ledger")];
   if (options.activity || wantsActivity(options.filters)) tails.push(new Tail(activityBeside(ledger), "activity"));
+  // #216: the log is read again when its head moves.
+  let logAt: string | null = null;
+  const logged = options.log === undefined || logHead(options.log) === null ? null : options.log;
   const seen = new Set<string>();
+  // #216: the events of the log by hash: one the ledger holds is shown once, and two of one id with different content are both shown.
+  const hashes = new Set<string>();
   const take = (reads: Read[]) => {
     for (const r of reads) {
-      if (seen.has(r.event.id)) continue;
-      seen.add(r.event.id);
+      if (r.from === "log") {
+        if (hashes.has(r.hash!)) continue;
+      } else {
+        if (seen.has(r.event.id)) continue;
+        seen.add(r.event.id);
+      }
+      if (r.hash !== undefined) hashes.add(r.hash);
       if (shown(r)) print(r);
     }
   };
@@ -118,9 +131,16 @@ export async function watch(ledger: string, options: WatchOptions, write: (line:
   const read = () => {
     const reads = tails.flatMap((t) => t.read());
     for (const note of faultyNotes(tails.flatMap((t) => t.faulty))) warn(note);
+    if (logged !== null) {
+      const head = logHead(logged);
+      if (head !== logAt) {
+        logAt = head;
+        reads.push(...(logReads(logged) ?? []));
+      }
+    }
     return reads;
   };
-  take(byTime(read()));
+  take(logged === null ? byTime(read()) : byTimeAndHash(read()));
   const failed = filters.failed();
   if (failed !== null) warn(`the filter could not be worked out for ${failed.events} event${failed.events === 1 ? "" : "s"}, which are left out: ${failed.reason}`);
   if (!options.follow) return;

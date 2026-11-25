@@ -67,7 +67,8 @@ export function filterWith(text: string, field: string, value: string): string {
 
 /** #79: what tells a row of the event log from every other: its project and its event. */
 export function itemKey(item: Item): string {
-  return `${item.project ?? ""}\u0000${item.event.id}`;
+  // #216: two files of the log may hold one id with different content: an event of the log is told by its hash too.
+  return item.from === "log" ? `${item.project ?? ""}\u0000${item.event.id}\u0000${item.hash ?? ""}` : `${item.project ?? ""}\u0000${item.event.id}`;
 }
 
 /**
@@ -113,7 +114,7 @@ export function decodedFields(item: Item, timeZone?: string, issuer?: LineIssuer
   const fields: (Field | null)[] = [
     // #79: the line number and the hashes are those of this project's ledger.
     item.project !== undefined ? { k: "Project", v: item.project } : null,
-    item.from === "ledger" ? { k: "Line", v: String(item.n) } : { k: "File", v: ACTIVITY_FILE },
+    item.from === "ledger" ? { k: "Line", v: String(item.n) } : item.from === "log" ? { k: "Kept", v: texts.decoded.onLog } : { k: "File", v: ACTIVITY_FILE },
     item.hash !== undefined ? { k: "Line hash", v: item.hash } : null,
     item.from === "ledger" ? { k: "Previous hash", v: item.prev ?? "none: the first line" } : null,
     { k: "Time", v: `${localTime(e.time, timeZone)} local · ${utcTime(e.time)}` },
@@ -386,7 +387,7 @@ export function lineToCopy(item: Item): string {
 
 /** #110: the heading of the dialog of an event: its line and its project, or that it is a tool call. */
 export function dialogHeading(item: Item): string {
-  const what = item.from === "ledger" ? texts.decoded.line(item.n ?? 0) : texts.decoded.tool;
+  const what = item.from === "ledger" ? texts.decoded.line(item.n ?? 0) : item.from === "log" ? texts.decoded.log : texts.decoded.tool;
   return item.project !== undefined ? `${what} · ${item.project}` : what;
 }
 
@@ -665,6 +666,8 @@ export function partIdentity(item: Item, signature: LineSignature | null | undef
   const t = texts.provenance.identity;
   const actor = e.actor ? `${e.actor.id} (${e.actor.kind === "person" ? "person, pseudonym" : e.actor.kind})` : t.noActor;
   const note = e.source.kind === "observed" && originOf(e) === "host" ? t.observed : null;
+  // #216: the signature of an event of the log is not checked by the page yet.
+  if (item.from === "log") return { actor, signature: t.onLog, limit: null, note };
   if (item.from !== "ledger" || signature === undefined) return { actor, signature: t.tool, limit: null, note };
   if (signature === null) return { actor, signature: t.notSigned, limit: null, note };
   // A key's issue or revocation is checked against the issuer key the line names, which must be the pin when there is one.

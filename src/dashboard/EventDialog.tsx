@@ -44,7 +44,9 @@ export function EventDialog({
   // A related line opened from the dialog comes with its answer: it is not read twice.
   const preloaded = useRef<{ key: string; answer: LineAnswer } | null>(null);
   useEffect(() => {
-    if (item.from !== "ledger" || item.n === undefined) {
+    // #216: an event of the log is named by its hash.
+    const byHash = item.from === "log" && item.hash !== undefined;
+    if (!byHash && (item.from !== "ledger" || item.n === undefined)) {
       setProv(null);
       return;
     }
@@ -56,7 +58,7 @@ export function EventDialog({
     }
     let live = true;
     setProv({ key });
-    api.line(item.project, item.n).then(
+    (byHash ? api.lineByHash(item.project, item.hash!) : api.line(item.project, item.n!)).then(
       (answer) => live && setProv({ key, answer }),
       (e: unknown) => live && setProv({ key, error: (e as Error).message }),
     );
@@ -137,8 +139,8 @@ export function EventDialog({
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto md:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4 px-5 py-[18px]">
             <span className="text-[13px] text-mute">{texts.provenance.heading}</span>
-            {item.from === "ledger" && prov?.error !== undefined && <p role="alert" className="m-0 text-[13px] text-error-ink">{texts.provenance.failed(prov.error)}</p>}
-            {item.from === "ledger" && answer === undefined && prov?.error === undefined && <p className="m-0 text-[13px] text-mute">{texts.provenance.loading}</p>}
+            {item.from !== "activity" && prov?.error !== undefined && <p role="alert" className="m-0 text-[13px] text-error-ink">{texts.provenance.failed(prov.error)}</p>}
+            {item.from !== "activity" && answer === undefined && prov?.error === undefined && <p className="m-0 text-[13px] text-mute">{texts.provenance.loading}</p>}
             <Part id="p-source" title={texts.provenance.parts.source}>
               <Facts rows={sourceRows(item)} />
             </Part>
@@ -272,6 +274,21 @@ function IdentityPart({ item, answer }: { item: Item; answer: LineAnswer | undef
 
 function IntegrityPart({ item, answer }: { item: Item; answer: LineAnswer | undefined }) {
   const t = texts.provenance.integrity;
+  if (item.from === "log") {
+    // #216: on the log: no line, no prev, and its hash.
+    return (
+      <>
+        <Facts
+          rows={[
+            { k: t.line, v: t.onLog },
+            { k: t.prev, v: t.noPrev },
+            { k: t.hash, v: item.hash ?? "" },
+          ]}
+        />
+        <p className="m-0 text-[13px] text-mute">{t.logWhere}</p>
+      </>
+    );
+  }
   if (item.from !== "ledger") return <p className="m-0 text-[13px] text-mute">{t.tool}</p>;
   const rows = [
     { k: t.line, v: String(item.n) },

@@ -3,7 +3,9 @@
 // @code_class recording
 use crate::cli::args::parse_args;
 use crate::cli::howl::{fail, USAGE};
+use crate::howl::project::find_project;
 use crate::keys::Signatures;
+use crate::ledger::log::{verify_log, LOG_BRANCH};
 use crate::ledger::place::{ledger_path, Env};
 use crate::ledger::verify::{verify_each, Verdict};
 use std::ffi::OsString;
@@ -58,6 +60,11 @@ pub fn run(args: &[OsString], fallback: impl FnOnce(&str) -> i32) -> i32 {
         Ok(verdict) => verdict,
         Err(message) => return fail(&format!("howl: {message}\n")),
     };
+    // #216: the log of the repository, when the ledger read is that of the project of the working directory.
+    let log = match parsed.value("ledger") {
+        Some(_) => None,
+        None => log_of(parsed.value("project")),
+    };
     let mut out = BufWriter::new(std::io::stdout().lock());
     // A closed standard output is not an error of howl's.
     let _ = writeln!(out, "{path}");
@@ -73,6 +80,10 @@ pub fn run(args: &[OsString], fallback: impl FnOnce(&str) -> i32) -> i32 {
                 "failed at line {line}, after {} that hold",
                 count(lines, "line")
             );
+            if let Err(message) = log_report(log.as_deref(), &mut out) {
+                let _ = out.flush();
+                return fail(&format!("howl: {message}\n"));
+            }
             let _ = out.flush();
             return 1;
         }
@@ -110,12 +121,61 @@ pub fn run(args: &[OsString], fallback: impl FnOnce(&str) -> i32) -> i32 {
     for (line, reason) in &check.faults {
         let _ = writeln!(out, "line {line}: {reason}");
     }
+    let log_failed = match log_report(log.as_deref(), &mut out) {
+        Ok(failed) => failed,
+        Err(message) => {
+            let _ = out.flush();
+            return fail(&format!("howl: {message}\n"));
+        }
+    };
     let _ = out.flush();
-    if check.faults.is_empty() {
+    if check.faults.is_empty() && !log_failed {
         0
     } else {
         1
     }
+}
+
+/// #216: the repository whose branch howl/log is read beside the ledger: that of the nearest .howl/howl.yml, when the
+/// project read is its project (no --project, or the same one).
+fn log_of(project: Option<&str>) -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    let found = find_project(&cwd.to_string_lossy())?;
+    if project.is_some_and(|p| p != found.project) {
+        return None;
+    }
+    Some(found.root)
+}
+
+/// #216: the check of the log, as `howl verify` says it: a line for each fault, then whether it holds. Whether it
+/// failed; nothing is said when there is no log.
+fn log_report(log: Option<&str>, out: &mut impl Write) -> Result<bool, String> {
+    let Some(repo) = log else {
+        return Ok(false);
+    };
+    let Some(checked) = verify_log(repo)? else {
+        return Ok(false);
+    };
+    for fault in &checked.faults {
+        let _ = writeln!(out, "{LOG_BRANCH}: {fault}");
+    }
+    if checked.faults.is_empty() {
+        let _ = writeln!(
+            out,
+            "{LOG_BRANCH}: ok: {} checked, head {}",
+            count(checked.files, "file"),
+            checked.head
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "{LOG_BRANCH}: failed: {} in {}, head {}",
+            count(checked.faults.len(), "fault"),
+            count(checked.files, "file"),
+            checked.head
+        );
+    }
+    Ok(!checked.faults.is_empty())
 }
 
 /// A usage error: the message, the usage text, and 2.
