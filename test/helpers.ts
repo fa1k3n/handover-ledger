@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after } from "node:test";
 import { fileURLToPath } from "node:url";
+import { fixedForm } from "../src/ledger/fixed.ts";
 import { openLedger, type LedgerEvent } from "../src/ledger/ledger.ts";
 
 const CLI = fileURLToPath(new URL("../src/cli/howl.ts", import.meta.url));
@@ -206,4 +207,35 @@ export function git(dir: string, ...args: string[]): string {
   );
   if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
   return result.stdout.trim();
+}
+
+/** #216: the path on howl/log of a file that holds `content`: `events/<aa>/<hash>.json`, the hash the SHA-256 of the content. */
+export function logPath(content: Buffer): string {
+  const hash = createHash("sha256").update(content).digest("hex");
+  return `events/${hash.slice(0, 2)}/${hash}.json`;
+}
+
+/**
+ * #216: writes one commit to the branch howl/log of the repository `repo` with git's plumbing, after the branch's head
+ * when there is one. Its tree holds `entries` and nothing else: an event as `events/<aa>/<hash>.json` in its fixed form,
+ * a file at the path given. The working tree, the index and HEAD are not touched. Returns the commit.
+ */
+export function writeLog(repo: string, entries: (LedgerEvent | { path: string; content: string | Buffer })[]): string {
+  const env = { PATH: process.env.PATH ?? "", GIT_CONFIG_NOSYSTEM: "1", HOME: repo, GIT_INDEX_FILE: join(folder(), "index") };
+  const run = (args: string[], input?: string | Buffer): string => {
+    const result = spawnSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.invalid", ...args], { cwd: repo, env, input, encoding: "buffer" });
+    if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString("utf8")}`);
+    return result.stdout.toString("utf8").trim();
+  };
+  for (const entry of entries) {
+    const file = "path" in entry && typeof entry.path === "string" ? entry : { path: "", content: fixedForm(entry) };
+    const content = typeof file.content === "string" ? Buffer.from(file.content, "utf8") : file.content;
+    const blob = run(["hash-object", "-w", "--stdin"], content);
+    run(["update-index", "--add", "--cacheinfo", `100644,${blob},${file.path === "" ? logPath(content) : file.path}`]);
+  }
+  const tree = run(["write-tree"]);
+  const parent = spawnSync("git", ["rev-parse", "--verify", "--quiet", "refs/heads/howl/log"], { cwd: repo, env, encoding: "utf8" }).stdout.trim();
+  const commit = run(["commit-tree", tree, ...(parent === "" ? [] : ["-p", parent]), "-m", "howl log"]);
+  run(["update-ref", "refs/heads/howl/log", commit]);
+  return commit;
 }
