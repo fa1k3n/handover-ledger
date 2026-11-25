@@ -82,7 +82,13 @@ pub fn log_head(repo: &str) -> Option<String> {
     let name = format!("{LOG_REF}^{{commit}}");
     let out = run(
         repo,
-        &["rev-parse", "--verify", "--quiet", "--end-of-options", &name],
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &name,
+        ],
         None,
     )?;
     let head = String::from_utf8_lossy(&out).trim().to_string();
@@ -102,7 +108,9 @@ pub fn log_files(repo: &str, commit: &str) -> Result<Vec<LogFile>, String> {
             continue;
         };
         let parts: Vec<&str> = head.split(' ').collect();
-        let (mode, kind, object) = (parts[0], parts[1], parts[2]);
+        let [mode, kind, object] = parts[..] else {
+            continue;
+        };
         entries.push((
             path.to_string(),
             kind == "blob" && mode != "120000",
