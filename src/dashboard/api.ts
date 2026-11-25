@@ -65,6 +65,13 @@ export function events(filters: string[], tools: boolean, limit = 200): Promise<
   return get(`/api/events?${eventsQuery(filters, tools, limit)}`);
 }
 
+/** #216: the provenance of an event named by its hash: a line of the ledger, else an event of the branch howl/log. */
+export function lineByHash(of: string | undefined, hash: string): Promise<{ now: number } & Provenance> {
+  const q = new URLSearchParams({ hash });
+  if (of !== undefined) q.set("project", of);
+  return get(`/api/line?${q}`);
+}
+
 /** #191: one line's provenance for the event dialog, of the project the event names, else the page's. */
 export function line(of: string | undefined, n: number): Promise<{ now: number } & Provenance> {
   const q = new URLSearchParams({ line: String(n) });

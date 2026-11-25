@@ -4,6 +4,7 @@
 pub mod fixed;
 pub mod json;
 pub mod line;
+pub mod log;
 pub mod pattern;
 pub mod place;
 pub mod schema;

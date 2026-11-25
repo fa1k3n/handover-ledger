@@ -19,7 +19,8 @@ usage:
   howl trace [--at <commit>] [--check] [--json]
 
   verify    check every line of the ledger and the chain between the lines,
-            then every signed claim against the key issued for it
+            then every signed claim against the key issued for it, then the
+            files of the branch howl/log of the project's repository
   export    an evidence bundle (.tar.gz) of a change, a task or a period: the
             ledger up to its head, the lines selected, the timeline, what howl
             matched (inferred.json, not for a period), the checkpoints and a

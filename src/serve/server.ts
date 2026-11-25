@@ -15,14 +15,15 @@ import { LEDGER_FILE } from "../ledger/names.ts";
 import { isProjectName } from "../ledger/place.ts";
 import { verify, type Verdict } from "../ledger/verify.ts";
 import { presentTime } from "../read/now.ts";
-import { activityBeside, activityFrom, activityLines, byTime, lineCount, readEverything, readLedger, type Read } from "../read/reader.ts";
+import { logHead } from "../ledger/log.ts";
+import { activityBeside, activityFrom, activityLines, byTime, byTimeAndHash, lineCount, logReads, readEverything, readEvents, readLedger, withLog, type Read } from "../read/reader.ts";
 import { faultyAnswer, type FaultyLine } from "../read/faulty.ts";
 import { checkSignatures, PIN, PIN_REFUSED } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
 import { Kept } from "./kept.ts";
 import { projectsWriting, writingOf } from "../read/writing.ts";
 import { handovers, keyFigures } from "../read/overview.ts";
-import { lineProvenance, prepareLines, type Prepared } from "../read/line.ts";
+import { lineProvenance, logProvenance, prepareLines, type Prepared } from "../read/line.ts";
 import { parseAsked, show } from "../read/show.ts";
 import { agentStates } from "../read/state.ts";
 import { readFilters, wantsActivity, type Failed } from "../read/filter.ts";
@@ -46,6 +47,11 @@ export interface ServeOptions {
   agents?: ReadonlySet<string>;
   /** #64: the writer behind this server. Without it the server only reads. */
   write?: Write;
+  /**
+   * #216: the repository whose branch howl/log is read beside the ledger of the first project (`project`, else
+   * `defaultProject`): the union of the two, ordered by time, then hash. Without it, or without that branch, as before.
+   */
+  log?: string;
   /** #202: the pin (`--issuer`): the SHA-256 of the issuer's raw public key, as `howl key issue` prints it. Signatures are held to it. Without it nothing is pinned, as `howl verify` without `--issuer`. */
   issuer?: string;
 }
@@ -126,7 +132,7 @@ export async function startServer(options: ServeOptions): Promise<Served> {
 
   // #85: the lines of each ledger and each activity file as the event log gives them, kept until the file changes.
   // #202: the pin does not change while the server runs, so what is kept for a file needs it in no key.
-  const lines: Lines = { ledger: new Kept<{ items: Item[]; faulty: FaultyLine[] }>(), activity: new Kept<Item[]>(), provenance: new Kept<Prepared>(), pin: options.issuer };
+  const lines: Lines = { ledger: new Kept<{ items: Item[]; faulty: FaultyLine[] }>(), log: new Map(), activity: new Kept<Item[]>(), provenance: new Kept<Prepared>(), pin: options.issuer };
 
   let port = options.port;
   const server = createServer((req, res) => {
@@ -247,7 +253,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
     // #79: with no project named, every project the server serves; else the one named.
     const served = url.searchParams.has("project") ? [projectFor(url.searchParams, options)] : projectsOf(options);
     if (served.length === 0) throw new LedgerError("no project with a ledger");
-    const found = events(served, url.searchParams, options.ledger === undefined, lines);
+    const found = events(served, url.searchParams, options, lines);
     // #82: what a filter could not work out is said only when there is something to say. So are the lines left out (#200).
     json(res, 200, { now: presentTime(), events: found.events, ...(found.failed === null ? {} : { failed: found.failed }), ...faultyAnswer(found.faulty) });
     return;
@@ -255,16 +261,17 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
   const project = projectFor(url.searchParams, options);
   const ledger = project.ledger;
   const agents = options.ledger !== undefined || project.name === firstOf(options) ? options.agents : undefined;
+  const log = logOf(project, options);
   switch (url.pathname) {
     case "/api/agents": {
       const now = presentTime();
-      const read = readEverything(ledger);
+      const read = readEverything(ledger, log);
       json(res, 200, { now, rows: agentStates(read.reads.map((r) => r.event), now, { agents }), ...faultyAnswer(read.faulty) });
       return;
     }
     case "/api/overview": {
       const now = presentTime();
-      const { lines: items, faulty } = readLedger(ledger);
+      const { lines: items, faulty } = readEvents(ledger, log);
       json(res, 200, { now, figures: keyFigures(items.map((i) => i.event), now), handovers: handovers(items).slice(0, 50), ...faultyAnswer(faulty) });
       return;
     }
@@ -272,7 +279,7 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
       const what = url.searchParams.get("what")?.trim() ?? "";
       if (!what) throw new LedgerError("give what: 12, task:12 or change:30");
       const asked = parseAsked(what);
-      const { reads, faulty } = readEverything(ledger);
+      const { reads, faulty } = readEverything(ledger, log);
       const shown = show(
         reads.map((r) => r.event),
         asked,
@@ -286,6 +293,24 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
       return;
     }
     case "/api/line": {
+      // #216: an event named by its hash: a line of the ledger that holds it, else an event of the log.
+      const hash = url.searchParams.get("hash");
+      if (hash !== null) {
+        if (!/^[0-9a-f]{64}$/.test(hash)) throw new LedgerError("give hash: the SHA-256 of an event, 64 hex digits");
+        const prepared = lines.provenance.of(ledger, () => prepareLines(ledger, lines.pin));
+        const n = prepared.whole.lines.find((r) => r.hash === hash)?.n;
+        const name = options.ledger === undefined ? project.name : undefined;
+        const found =
+          n !== undefined
+            ? lineProvenance(ledger, prepared, n, ledgerVerdict(ledger), name)
+            : logProvenance((log === undefined ? null : logReads(log))?.find((r) => r.hash === hash), prepared, name);
+        if (found === null) {
+          json(res, 404, { error: `neither the ledger nor howl/log holds an event of hash ${hash}` });
+          return;
+        }
+        json(res, 200, { now: presentTime(), ...found, ...faultyAnswer(prepared.whole.faulty) });
+        return;
+      }
       // #191: one line's provenance, for the event dialog. A whole number, never a path; line 0 is not there.
       const asked = url.searchParams.get("line") ?? "";
       if (!/^(0|[1-9][0-9]{0,14})$/.test(asked)) throw new LedgerError("give line: the number of a line of the ledger");
@@ -322,7 +347,8 @@ function handle(req: IncomingMessage, res: ServerResponse, options: ServeOptions
  *
  * `after` is a line of one ledger: over several projects it is refused.
  */
-function events(projects: Project[], params: URLSearchParams, named: boolean, lines: Lines): { events: Item[]; failed: Failed | null; faulty: FaultyLine[] } {
+function events(projects: Project[], params: URLSearchParams, options: ServeOptions, lines: Lines): { events: Item[]; failed: Failed | null; faulty: FaultyLine[] } {
+  const named = options.ledger === undefined;
   const pairs = params.getAll("filter");
   const filters = readFilters(pairs);
   const after = Number(params.get("after") ?? 0) || 0;
@@ -330,8 +356,9 @@ function events(projects: Project[], params: URLSearchParams, named: boolean, li
   const limit = Math.max(1, Math.min(5000, Number(params.get("limit") ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
   const activity = params.get("activity") === "1" || wantsActivity(pairs);
 
-  const read = projects.map((project) => itemsOf(project, after, activity, named, lines));
-  const found = byTime(read.flatMap((r) => r.items))
+  const read = projects.map((project) => itemsOf(project, after, activity, named, lines, logOf(project, options)));
+  const order = read.some((r) => r.log) ? byTimeAndHash : byTime;
+  const found = order(read.flatMap((r) => r.items))
     .filter((item) => filters.test(item.event))
     .slice(-limit);
   return { events: found, failed: filters.failed(), faulty: read.flatMap((r) => r.faulty) };
@@ -340,6 +367,8 @@ function events(projects: Project[], params: URLSearchParams, named: boolean, li
 /** What the event log has read of the files, kept until a file changes (#85). */
 interface Lines {
   ledger: Kept<{ items: Item[]; faulty: FaultyLine[] }>;
+  /** #216: the events of a project's log that its ledger does not hold, with the ledger's items, kept for one head of the log and one state of the ledger. */
+  log: Map<string, { at: string; items: Item[] }>;
   activity: Kept<Item[]>;
   /** #191: what /api/line reads of a ledger as a whole. */
   provenance: Kept<Prepared>;
@@ -353,33 +382,71 @@ interface Lines {
  * they stand: they are shared by every answer and never changed. With them, the
  * lines of the ledger that were left out (#200), each with its project when named.
  */
-function itemsOf(project: Project, after: number, activity: boolean, named: boolean, lines: Lines): { items: Item[]; faulty: FaultyLine[] } {
+function itemsOf(project: Project, after: number, activity: boolean, named: boolean, lines: Lines, log?: string): { items: Item[]; faulty: FaultyLine[]; log: boolean } {
   const name = named ? project.name : undefined;
-  const ledger = lines.ledger.of(project.ledger, () => {
-    // Numbered by their place in the file, so a line howl cannot read still counts.
-    const read = readLedger(project.ledger);
-    const all: Item[] = read.lines;
-    // Matched over the whole ledger, so a session before `after` still counts.
-    const acting = actingAgents(all.map((i) => i.event));
-    // #199: by line, so that a copy under a repeated id never shows another line's verdict.
-    const signatures = checkSignatures(read.parsed, lines.pin).byLine;
-    for (const item of all) {
-      const by = acting.get(item.event.id)?.agent;
-      if (by !== undefined) item.by = by;
-      const signed = signatures.get(item.n ?? 0);
-      if (signed !== undefined) item.signed = signed;
-      if (name !== undefined) item.project = name;
-    }
-    return { items: all, faulty: name === undefined ? read.faulty : read.faulty.map((f) => ({ project: name, ...f })) };
-  });
-  const items = after > 0 ? ledger.items.filter((r) => r.n! > after) : ledger.items;
-  if (!activity) return { items, faulty: ledger.faulty };
+  const ledger = lines.ledger.of(project.ledger, () => readItems(project, named, lines));
+  // #216: the events of the log that no line holds. They have no line number: `after` leaves them out.
+  const logged = log === undefined ? [] : logItems(project, log, ledger.items, name, lines);
+  const items = after > 0 ? ledger.items.filter((r) => r.n! > after) : [...ledger.items, ...logged];
+  const hasLog = log !== undefined && lines.log.get(project.ledger) !== undefined;
+  if (!activity) return { items, faulty: ledger.faulty, log: hasLog };
   const tools = lines.activity.of(activityBeside(project.ledger), () => {
     const read: Item[] = activityLines(project.ledger);
     if (name !== undefined) for (const item of read) item.project = name;
     return read;
   });
-  return { items: [...items, ...tools], faulty: ledger.faulty };
+  return { items: [...items, ...tools], faulty: ledger.faulty, log: hasLog };
+}
+
+/** The lines of a project's ledger as the event log gives them, with the agent behind each and its signature's check. */
+function readItems(project: Project, named: boolean, lines: Lines): { items: Item[]; faulty: FaultyLine[] } {
+  const name = named ? project.name : undefined;
+  // Numbered by their place in the file, so a line howl cannot read still counts.
+  const read = readLedger(project.ledger);
+  const all: Item[] = read.lines;
+  // Matched over the whole ledger, so a session before `after` still counts.
+  const acting = actingAgents(all.map((i) => i.event));
+  // #199: by line, so that a copy under a repeated id never shows another line's verdict.
+  const signatures = checkSignatures(read.parsed, lines.pin).byLine;
+  for (const item of all) {
+    const by = acting.get(item.event.id)?.agent;
+    if (by !== undefined) item.by = by;
+    const signed = signatures.get(item.n ?? 0);
+    if (signed !== undefined) item.signed = signed;
+    if (name !== undefined) item.project = name;
+  }
+  return { items: all, faulty: name === undefined ? read.faulty : read.faulty.map((f) => ({ project: name, ...f })) };
+}
+
+/**
+ * #216: the events of the log of a project that none of its ledger's `items` holds, kept for one head of the log and
+ * one list of items. None when there is no branch howl/log. Their signatures are not checked here yet: a later piece
+ * of #27 does that.
+ */
+function logItems(project: Project, repo: string, items: Item[], name: string | undefined, lines: Lines): Item[] {
+  const head = logHead(repo);
+  if (head === null) {
+    lines.log.delete(project.ledger);
+    return [];
+  }
+  const at = `${head}:${items.length}:${items[items.length - 1]?.hash ?? ""}`;
+  const kept = lines.log.get(project.ledger);
+  if (kept !== undefined && kept.at === at) return kept.items;
+  const all = withLog(items, logReads(repo) ?? []).slice(items.length) as Item[];
+  const acting = actingAgents([...items, ...all].map((i) => i.event));
+  for (const item of all) {
+    const by = acting.get(item.event.id)?.agent;
+    if (by !== undefined) item.by = by;
+    if (name !== undefined) item.project = name;
+  }
+  lines.log.set(project.ledger, { at, items: all });
+  return all;
+}
+
+/** #216: the repository whose branch howl/log is read beside a project's ledger: only the first project's, when the server was given one. */
+function logOf(project: Project, options: ServeOptions): string | undefined {
+  if (options.log === undefined) return undefined;
+  return options.ledger !== undefined || project.name === firstOf(options) ? options.log : undefined;
 }
 
 function file(res: ServerResponse, root: string, pathname: string): void {

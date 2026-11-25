@@ -121,10 +121,26 @@ async function verifyCommand(args: string[]): Promise<number> {
     path = ledgerPath(values.project);
   }
   const verdict = verify(path);
+  // #216: the log of the repository, when the ledger read is that of the project of the working directory.
+  const log = values.ledger === undefined ? await logOf(values.project) : undefined;
+  const logFailed = async (): Promise<boolean> => {
+    if (log === undefined) return false;
+    const { verifyLog, LOG_BRANCH } = await import("../ledger/log.ts");
+    const checked = verifyLog(log);
+    if (checked === null) return false;
+    for (const f of checked.faults) console.log(`${LOG_BRANCH}: ${f}`);
+    console.log(
+      checked.faults.length === 0
+        ? `${LOG_BRANCH}: ok: ${count(checked.files, "file")} checked, head ${checked.head}`
+        : `${LOG_BRANCH}: failed: ${count(checked.faults.length, "fault")} in ${count(checked.files, "file")}, head ${checked.head}`,
+    );
+    return checked.faults.length > 0;
+  };
   console.log(path);
   if (!verdict.ok) {
     console.log(`line ${verdict.line}: ${verdict.faults.join("; ")}`);
     console.log(`failed at line ${verdict.line}, after ${count(verdict.lines, "line")} that hold`);
+    await logFailed();
     return 1;
   }
   console.log(`ok: ${count(verdict.lines, "line")} checked, head ${verdict.head}`);
@@ -141,6 +157,7 @@ async function verifyCommand(args: string[]): Promise<number> {
   console.log(`signatures: ${sigs.signed} signed, ${sigs.unsigned} unsigned claimed${unmatched}${by}`);
   for (const f of sigs.faults) console.log(`line ${f.line}: ${f.reason}`);
   let failed = sigs.faults.length > 0;
+  if (await logFailed()) failed = true;
   // #18: the head held against a checkpoint kept elsewhere.
   if (values.checkpoint !== undefined) {
     const anchor = await import("../anchor/anchor.ts");
@@ -605,6 +622,7 @@ async function upCommand(args: string[]): Promise<number> {
     server = await startServer({
       home: howlHome(),
       defaultProject: o.project,
+      log: await logOf(o.project),
       port,
       root,
       issuer,
@@ -668,6 +686,26 @@ async function upCommand(args: string[]): Promise<number> {
   }
 }
 
+/**
+ * #216: the repository whose branch howl/log is read beside the ledger: that of the nearest .howl/howl.yml, when the
+ * project read is its project (no --project, or the same one). A ledger named by its path (--ledger) is read alone.
+ */
+async function logOf(project: string | undefined): Promise<string | undefined> {
+  const { findProject } = await import("../howl/project.ts");
+  const found = findProject(process.cwd());
+  if (found === null || (project !== undefined && project !== found.project)) return undefined;
+  return found.root;
+}
+
+/** #216: the repository whose branch howl/log a reader reads beside the ledger, when there is such a branch; never beside --ledger. */
+async function logBeside(values: { ledger?: string; project?: string }): Promise<string | undefined> {
+  if (values.ledger !== undefined) return undefined;
+  const repo = await logOf(values.project);
+  if (repo === undefined) return undefined;
+  const { logHead } = await import("../ledger/log.ts");
+  return logHead(repo) === null ? undefined : repo;
+}
+
 /** The ledger to read: --ledger, else that of --project, else that of the nearest .howl/howl.yml. */
 async function ledgerToRead(values: { ledger?: string; project?: string }): Promise<string> {
   if (values.ledger !== undefined) return values.ledger;
@@ -692,8 +730,9 @@ async function watchCommand(args: string[]): Promise<number> {
     interval: { type: "string" },
   });
   const ledger = await ledgerToRead(values);
+  const log = await logBeside(values);
   const { statSync } = await import("node:fs");
-  statSync(ledger);
+  if (log === undefined) statSync(ledger);
   const interval = values.interval === undefined ? 0.5 : Number(values.interval);
   if (!(interval > 0)) throw new UsageError("--interval must be a number of seconds above 0");
   const { watch } = await import("../read/watch.ts");
@@ -712,6 +751,7 @@ async function watchCommand(args: string[]): Promise<number> {
         follow: !values["no-follow"],
         interval,
         colour,
+        log,
       },
       (line) => process.stdout.write(`${line}\n`),
       (line) => console.error(`howl: ${line}`),
@@ -735,7 +775,7 @@ async function showCommand(args: string[]): Promise<number> {
   const { activityFrom, readEverything } = await import("../read/reader.ts");
   const { faultyNotes } = await import("../read/faulty.ts");
   const { parseAsked, render, show } = await import("../read/show.ts");
-  const { reads, faulty } = readEverything(ledger);
+  const { reads, faulty } = readEverything(ledger, await logBeside(values));
   // #200: a line that is left out is named, and the rest is shown.
   for (const note of faultyNotes(faulty)) console.error(`howl: ${note}`);
   const shown = show(
@@ -868,12 +908,12 @@ async function serveCommand(args: string[]): Promise<number> {
     // Every project of the howl home; first the one asked for, else that of the nearest howl.yml.
     const home = howlHome();
     const defaultProject = project;
-    server = await startServer({ home, defaultProject, port, root, agents, issuer });
+    server = await startServer({ home, defaultProject, port, root, agents, issuer, log: defaultProject === undefined ? undefined : await logOf(defaultProject) });
     console.log(`howl serve: ${server.url} (read-only, every project in ${home}${defaultProject ? `, ${defaultProject} first` : ""}, ${pinSaid(issuer)})`);
   } else {
     // #54: the one project, and no other.
     const home = howlHome();
-    server = await startServer({ home, project, port, root, agents, issuer });
+    server = await startServer({ home, project, port, root, agents, issuer, log: await logOf(project) });
     console.log(`howl serve: ${server.url} (read-only, the project ${project} in ${home}, ${pinSaid(issuer)})`);
   }
   await new Promise<void>((resolve) => {
@@ -910,8 +950,9 @@ async function statusCommand(args: string[]): Promise<number> {
     follow: { type: "boolean" },
   });
   const ledger = await ledgerToRead(values);
+  const log = await logBeside(values);
   const { statSync } = await import("node:fs");
-  statSync(ledger);
+  if (log === undefined) statSync(ledger);
   const { readEverything } = await import("../read/reader.ts");
   const { faultyNotes } = await import("../read/faulty.ts");
   const { agentStates, renderStatus } = await import("../read/state.ts");
@@ -920,7 +961,7 @@ async function statusCommand(args: string[]): Promise<number> {
   // #200: a line that is left out is named, once, when it is first read.
   const noted = new Set<number>();
   const rows = () => {
-    const { reads, faulty } = readEverything(ledger);
+    const { reads, faulty } = readEverything(ledger, log);
     for (const note of faultyNotes(faulty.filter((f) => !noted.has(f.line)))) console.error(`howl: ${note}`);
     for (const f of faulty) noted.add(f.line);
     return agentStates(reads.map((r) => r.event), presentTime(), { agents });
