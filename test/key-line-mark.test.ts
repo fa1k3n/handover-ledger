@@ -1,0 +1,161 @@
+// #212: a key's issue or revocation line in the event list carries the same
+// signature mark as a signed claim, from a verdict the server gives in
+// /api/events by the rule /api/line uses. Every signed line gets a verdict.
+// @code_class tests
+import assert from "node:assert/strict";
+import { generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { test } from "node:test";
+import { signatureMark } from "../src/dashboard/format.ts";
+import { texts } from "../src/dashboard/texts.ts";
+import { eventHash, fixedForm } from "../src/ledger/fixed.ts";
+import { hashLine, type LedgerEvent } from "../src/ledger/ledger.ts";
+import { publicOf, signEvent } from "../src/keys/keys.ts";
+import { startServer, type Item } from "../src/serve/server.ts";
+import { folder } from "./helpers.ts";
+
+function page(): string {
+  const dir = folder();
+  writeFileSync(join(dir, "index.html"), "<!doctype html><title>dashboard</title>");
+  return dir;
+}
+
+async function withServer(options: { ledger: string; issuer?: string }, run: (url: string) => Promise<void>) {
+  const server = await startServer({ ...options, port: 0, root: page() });
+  try {
+    await run(server.url);
+  } finally {
+    await server.close();
+  }
+}
+
+/**
+ * The first line of the signed fixture, then: line 2 a key of agent-1 issued by a new issuer, line 3 a claim it
+ * signs, line 4 its revocation (with sig.key forged when asked, #207), line 5 a claim signed by a key never issued.
+ */
+function keyLedger(options: { forged?: boolean } = {}): { ledger: string; issuer: string } {
+  const first = (JSON.parse(readFileSync(new URL("./fixtures/ledger-signed.jsonl", import.meta.url), "utf8").split("\n")[0]!) as { event: LedgerEvent }).event;
+  const issuer: KeyObject = generateKeyPairSync("ed25519").privateKey;
+  const agent: KeyObject = generateKeyPairSync("ed25519").privateKey;
+  const stranger: KeyObject = generateKeyPairSync("ed25519").privateKey;
+  const by = publicOf(issuer);
+  const own = publicOf(agent);
+  const base = { v: 0 as const, project: first.project, source: { adapter: "howl-key", kind: "claimed" as const } };
+  const claimed = { adapter: "test", kind: "claimed" as const };
+  const issued = signEvent(
+    { ...base, id: randomUUID(), time: "2026-11-23T14:00:00.000Z", type: "key.issued", data: { key: own.id, public: own.public, actor: "agent-1", from: "2026-11-23T14:00:00.000Z", until: "2026-11-23T22:00:00.000Z", issuer: by.id, issuer_public: by.public } },
+    issuer,
+  );
+  const claim = signEvent(
+    { ...base, id: randomUUID(), time: "2026-11-23T14:10:00.000Z", type: "session.started", source: claimed, actor: { kind: "agent", id: "agent-1" }, session: "s1", data: { source: "startup" } },
+    agent,
+  );
+  const revoked = signEvent({ ...base, id: randomUUID(), time: "2026-11-23T14:30:00.000Z", type: "key.revoked", data: { key: own.id, at: "2026-11-23T14:30:00.000Z", issuer: by.id } }, issuer);
+  // The signed payload leaves out the whole sig, so the issuer's signature still holds.
+  if (options.forged) revoked.sig = { ...revoked.sig!, key: "f".repeat(64) };
+  const unknown = signEvent(
+    { ...base, id: randomUUID(), time: "2026-11-23T14:40:00.000Z", type: "session.started", source: claimed, actor: { kind: "agent", id: "agent-1" }, session: "s2", data: { source: "startup" } },
+    stranger,
+  );
+  let prev: string | null = null;
+  const out: string[] = [];
+  for (const e of [first, issued, claim, revoked, unknown]) {
+    const text: string = `{"prev":${JSON.stringify(prev)},"hash":"${eventHash(e)}","event":${fixedForm(e).toString("utf8")}}`;
+    out.push(text);
+    prev = hashLine(Buffer.from(text));
+  }
+  const ledger = join(folder(), "ledger.jsonl");
+  writeFileSync(ledger, out.map((l) => `${l}\n`).join(""));
+  return { ledger, issuer: by.id };
+}
+
+async function items(url: string): Promise<Item[]> {
+  return ((await (await fetch(`${url}/api/events`)).json()) as { events: Item[] }).events;
+}
+
+async function lineSignature(url: string, n: number): Promise<{ key: string; ok: boolean; reason?: string } | null> {
+  return ((await (await fetch(`${url}/api/line?line=${n}`)).json()) as { signature: { key: string; ok: boolean; reason?: string } | null }).signature;
+}
+
+const at = (all: Item[], n: number): Item => {
+  const found = all.find((i) => i.n === n);
+  assert.ok(found, `line ${n}`);
+  return found;
+};
+
+test("#212: a key's issue and revocation that hold, with no pin, carry a verdict and the mark issuer not pinned", async () => {
+  const { ledger, issuer } = keyLedger();
+  await withServer({ ledger }, async (url) => {
+    const all = await items(url);
+    for (const n of [2, 4]) {
+      const it = at(all, n);
+      assert.equal(it.signed?.ok, true, `line ${n}`);
+      assert.equal(it.signed?.key, issuer, `line ${n} names its issuer`);
+      assert.deepEqual(signatureMark(it, false), { kind: "open", glyph: "○", text: texts.stream.signature.open });
+    }
+  });
+});
+
+test("#212: a key's issue and revocation that hold under the pin carry the mark pinned issuer", async () => {
+  const { ledger, issuer } = keyLedger();
+  await withServer({ ledger, issuer }, async (url) => {
+    const all = await items(url);
+    for (const n of [2, 4]) {
+      const it = at(all, n);
+      assert.equal(it.signed?.ok, true, `line ${n}`);
+      assert.deepEqual(signatureMark(it, true), { kind: "pinned", glyph: "●", text: texts.stream.signature.pinned });
+    }
+  });
+});
+
+test("#212: under a wrong pin a key's issue does not hold, with the server's reason, and its mark is the fault", async () => {
+  const { ledger } = keyLedger();
+  await withServer({ ledger, issuer: "e".repeat(64) }, async (url) => {
+    const it = at(await items(url), 2);
+    assert.equal(it.signed?.ok, false);
+    assert.match(it.signed?.reason ?? "", /: not issued by the ledger's issuer$/);
+    assert.deepEqual(signatureMark(it, true), { kind: "fault", glyph: "!", text: texts.stream.signature.fault });
+  });
+});
+
+test("#212: a revocation with a forged sig.key (#207) does not hold, names the issuer it names, and its mark is the fault", async () => {
+  const { ledger, issuer } = keyLedger({ forged: true });
+  for (const pin of [undefined, issuer]) {
+    await withServer({ ledger, issuer: pin }, async (url) => {
+      const it = at(await items(url), 4);
+      assert.equal(it.signed?.ok, false);
+      assert.equal(it.signed?.key, issuer, "data.issuer, never the sig.key the line carries");
+      assert.match(it.signed?.reason ?? "", /: the revocation is not signed by the issuer it names; the key is revoked all the same$/);
+      assert.equal(signatureMark(it, pin !== undefined).kind, "fault");
+    });
+  }
+});
+
+test("#212: a claim signed by a key with no valid issue gets the server's verdict and reason", async () => {
+  const { ledger } = keyLedger();
+  await withServer({ ledger }, async (url) => {
+    const it = at(await items(url), 5);
+    assert.equal(it.signed?.ok, false);
+    assert.match(it.signed?.reason ?? "", /which has no valid issue on a line before$/);
+    assert.deepEqual(signatureMark(it, false), { kind: "fault", glyph: "!", text: texts.stream.signature.fault });
+  });
+});
+
+test("#212: every signed line's verdict in /api/events is the one /api/line gives it, pin or none, forged or not", async () => {
+  for (const forged of [false, true]) {
+    const { ledger, issuer } = keyLedger({ forged });
+    for (const pin of [undefined, issuer, "e".repeat(64)]) {
+      await withServer({ ledger, issuer: pin }, async (url) => {
+        const all = await items(url);
+        for (const it of all.filter((i) => i.event.sig !== undefined)) {
+          const s = it.signed;
+          assert.ok(s, `line ${it.n} has a verdict`);
+          const want = await lineSignature(url, it.n!);
+          assert.deepEqual({ key: s.key, ok: s.ok, reason: s.reason }, { key: want?.key, ok: want?.ok, reason: want?.reason }, `line ${it.n}, pin ${pin}, forged ${forged}`);
+        }
+        for (const it of all.filter((i) => i.event.sig === undefined)) assert.equal(it.signed, undefined, `line ${it.n} is not signed`);
+      });
+    }
+  }
+});
