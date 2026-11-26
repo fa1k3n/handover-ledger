@@ -1,6 +1,7 @@
 // #212: a key's issue or revocation line in the event list carries the same
 // signature mark as a signed claim, from a verdict the server gives in
-// /api/events by the rule /api/line uses. Every signed line gets a verdict.
+// /api/events by the rule /api/line uses. A claim whose key has no valid issue
+// still has none in the list (the owner, 2026-11-26: key lines only).
 // @code_class tests
 import assert from "node:assert/strict";
 import { generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
@@ -132,25 +133,27 @@ test("#212: a revocation with a forged sig.key (#207) does not hold, names the i
   }
 });
 
-test("#212: a claim signed by a key with no valid issue gets the server's verdict and reason", async () => {
+test("#212: a claim signed by a key with no valid issue still has no verdict in the list; /api/line says why", async () => {
   const { ledger } = keyLedger();
   await withServer({ ledger }, async (url) => {
     const it = at(await items(url), 5);
-    assert.equal(it.signed?.ok, false);
-    assert.match(it.signed?.reason ?? "", /which has no valid issue on a line before$/);
-    assert.deepEqual(signatureMark(it, false), { kind: "fault", glyph: "!", text: texts.stream.signature.fault });
+    assert.equal(it.signed, undefined);
+    assert.deepEqual(signatureMark(it, false), { kind: "fault", glyph: "!", text: texts.stream.signature.noIssue });
+    const why = await lineSignature(url, 5);
+    assert.equal(why?.ok, false);
+    assert.match(why?.reason ?? "", /which has no valid issue on a line before$/);
   });
 });
 
-test("#212: every signed line's verdict in /api/events is the one /api/line gives it, pin or none, forged or not", async () => {
+test("#212: every verdict in /api/events is the one /api/line gives the line, pin or none, forged or not; every key line has one", async () => {
   for (const forged of [false, true]) {
     const { ledger, issuer } = keyLedger({ forged });
     for (const pin of [undefined, issuer, "e".repeat(64)]) {
       await withServer({ ledger, issuer: pin }, async (url) => {
         const all = await items(url);
-        for (const it of all.filter((i) => i.event.sig !== undefined)) {
-          const s = it.signed;
-          assert.ok(s, `line ${it.n} has a verdict`);
+        for (const it of all.filter((i) => i.event.type === "key.issued" || i.event.type === "key.revoked")) assert.ok(it.signed, `key line ${it.n} has a verdict`);
+        for (const it of all.filter((i) => i.signed !== undefined)) {
+          const s = it.signed!;
           const want = await lineSignature(url, it.n!);
           assert.deepEqual({ key: s.key, ok: s.ok, reason: s.reason }, { key: want?.key, ok: want?.ok, reason: want?.reason }, `line ${it.n}, pin ${pin}, forged ${forged}`);
         }

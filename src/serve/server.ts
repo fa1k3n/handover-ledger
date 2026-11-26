@@ -17,7 +17,7 @@ import { verify, type Verdict } from "../ledger/verify.ts";
 import { presentTime } from "../read/now.ts";
 import { activityBeside, activityFrom, activityLines, byTime, lineCount, readEverything, readLedger, type Read } from "../read/reader.ts";
 import { faultyAnswer, type FaultyLine } from "../read/faulty.ts";
-import { checkSignatures, verdictOf, PIN, PIN_REFUSED, type Signed } from "../keys/keys.ts";
+import { checkSignatures, shownVerdict, PIN, PIN_REFUSED, type Signed } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
 import { Kept } from "./kept.ts";
 import { projectsWriting, writingOf } from "../read/writing.ts";
@@ -361,12 +361,12 @@ function itemsOf(project: Project, after: number, activity: boolean, named: bool
     const all: Item[] = read.lines;
     // Matched over the whole ledger, so a session before `after` still counts.
     const acting = actingAgents(all.map((i) => i.event));
-    // #212: the verdict of every signed line, key lines too, by the rule /api/line uses (#199, #207).
+    // #212: a key line's verdict too, by the rule /api/line uses (#199, #207).
     const check = checkSignatures(read.parsed, lines.pin);
     for (const item of all) {
       const by = acting.get(item.event.id)?.agent;
       if (by !== undefined) item.by = by;
-      const signed = verdictOf(check, item.n ?? 0, item.event);
+      const signed = shownVerdict(check, item.n ?? 0, item.event);
       if (signed !== undefined) item.signed = signed;
       if (name !== undefined) item.project = name;
     }

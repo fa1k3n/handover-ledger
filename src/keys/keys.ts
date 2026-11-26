@@ -241,8 +241,9 @@ export interface SignedBy {
 }
 
 /**
- * #212: a verdict with no assignment behind it: a key's issue or revocation, held to the issuer it names, or a
- * signed line whose key has no valid issue. `key` is the issuer a key line names, else the line's `sig.key`.
+ * #212: a verdict with no assignment behind it: a key's issue or revocation, held to the issuer it names, or (for
+ * /api/line's signature only) a signed line whose key has no valid issue. `key` is the issuer a key line names, else
+ * the line's `sig.key`.
  */
 export interface LineVerdict {
   key: string;
@@ -271,6 +272,16 @@ export function verdictOf(check: SignatureCheck, n: number, event: LedgerEvent):
   const held = check.byLine.get(n);
   if (held !== undefined) return held;
   return { key: sig.key, ok: false, reason: fault?.reason ?? "the signature does not hold" };
+}
+
+/**
+ * #212: the verdict an item carries as `signed`, in the event list and in /api/line's item. A key's issue or
+ * revocation carries its verdict by `verdictOf`. Any other line carries one only when the check gave it an
+ * assignment, as before #212: a claim whose key has no valid issue carries none, and the page says why.
+ */
+export function shownVerdict(check: SignatureCheck, n: number, event: LedgerEvent): Signed | undefined {
+  if (event.type === "key.issued" || event.type === "key.revoked") return verdictOf(check, n, event);
+  return check.byLine.get(n);
 }
 
 export interface SignatureCheck {

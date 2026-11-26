@@ -6,7 +6,7 @@
 // @code_class reading
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { checkSignatures, verdictOf, type Signed, type SignatureCheck } from "../keys/keys.ts";
+import { checkSignatures, shownVerdict, verdictOf, type Signed, type SignatureCheck } from "../keys/keys.ts";
 import { hashLine } from "../ledger/ledger.ts";
 import type { Verdict } from "../ledger/verify.ts";
 import { actingAgents } from "./acting.ts";
@@ -173,11 +173,11 @@ export function lineProvenance(ledger: string, prepared: Prepared, n: number, ve
   const by = acting.get(read.event.id)?.agent;
   if (by !== undefined) item.by = by;
 
-  // #212: one rule for the list and for a line (#199, #207).
-  const signed = verdictOf(check, n, read.event);
-  if (signed !== undefined) item.signed = signed;
-  const signature: LineSignature | null =
-    signed === undefined ? null : signed.reason !== undefined ? { key: signed.key, ok: signed.ok, reason: signed.reason } : { key: signed.key, ok: signed.ok };
+  // #212: the item carries what the list carries; the signature is the one rule for every signed line (#199, #207).
+  const shown = shownVerdict(check, n, read.event);
+  if (shown !== undefined) item.signed = shown;
+  const v = verdictOf(check, n, read.event);
+  const signature: LineSignature | null = v === undefined ? null : v.reason !== undefined ? { key: v.key, ok: v.ok, reason: v.reason } : { key: v.key, ok: v.ok };
 
   const unproven = firstUnproven(verdict);
   const intact = n < unproven;
