@@ -136,7 +136,7 @@ export function decodedFields(item: Item, timeZone?: string, issuer?: LineIssuer
       ? {
           k: "Signature",
           v: item.signed
-            ? item.signed.ok
+            ? item.signed.ok && "actor" in item.signed
               ? [
                   "valid",
                   `key ${item.signed.key.slice(0, 12)}`,
@@ -485,9 +485,10 @@ export function cutDetail(text: string): { text: string; cut: boolean } {
 /**
  * #210: the mark of a row's signature, from the server's verdict alone. "pinned"
  * only when the server holds a pin and the signature holds under it. A claim that
- * carries a signature but has no verdict is one whose key has no valid issue (the
- * server sets a verdict on a failure only for a known key): a fault, as part 7 says.
- * A key's issue or revocation has no verdict from the server, so no mark. `pinned`
+ * carries a signature but has no verdict (a server before #212) is a fault, as part 7
+ * says. From #212 the server gives every signed line a verdict, a key's issue or
+ * revocation too, so a key line has the same mark as a claim. A key line with no
+ * verdict has no mark. `pinned`
  * null (the ledger's state not read yet) is never taken for a pin or for no pin.
  */
 export function signatureMark(item: Item, pinned: boolean | null): { kind: "pinned" | "open" | "unread" | "fault" | "none"; glyph: string; text: string } {

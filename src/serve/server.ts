@@ -17,7 +17,7 @@ import { verify, type Verdict } from "../ledger/verify.ts";
 import { presentTime } from "../read/now.ts";
 import { activityBeside, activityFrom, activityLines, byTime, lineCount, readEverything, readLedger, type Read } from "../read/reader.ts";
 import { faultyAnswer, type FaultyLine } from "../read/faulty.ts";
-import { checkSignatures, PIN, PIN_REFUSED } from "../keys/keys.ts";
+import { checkSignatures, verdictOf, PIN, PIN_REFUSED, type Signed } from "../keys/keys.ts";
 import { actingAgents } from "../read/acting.ts";
 import { Kept } from "./kept.ts";
 import { projectsWriting, writingOf } from "../read/writing.ts";
@@ -71,7 +71,7 @@ export interface Item extends Read {
   /** The agent behind a person's account at the code host, when one matches (#14). */
   by?: string;
   /** The signature's check (#23): the key, its assignment, and whether it holds. */
-  signed?: { key: string; actor: string; task?: string; change?: string; role?: string; until: string; ok: boolean; reason?: string };
+  signed?: Signed;
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -361,12 +361,12 @@ function itemsOf(project: Project, after: number, activity: boolean, named: bool
     const all: Item[] = read.lines;
     // Matched over the whole ledger, so a session before `after` still counts.
     const acting = actingAgents(all.map((i) => i.event));
-    // #199: by line, so that a copy under a repeated id never shows another line's verdict.
-    const signatures = checkSignatures(read.parsed, lines.pin).byLine;
+    // #212: the verdict of every signed line, key lines too, by the rule /api/line uses (#199, #207).
+    const check = checkSignatures(read.parsed, lines.pin);
     for (const item of all) {
       const by = acting.get(item.event.id)?.agent;
       if (by !== undefined) item.by = by;
-      const signed = signatures.get(item.n ?? 0);
+      const signed = verdictOf(check, item.n ?? 0, item.event);
       if (signed !== undefined) item.signed = signed;
       if (name !== undefined) item.project = name;
     }

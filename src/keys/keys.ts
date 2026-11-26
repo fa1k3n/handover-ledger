@@ -240,6 +240,39 @@ export interface SignedBy {
   reason?: string;
 }
 
+/**
+ * #212: a verdict with no assignment behind it: a key's issue or revocation, held to the issuer it names, or a
+ * signed line whose key has no valid issue. `key` is the issuer a key line names, else the line's `sig.key`.
+ */
+export interface LineVerdict {
+  key: string;
+  ok: boolean;
+  reason?: string;
+}
+
+/** What a reader shows of a signed line: the key's assignment when there is one (`SignedBy`), else the bare verdict. */
+export type Signed = SignedBy | LineVerdict;
+
+/**
+ * #212: the one rule for the verdict of line `n`, for the event list and for a single line alike (#199, #207).
+ * Undefined when the line is not signed. A key's issue or revocation is in no other list: it holds unless it has a
+ * fault, and a revocation names the issuer it names, never the `sig.key` it carries. Any other line holds only when
+ * the check gave it an assignment; else its first fault says why not, or the plain "the signature does not hold".
+ */
+export function verdictOf(check: SignatureCheck, n: number, event: LedgerEvent): Signed | undefined {
+  const sig = event.sig;
+  if (sig === undefined) return undefined;
+  const fault = check.faults.find((f) => f.line === n);
+  if (event.type === "key.issued" || event.type === "key.revoked") {
+    const named = (event.data as Record<string, unknown> | undefined)?.issuer;
+    const key = event.type === "key.revoked" && typeof named === "string" ? named : sig.key;
+    return fault !== undefined ? { key, ok: false, reason: fault.reason } : { key, ok: true };
+  }
+  const held = check.byLine.get(n);
+  if (held !== undefined) return held;
+  return { key: sig.key, ok: false, reason: fault?.reason ?? "the signature does not hold" };
+}
+
 export interface SignatureCheck {
   signed: number;
   /** Claimed events without a signature. */

@@ -6,7 +6,7 @@
 // @code_class reading
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { checkSignatures, type SignatureCheck } from "../keys/keys.ts";
+import { checkSignatures, verdictOf, type Signed, type SignatureCheck } from "../keys/keys.ts";
 import { hashLine } from "../ledger/ledger.ts";
 import type { Verdict } from "../ledger/verify.ts";
 import { actingAgents } from "./acting.ts";
@@ -52,7 +52,7 @@ export interface LineSignature {
 export interface LineItem extends Read {
   project?: string;
   by?: string;
-  signed?: { key: string; actor: string; task?: string; change?: string; role?: string; until: string; ok: boolean; reason?: string };
+  signed?: Signed;
 }
 
 /** #202: the issuer the ledger's signatures were held to: the pin when the server was given one, else the issuer the ledger names first (null when no key was issued). */
@@ -173,18 +173,11 @@ export function lineProvenance(ledger: string, prepared: Prepared, n: number, ve
   const by = acting.get(read.event.id)?.agent;
   if (by !== undefined) item.by = by;
 
-  // #199: by line, so that a copy under a repeated id never shows another line's verdict.
-  const signed = check.byLine.get(n);
+  // #212: one rule for the list and for a line (#199, #207).
+  const signed = verdictOf(check, n, read.event);
   if (signed !== undefined) item.signed = signed;
-  let signature: LineSignature | null = null;
-  if (read.event.sig !== undefined) {
-    const fault = check.faults.find((f) => f.line === n);
-    // Every signed line that fails has its fault; a key's issue or revocation that holds is in no other list.
-    // #207: a revocation names the issuer it names, never the sig.key it carries, which nothing but #207's fault holds to it.
-    const named = (read.event.data as Record<string, unknown> | undefined)?.issuer;
-    const key = read.event.type === "key.revoked" && typeof named === "string" ? named : read.event.sig.key;
-    signature = fault !== undefined ? { key, ok: false, reason: fault.reason } : { key, ok: true };
-  }
+  const signature: LineSignature | null =
+    signed === undefined ? null : signed.reason !== undefined ? { key: signed.key, ok: signed.ok, reason: signed.reason } : { key: signed.key, ok: signed.ok };
 
   const unproven = firstUnproven(verdict);
   const intact = n < unproven;
