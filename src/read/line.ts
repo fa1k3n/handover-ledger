@@ -177,7 +177,11 @@ export function lineProvenance(ledger: string, prepared: Prepared, n: number, ve
   const shown = shownVerdict(check, n, read.event);
   if (shown !== undefined) item.signed = shown;
   const v = verdictOf(check, n, read.event);
-  const signature: LineSignature | null = v === undefined ? null : v.reason !== undefined ? { key: v.key, ok: v.ok, reason: v.reason } : { key: v.key, ok: v.ok };
+  // A key line names the issuer verdictOf gives it (#207); any other line names the key it carries itself,
+  // never the key of the line a copy repeats (#199), whose assignment byLine holds.
+  const keyLine = read.event.type === "key.issued" || read.event.type === "key.revoked";
+  const key = v === undefined ? "" : keyLine ? v.key : read.event.sig!.key;
+  const signature: LineSignature | null = v === undefined ? null : v.reason !== undefined ? { key, ok: v.ok, reason: v.reason } : { key, ok: v.ok };
 
   const unproven = firstUnproven(verdict);
   const intact = n < unproven;

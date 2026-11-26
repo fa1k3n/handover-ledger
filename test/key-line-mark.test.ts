@@ -35,7 +35,7 @@ async function withServer(options: { ledger: string; issuer?: string }, run: (ur
  * The first line of the signed fixture, then: line 2 a key of agent-1 issued by a new issuer, line 3 a claim it
  * signs, line 4 its revocation (with sig.key forged when asked, #207), line 5 a claim signed by a key never issued.
  */
-function keyLedger(options: { forged?: boolean } = {}): { ledger: string; issuer: string } {
+function keyLedger(options: { forged?: boolean; copy?: boolean } = {}): { ledger: string; issuer: string; stranger: string } {
   const first = (JSON.parse(readFileSync(new URL("./fixtures/ledger-signed.jsonl", import.meta.url), "utf8").split("\n")[0]!) as { event: LedgerEvent }).event;
   const issuer: KeyObject = generateKeyPairSync("ed25519").privateKey;
   const agent: KeyObject = generateKeyPairSync("ed25519").privateKey;
@@ -61,14 +61,16 @@ function keyLedger(options: { forged?: boolean } = {}): { ledger: string; issuer
   );
   let prev: string | null = null;
   const out: string[] = [];
-  for (const e of [first, issued, claim, revoked, unknown]) {
+  // Line 6 when asked: a copy of the claim on line 3, with its id, signed by another key (#199).
+  const copy = signEvent({ ...claim, sig: undefined, session: "s3" }, stranger);
+  for (const e of [first, issued, claim, revoked, unknown, ...(options.copy ? [copy] : [])]) {
     const text: string = `{"prev":${JSON.stringify(prev)},"hash":"${eventHash(e)}","event":${fixedForm(e).toString("utf8")}}`;
     out.push(text);
     prev = hashLine(Buffer.from(text));
   }
   const ledger = join(folder(), "ledger.jsonl");
   writeFileSync(ledger, out.map((l) => `${l}\n`).join(""));
-  return { ledger, issuer: by.id };
+  return { ledger, issuer: by.id, stranger: publicOf(stranger).id };
 }
 
 async function items(url: string): Promise<Item[]> {
@@ -161,4 +163,14 @@ test("#212: every verdict in /api/events is the one /api/line gives the line, pi
       });
     }
   }
+});
+
+test("#212 (review, 1): /api/line names the key a copy (#199) carries, never the key of the line it copies", async () => {
+  const { ledger, stranger } = keyLedger({ copy: true });
+  await withServer({ ledger }, async (url) => {
+    const s = await lineSignature(url, 6);
+    assert.equal(s?.ok, false);
+    assert.equal(s?.key, stranger, "the sig.key of line 6 itself");
+    assert.match(s?.reason ?? "", /is already on line 3$/);
+  });
 });
