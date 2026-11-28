@@ -1,7 +1,7 @@
 # How Watchbill is set up in this repository. Written by `wb init`.
 # `watchbill` is the version of the package the repository is set up for.
-watchbill: 0.10.0
-revision: d31965c098b379f55adc029b81ec79555881c79cb141bb196a01faa003707795
+watchbill: 0.12.0
+revision: '8f113a4c0f0798c11f8c3b7dc71c627c3bb7c9c9e5c6d1a57ce8d6a3ade10dbb'
 project: handover-ledger
 git_server: github
 repository: fa1k3n/handover-ledger
@@ -25,3 +25,5 @@ open_issues: 'gh issue list --repo fa1k3n/handover-ledger --state open --limit 1
 issue_comment_bodies: 'gh api repos/fa1k3n/handover-ledger/issues/{issue}/comments --paginate --jq ''.[] | .body + "\u0000"'''
 change_comment_bodies: 'gh api repos/fa1k3n/handover-ledger/issues/{change}/comments --paginate --jq ''.[] | .body + "\u0000"'''
 draft_change: 'gh pr create --repo fa1k3n/handover-ledger --head {branch} --draft --fill-verbose'
+change_text: 'gh pr view {change} --repo fa1k3n/handover-ledger --json body --jq .body'
+issue_text: 'gh issue view {issue} --repo fa1k3n/handover-ledger --json body --jq .body'
