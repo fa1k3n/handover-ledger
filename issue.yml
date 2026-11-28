@@ -1,0 +1,99 @@
+issue: '209'
+from: 01a760e1f663a2ad03bdfc8aa29105f7efbb4b6f928a3595788f569037115cf0
+requirements:
+  - id: '209.1'
+    text: 'A ledger line whose JSON names a member twice in one object (the line, the event, sig, data, at any depth) is a fault of the line: howl verify names it, in both versions with the same words, the same bytes of output: "line <n>: the line is not JSON: it names the member "<name>" twice in one object", the name always in quotes, escaped and cut as the reasons of #200 escape and cut a name they quote, so that a plain name reads "it names the member "key" twice in one object" (209.q1, 209.q6). A line that names more than one member twice is named for the repeat whose second naming comes first in the text; a repeat goes before a lone surrogate and before a number beyond a double (209.q7). Where a text names a member twice and is also not JSON in another way, today''s words come first: "not JSON: nested more than 128 deep" for the depth, then plain "not JSON" for a text that does not parse, whether it breaks before or after the repeat; the repeat is named only in a text that is JSON but for it (209.q10).'
+    source: 'Goal; What to build, first point; Tests first, first point (a repeat in sig, in data and at the top); answers to 209.q1, 209.q6, 209.q7 and 209.q10'
+  - id: '209.2'
+    text: 'The reader leaves such a line out, as the gate of #200 does, and names it with the same words as howl verify ("the line is not JSON: it names the member … twice in one object"); the server leaves it out of its answers and names it as a faulty line. The Rust has no reader yet: this is the reader of the TypeScript (src/read/reader.ts), which the server reads through.'
+    source: 'What to build, first point; Tests first, first point (the server leaves it out); answer to 209.q1'
+  - id: '209.3'
+    text: 'A line the reader leaves out for a repeated member is still given to the check of signatures as a line left out, read by the last value of each repeated member as today: a key''s revocation with a member repeated in it still revokes, and the line takes no event id.'
+    source: 'What to build, first point ("as #200''s gate does"); answer to 209.q3'
+  - id: '209.4'
+    text: 'The same event without the repeat is no fault in howl verify, as today, in both versions.'
+    source: 'Tests first, second point'
+    guard: '#199: a ledger whose issuer matches the pin holds, with 0, and the line says it is pinned'
+  - id: '209.5'
+    text: 'The same event without the repeat is read by the reader and the server as today, and no line is named as left out.'
+    source: 'Tests first, second point'
+    guard: '#200: a ledger with no faulty line answers as before: no faulty in any answer'
+  - id: '209.6'
+    text: 'The writer refuses to write an event that names a member twice in one object, and nothing is written, wherever such an event is handed to it: howl ingest refuses an inbox file with "the file is not JSON: it names the member … twice in one object"; howl emit --data refuses it with "--data is not JSON: it names the member … twice in one object", in both versions with the same words; an event sent to the server (POST /api/events) is answered 400 with "the body is not JSON: it names the member … twice in one object". The name is shown as in 209.1.'
+    source: 'What to build, first point (the writer refuses to write such an event); answers to 209.q1 and 209.q2'
+  - id: '209.7'
+    text: 'The body of a Claude Code hook sent to the server (POST /api/hook) that names a member twice in one object is answered 400 in plain words, "the body is not JSON: it names a member twice in one object", without the member''s name, and nothing is recorded. An event sent to the server (POST /api/events) keeps the name, as in 209.6.'
+    source: 'What to build, first point; answers to 209.q2 and 209.q8'
+  - id: '209.8'
+    text: 'The Rust delivery reads a server.json that names a member twice in one object as no server file, as it reads a server.json that is not JSON today.'
+    source: 'What to build, first point; answer to 209.q2'
+  - id: '209.9'
+    text: 'A revocation the ledger''s issuer signs, for a key that was issued, whose signature holds and whose data.issuer is written in upper case or is otherwise not the ledger''s issuer, revokes the key, and its line is a fault with the words "revocation of key <first 12 of the id>: names an issuer that is not the ledger''s; the key is revoked all the same", in both versions with the same words. A claim signed with that key after the revocation is "signed after the key was revoked". These words stand in place of those of #207 ("the revocation is not signed by the issuer it names; …"), which such a line, signed by the issuer whose id data.issuer mis-spells, would also meet. Where its time cannot be read as well, its line keeps today''s words, "revocation of key <first 12 of the id>: its time cannot be read: at <at> is not an ISO time with a zone", and it does not revoke, as any revocation whose time cannot be read (209.q9).'
+    source: 'What to build, second point; Tests first, third point; Why, second paragraph; answers to 209.q4 and 209.q9'
+  - id: '209.10'
+    text: 'A revocation whose data.issuer is not the ledger''s issuer, and whose key was never issued or whose issuer''s signature does not hold, keeps today''s words, "revocation of key <first 12 of the id>: the issuer''s signature does not hold", and does not revoke, in both versions.'
+    source: 'What to build, second point; answer to 209.q5'
+  - id: '209.11'
+    text: 'That a revocation whose data.issuer is not the ledger''s still revokes, and why (only the issuer''s key can make such a line, and revoking is the safe direction), is written in the comment of the check of signatures in both versions (checkSignatures and its revoke in src/keys/keys.ts, revoke in rust/src/keys/mod.rs). No test can show it: the review reads for it.'
+    source: 'What to build, second point (whether it still revokes is decided and written down); answer to 209.q4'
+interface: |
+  TypeScript (src/ledger/json.ts):
+    parseJson(text: string): unknown
+      Throws NotJson ("not JSON", "not JSON: nested more than 128 deep") or LoneSurrogate today.
+      With the change it also throws NotJson for a member named twice in one object, with the message
+      "not JSON: it names the member "<name>" twice in one object" (209.1). Both classes extend
+      LedgerError (src/ledger/errors.ts). A caller puts its own start before the message:
+      "the line is …" (verify), "the file is …" (ingest), "--data is …" (emit), "the body is …" (the server).
+    class NotJson extends LedgerError; class LoneSurrogate extends LedgerError; MAX_DEPTH = 128
+  TypeScript (src/ledger/schema.ts):
+    shown(name: string): string   (how #200 shows a field name in a reason: escaped and cut at 64)
+  TypeScript (src/ledger/verify.ts):
+    verify(path: string): Verdict
+    type Verdict = { ok: true; lines: number; head: string; trial: boolean }
+                 | { ok: false; lines: number; line: number; faults: string[] }
+  TypeScript (src/read/reader.ts, src/read/faulty.ts):
+    readWhole(ledger: string): { bytes: Buffer[]; lines: Read[]; faulty: FaultyLine[]; parsed: Checkable[] }
+    readLedger(ledger: string, options?: { first?: boolean }): { lines: Read[]; faulty: FaultyLine[]; parsed: Checkable[] }
+    ledgerLines(ledger: string, options?: { first?: boolean }): Read[]
+    class Tail { constructor(path: string, from: "ledger" | "activity"); read(): Read[]; faulty: FaultyLine[] }
+    interface FaultyLine { line: number; reason: string; project?: string }
+    interface Checkable { n: number; event: LedgerEvent; left?: boolean }
+  TypeScript (src/keys/keys.ts):
+    checkSignatures(lines: { n: number; event: LedgerEvent; left?: boolean }[], pin?: string): SignatureCheck
+      SignatureCheck.faults: { line: number; reason: string }[]
+      A refused revocation today: "revocation of key <first 12 of the id>: the issuer's signature does not hold"
+      New (209.9): "revocation of key <first 12 of the id>: names an issuer that is not the ledger's; the key is revoked all the same"
+    issueKey(project: string, assignment: Assignment, places: { configDir: string; keysDir: string }, now?: Date)
+      : { keyId: string; file: string; event: LedgerEvent; issuerMade: boolean; issuerId: string }
+    revokeKey(project: string, keyId: string, places: { configDir: string; keysDir: string }, now?: Date): LedgerEvent
+    signEvent(event: LedgerEvent, key: KeyObject): LedgerEvent
+    publicOf(key: KeyObject): { id: string; public: string }
+    readKey(file: string): KeyObject
+  TypeScript (src/ledger/fixed.ts, src/ledger/ledger.ts):
+    fixedForm(value): Buffer; eventHash(event): string; hashLine(bytes: Buffer): string
+    openLedger(path: string, options: { project: string; ... }) with close()
+  TypeScript (src/serve/server.ts, src/inbox/receive.ts):
+    startServer(options: ServeOptions): Promise<Served>   (options.ledger: the ledger's path)
+    POST /api/events: 400 with JSON { error: "the body is …" }; POST /api/hook: 400 with plain words
+      (for a repeat: "the body is not JSON: it names a member twice in one object", without the name, 209.7)
+  Rust (crate howl):
+    howl::ledger::json::parse_json(text: &str) -> Result<serde_json::Value, JsonError>
+      enum JsonError { NotJson, TooDeep, LoneSurrogate } today, Display gives the words; the repeat
+      is a further case that carries the member's name, its Display "not JSON: it names the member "<name>" twice in one object".
+    howl::ledger::verify::verify(path: &Path) -> Result<Verdict, String>
+      enum Verdict { Holds { lines, head, trial, events }, Fails { lines, line, faults: Vec<String> } }
+    howl::keys::check_signatures(lines: &[(usize, &Value)], pin: Option<&str>) -> SignatureCheck
+      SignatureCheck.faults: Vec<(usize, String)>
+    howl::inbox::deliver::read_server_file(path: &str) -> Option<ServerFile>
+  The command, both versions (test/helpers.ts howl(args, options): Run with status, stdout, stderr;
+  test/binary.ts run(version, args, cwd, env, input) and VERSIONS):
+    howl verify --ledger <path> [--issuer <64 hex>]: one line "line <n>: <fault>" for the line that fails, status 1
+    howl ingest (TypeScript only); howl emit <type> --data <json>
+changes: [src/ledger/json.ts, rust/src/ledger/json.rs, src/keys/keys.ts, rust/src/keys/mod.rs, src/read/reader.ts, src/ledger/verify.ts, rust/src/ledger/verify.rs, src/howl/emit.ts, rust/src/howl/emit.rs, src/inbox/ingest.ts, src/inbox/receive.ts, test/repeated-member.test.ts, test/revocation-issuer.test.ts, test/fixtures/repeated-member/, rust/tests/repeated_member.rs]
+reads:
+  tester: [package.json, package-lock.json, test/helpers.ts, test/binary.ts, src/cli/usage.txt, rust-toolchain.toml, rust/Cargo.toml, rust/Cargo.lock, rust/src/, schema/event.v0.schema.json, schema/line.v0.schema.json, src/anchor/anchor.ts, src/cli/howl.ts, src/export/export.ts, src/export/tar.ts, src/hook/hook.ts, src/hook/line.ts, src/howl/classes.ts, src/howl/git.ts, src/howl/project.ts, src/howl/trace-read.ts, src/howl/trace.ts, src/inbox/deliver.ts, src/inbox/down.ts, src/inbox/inbox.ts, src/keys/keyd.ts, src/ledger/errors.ts, src/ledger/fixed.ts, src/ledger/ledger.ts, src/ledger/lines.ts, src/ledger/names.ts, src/ledger/place.ts, src/ledger/schema.ts, src/ledger/time.ts, src/observe/github.ts, src/observe/local.ts, src/observe/observe.ts, src/observe/order.ts, src/observe/people.ts, src/observe/port.ts, src/observe/results.ts, src/read/acting.ts, src/read/agent.ts, src/read/assignee.ts, src/read/checks-text.ts, src/read/faulty.ts, src/read/filter-text.ts, src/read/filter.ts, src/read/line.ts, src/read/now.ts, src/read/observed.ts, src/read/order.ts, src/read/overview.ts, src/read/rounds.ts, src/read/show.ts, src/read/state.ts, src/read/trace-text.ts, src/read/wait.ts, src/read/watch.ts, src/read/words.ts, src/read/writing-text.ts, src/read/writing.ts, src/serve/kept.ts, src/serve/server.ts]
+  build: [package.json, package-lock.json, test/helpers.ts, test/binary.ts, src/cli/usage.txt, rust-toolchain.toml, rust/Cargo.toml, rust/Cargo.lock, rust/src/, schema/event.v0.schema.json, schema/line.v0.schema.json, src/anchor/anchor.ts, src/cli/howl.ts, src/export/export.ts, src/export/tar.ts, src/hook/hook.ts, src/hook/line.ts, src/howl/classes.ts, src/howl/git.ts, src/howl/project.ts, src/howl/trace-read.ts, src/howl/trace.ts, src/inbox/deliver.ts, src/inbox/down.ts, src/inbox/inbox.ts, src/keys/keyd.ts, src/ledger/errors.ts, src/ledger/fixed.ts, src/ledger/ledger.ts, src/ledger/lines.ts, src/ledger/names.ts, src/ledger/place.ts, src/ledger/schema.ts, src/ledger/time.ts, src/observe/github.ts, src/observe/local.ts, src/observe/observe.ts, src/observe/order.ts, src/observe/people.ts, src/observe/port.ts, src/observe/results.ts, src/read/acting.ts, src/read/agent.ts, src/read/assignee.ts, src/read/checks-text.ts, src/read/faulty.ts, src/read/filter-text.ts, src/read/filter.ts, src/read/line.ts, src/read/now.ts, src/read/observed.ts, src/read/order.ts, src/read/overview.ts, src/read/rounds.ts, src/read/show.ts, src/read/state.ts, src/read/trace-text.ts, src/read/wait.ts, src/read/watch.ts, src/read/words.ts, src/read/writing-text.ts, src/read/writing.ts, src/serve/kept.ts, src/serve/server.ts]
+  review: [package.json, package-lock.json, test/helpers.ts, test/binary.ts, src/cli/usage.txt, rust-toolchain.toml, rust/Cargo.toml, rust/Cargo.lock, rust/src/, schema/event.v0.schema.json, schema/line.v0.schema.json, src/anchor/anchor.ts, src/cli/howl.ts, src/export/export.ts, src/export/tar.ts, src/hook/hook.ts, src/hook/line.ts, src/howl/classes.ts, src/howl/git.ts, src/howl/project.ts, src/howl/trace-read.ts, src/howl/trace.ts, src/inbox/deliver.ts, src/inbox/down.ts, src/inbox/inbox.ts, src/keys/keyd.ts, src/ledger/errors.ts, src/ledger/fixed.ts, src/ledger/ledger.ts, src/ledger/lines.ts, src/ledger/names.ts, src/ledger/place.ts, src/ledger/schema.ts, src/ledger/time.ts, src/observe/github.ts, src/observe/local.ts, src/observe/observe.ts, src/observe/order.ts, src/observe/people.ts, src/observe/port.ts, src/observe/results.ts, src/read/acting.ts, src/read/agent.ts, src/read/assignee.ts, src/read/checks-text.ts, src/read/faulty.ts, src/read/filter-text.ts, src/read/filter.ts, src/read/line.ts, src/read/now.ts, src/read/observed.ts, src/read/order.ts, src/read/overview.ts, src/read/rounds.ts, src/read/show.ts, src/read/state.ts, src/read/trace-text.ts, src/read/wait.ts, src/read/watch.ts, src/read/words.ts, src/read/writing-text.ts, src/read/writing.ts, src/serve/kept.ts, src/serve/server.ts, test/missing-field.test.ts, test/verify-faults.test.ts, test/story.ts]
+  fix: [package.json, package-lock.json, test/helpers.ts, test/binary.ts, src/cli/usage.txt, rust-toolchain.toml, rust/Cargo.toml, rust/Cargo.lock, rust/src/, schema/event.v0.schema.json, schema/line.v0.schema.json, src/anchor/anchor.ts, src/cli/howl.ts, src/export/export.ts, src/export/tar.ts, src/hook/hook.ts, src/hook/line.ts, src/howl/classes.ts, src/howl/git.ts, src/howl/project.ts, src/howl/trace-read.ts, src/howl/trace.ts, src/inbox/deliver.ts, src/inbox/down.ts, src/inbox/inbox.ts, src/keys/keyd.ts, src/ledger/errors.ts, src/ledger/fixed.ts, src/ledger/ledger.ts, src/ledger/lines.ts, src/ledger/names.ts, src/ledger/place.ts, src/ledger/schema.ts, src/ledger/time.ts, src/observe/github.ts, src/observe/local.ts, src/observe/observe.ts, src/observe/order.ts, src/observe/people.ts, src/observe/port.ts, src/observe/results.ts, src/read/acting.ts, src/read/agent.ts, src/read/assignee.ts, src/read/checks-text.ts, src/read/faulty.ts, src/read/filter-text.ts, src/read/filter.ts, src/read/line.ts, src/read/now.ts, src/read/observed.ts, src/read/order.ts, src/read/overview.ts, src/read/rounds.ts, src/read/show.ts, src/read/state.ts, src/read/trace-text.ts, src/read/wait.ts, src/read/watch.ts, src/read/words.ts, src/read/writing-text.ts, src/read/writing.ts, src/serve/kept.ts, src/serve/server.ts, test/missing-field.test.ts, test/verify-faults.test.ts, test/story.ts]
+existing_tests_changed: []
+questions: []
